@@ -1,0 +1,215 @@
+#pragma once
+
+#include <algorithm>
+#include <chrono>
+#include <string>
+#include <vector>
+
+#include "core.h"
+#include "fmt.h"
+
+namespace eo {
+namespace detail {
+
+enum class severity { note, warning };
+
+struct site {
+    char const* file;
+    int line;
+
+    static site here(char const* file = __builtin_FILE(), int line = __builtin_LINE()) {
+        return site{file, line};
+    }
+};
+
+inline std::string where_of(site place) { return fmt("{}:{}", place.file, place.line); }
+
+struct raised {
+    char const* code;
+    severity level;
+    site where;
+    std::string message;
+    std::string fix;
+    long long count;
+};
+
+struct allowance {
+    std::string code;
+    std::string reason;
+    site where;
+    long long count;
+};
+
+struct time_budget {
+    char const* code = nullptr;
+    char const* role = nullptr;
+    long long limit_ms = 0;
+    site where{nullptr, 0};
+    std::chrono::steady_clock::time_point started{};
+};
+
+inline std::size_t constexpr report_limit = 30;
+
+class diagnostics {
+public:
+    static diagnostics& shared() {
+        static diagnostics only;
+        epilogue() = &diagnostics::emit_from_hook;
+        return only;
+    }
+
+    void raise(char const* code, severity level, std::string message, std::string fix, site where) {
+        if (record(code, level, message, std::move(fix), where) && level == severity::warning && strict_mode())
+            finish(3, fmt("{}: {} {}: {}", where_of(where), "strict mode stops at", code, message));
+    }
+
+    void start_the_clock(char const* code, char const* role, long long limit_ms, site where) {
+        clock_ = time_budget{code, role, limit_ms, where, std::chrono::steady_clock::now()};
+    }
+
+    time_budget& clock() { return clock_; }
+
+    void allow_code(std::string code, std::string reason, site where) {
+        if (reason.empty()) library_error(fmt("{}: eo::allow(\"{}\") needs a reason", where_of(where), code));
+        allowed_.push_back({std::move(code), std::move(reason), where, 0});
+    }
+
+    void forget_code() {
+        silenced_.push_back(allowed_.back());
+        allowed_.pop_back();
+    }
+
+    bool anything() const { return !entries_.empty() || !silenced_.empty(); }
+
+    std::string local_block() {
+        std::string out;
+        for (raised const& one : ordered())
+            out += fmt("{}: {} {}: {}{}\n  {}\n", where_of(one.where), word(one.level), one.code, one.message,
+                       times(one.count), one.fix);
+        out += overflow();
+        for (allowance const& one : silenced_)
+            if (one.count > 0)
+                out += fmt("{}: silenced {}{}: {}\n", where_of(one.where), one.code, times(one.count), one.reason);
+        return out;
+    }
+
+    std::string judge_lines() {
+        std::string out;
+        for (raised const& one : ordered())
+            out += fmt("{} {} {} {}{}\n", word(one.level), one.code, where_of(one.where), one.message,
+                       times(one.count));
+        out += overflow();
+        return out;
+    }
+
+    std::string report_line() {
+        std::string out = "eo-report {\"version\":1,\"warnings\":[";
+        bool first = true;
+        for (raised const& one : entries_) {
+            out += fmt("{}{{\"code\":\"{}\",\"at\":\"{}\",\"count\":{}}}", first ? "" : ",", one.code,
+                       where_of(one.where), one.count);
+            first = false;
+        }
+        out += "]}\n";
+        return out;
+    }
+
+    void emit() {
+        if (emitted_) return;
+        look_at_the_clock();
+        if (!anything()) return;
+        emitted_ = true;
+        std::string const text = on_judge() ? judge_lines() + report_line() : local_block();
+        std::FILE* const target = on_judge() ? log_file() : stderr;
+        std::fwrite(text.data(), 1, text.size(), target);
+        std::fflush(target);
+    }
+
+    std::vector<raised> const& all() const { return entries_; }
+
+    void forget_everything() {
+        entries_.clear();
+        allowed_.clear();
+        silenced_.clear();
+        emitted_ = false;
+        clock_ = time_budget{};
+    }
+
+private:
+    static void emit_from_hook() { shared().emit(); }
+
+    bool record(char const* code, severity level, std::string const& message, std::string fix, site where) {
+        for (allowance& permitted : allowed_)
+            if (permitted.code == code) {
+                permitted.count++;
+                return false;
+            }
+        for (raised& already : entries_)
+            if (already.code == code && already.where.line == where.line) {
+                already.count++;
+                return false;
+            }
+        entries_.push_back({code, level, where, message, std::move(fix), 1});
+        return true;
+    }
+
+    void look_at_the_clock() {
+        if (clock_.code == nullptr) return;
+        long long const spent = static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                           std::chrono::steady_clock::now() - clock_.started)
+                                                           .count());
+        if (spent * 2 > clock_.limit_ms)
+            record(clock_.code, severity::warning,
+                   fmt("the {} ran for {} ms of its {} ms limit", clock_.role, spent, clock_.limit_ms),
+                   "a slower machine or a busy judge would not finish it in time", clock_.where);
+        clock_.code = nullptr;
+    }
+
+    static char const* word(severity level) { return level == severity::warning ? "warning" : "note"; }
+
+    static std::string times(long long count) { return count > 1 ? fmt(" ({} times)", count) : std::string(); }
+
+    std::vector<raised> ordered() const {
+        std::vector<raised> sorted = entries_;
+        std::stable_sort(sorted.begin(), sorted.end(),
+                         [](raised const& left, raised const& right) { return left.level > right.level; });
+        if (sorted.size() > report_limit) sorted.resize(report_limit);
+        return sorted;
+    }
+
+    std::string overflow() const {
+        if (entries_.size() <= report_limit) return {};
+        return fmt("... and {} more\n", entries_.size() - report_limit);
+    }
+
+    std::vector<raised> entries_;
+    std::vector<allowance> allowed_;
+    std::vector<allowance> silenced_;
+    bool emitted_ = false;
+    time_budget clock_;
+};
+
+inline void warn(char const* code, std::string message, std::string fix, site where) {
+    diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where);
+}
+
+inline void note(char const* code, std::string message, std::string fix, site where) {
+    diagnostics::shared().raise(code, severity::note, std::move(message), std::move(fix), where);
+}
+
+}  // namespace detail
+
+class allow {
+public:
+    allow(std::string code, std::string reason, char const* file = __builtin_FILE(),
+          int line = __builtin_LINE()) {
+        detail::diagnostics::shared().allow_code(std::move(code), std::move(reason), detail::site{file, line});
+    }
+
+    allow(allow const&) = delete;
+    allow& operator=(allow const&) = delete;
+
+    ~allow() { detail::diagnostics::shared().forget_code(); }
+};
+
+}  // namespace eo

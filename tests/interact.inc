@@ -1,0 +1,548 @@
+namespace {
+
+struct chat {
+    bool stopped = false;
+    int code = 0;
+    std::string text;
+    std::string said;
+    std::string log;
+    std::string summary;
+};
+
+struct swapped_descriptors {
+    int kept[3] = {-1, -1, -1};
+
+    swapped_descriptors() {
+        for (int at = 0; at < 3; at++) kept[at] = ::dup(at);
+    }
+
+    swapped_descriptors(swapped_descriptors const&) = delete;
+
+    ~swapped_descriptors() {
+        for (int at = 0; at < 3; at++) {
+            ::dup2(kept[at], at);
+            ::close(kept[at]);
+        }
+    }
+};
+
+std::string slurp(std::string const& path) {
+    std::FILE* const reading = std::fopen(path.c_str(), "rb");
+    if (reading == nullptr) return {};
+    std::string text;
+    char buffer[4096];
+    std::size_t got = 0;
+    while ((got = std::fread(buffer, 1, sizeof(buffer), reading)) > 0) text.append(buffer, got);
+    std::fclose(reading);
+    return text;
+}
+
+template <class Body>
+chat talk(std::string const& test, std::string const& from_solution, Body&& body, bool with_answer = false) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    ::setenv("TEST_COST", "40", 1);
+    scratch_file input(test);
+    scratch_file said(from_solution);
+    scratch_file answer(with_answer ? "7\n" : "");
+    std::string const out_path = temporary_path();
+    std::string const to_solution = temporary_path();
+    std::string const complaints = temporary_path();
+    chat result;
+    {
+        swapped_descriptors kept;
+        int const from = ::open(said.path.c_str(), O_RDONLY);
+        int const to = ::open(to_solution.c_str(), O_WRONLY | O_TRUNC);
+        int const grumbles = ::open(complaints.c_str(), O_WRONLY | O_TRUNC);
+        ::dup2(from, 0);
+        ::dup2(to, 1);
+        ::dup2(grumbles, 2);
+        std::string program = "interactor.cpp";
+        std::vector<char*> arguments{program.data(), const_cast<char*>(input.path.c_str()),
+                                     const_cast<char*>(out_path.c_str())};
+        if (with_answer) arguments.push_back(const_cast<char*>(answer.path.c_str()));
+        try {
+            eo::interactor it(static_cast<int>(arguments.size()), arguments.data());
+            body(it);
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+            result.code = reached.code;
+            result.text = reached.text;
+        }
+        std::fflush(stderr);
+        ::close(from);
+        ::close(to);
+        ::close(grumbles);
+    }
+    result.said = slurp(to_solution);
+    result.log = slurp(complaints);
+    result.summary = slurp(out_path);
+    ::unlink(out_path.c_str());
+    ::unlink(to_solution.c_str());
+    ::unlink(complaints.c_str());
+    forget_the_environment();
+    if (std::getenv("EOT_TRACE") != nullptr) std::fprintf(stderr, "   dialogue: %s\n", result.text.c_str());
+    return result;
+}
+
+}  // namespace
+
+EO_TEST(an_interactor_answers_and_accepts) {
+    chat const result = talk("100 42\n", "? 50\n? 25\n! 42\n", [](eo::interactor& it) {
+        int const n = it.input.read_int(1, 1000, "n");
+        int const secret = it.input.read_int(1, n, "secret");
+        eo::budget queries(it, 20, "queries");
+        it.send(n);
+        for (;;) {
+            std::string const command = it.contestant.read_choice({"?", "!"}, "command");
+            int const x = it.contestant.read_int(1, n, "x");
+            if (command == "!") {
+                if (x != secret) eo::wrong("answered {}, the number was {}", x, secret);
+                EO_CHECK_EQ(queries.used(), 2LL);
+                EO_CHECK_EQ(queries.left(), 18LL);
+                eo::accept("{} queries", queries.used());
+            }
+            queries.spend();
+            it.send(x < secret ? "<" : ">");
+        }
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_EQ(result.text, std::string("ok 2 queries"));
+    EO_CHECK_EQ(result.said, std::string("100\n>\n<\n"));
+    EO_CHECK_IN(result.summary, "eolymp-summary 1");
+    EO_CHECK_IN(result.summary, "fraction 1");
+    EO_CHECK_IN(result.summary, "message 2 queries");
+    EO_CHECK_IN(result.log, "ok 2 queries");
+    EO_CHECK_IN(result.log, "round trips");
+}
+
+EO_TEST(an_interactor_can_award_part_of_the_test) {
+    chat const half = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        it.value("quality", 12);
+        eo::score(0.5, "half of it");
+    });
+    EO_CHECK_EQ(half.code, 0);
+    EO_CHECK_IN(half.summary, "fraction 0.5");
+    EO_CHECK_IN(half.summary, "value quality 12");
+    EO_CHECK_IN(half.summary, "message half of it");
+    chat const absolute = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        EO_CHECK(it.cost() == 40);
+        eo::points(10, "ten points");
+    });
+    EO_CHECK_IN(absolute.summary, "fraction 0.25");
+}
+
+EO_TEST(an_interactor_refuses_what_the_solution_sends) {
+    chat const early = talk("100 42\n", "", [](eo::interactor& it) {
+        it.input.read_int(1, 1000, "n");
+        it.contestant.read_int(1, 100, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(early.code, 1);
+    EO_CHECK_EQ(early.text,
+                std::string("wrong answer: the solution, line 1, x: the solution ended the dialogue early"));
+    chat const outside = talk("100 42\n", "5000\n", [](eo::interactor& it) {
+        it.input.read_int(1, 1000, "n");
+        it.contestant.read_int(1, 100, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(outside.code, 1);
+    EO_CHECK_IN(outside.text, "wrong answer: the solution, line 1, x: 5000 is above 100");
+    chat const nonsense = talk("100 42\n", "maybe\n", [](eo::interactor& it) {
+        it.input.read_int(1, 1000, "n");
+        it.contestant.read_choice({"?", "!"}, "command");
+        eo::accept();
+    });
+    EO_CHECK_IN(nonsense.text, "\"maybe\" is not one of ?, !");
+}
+
+EO_TEST(an_interactor_ends_the_run_itself) {
+    chat const refused = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::wrong("that is not the answer");
+    });
+    EO_CHECK_EQ(refused.code, 1);
+    EO_CHECK_EQ(refused.text, std::string("wrong answer that is not the answer"));
+    EO_CHECK_EQ(refused.summary, std::string(""));
+    chat const broken = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        eo::jury_error("the test makes no sense");
+    });
+    EO_CHECK_EQ(broken.code, 3);
+    EO_CHECK_EQ(broken.text, std::string("jury error the test makes no sense"));
+    chat const nothing = talk("1\n", "5\n", [](eo::interactor& it) { it.input.read_int(1, 9, "n"); });
+    EO_CHECK_EQ(nothing.code, 3);
+    EO_CHECK_IN(nothing.text, "the interactor ended without a verdict");
+    EO_CHECK_IN(nothing.log, "the interactor ended without a verdict");
+    EO_CHECK_EQ(nothing.said, std::string(""));
+    chat const silent = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::wrong();
+    });
+    EO_CHECK_IN(checker_warnings(), "warning EO204: this wrong answer carries no message");
+    EO_CHECK_EQ(silent.code, 1);
+}
+
+EO_TEST(a_budget_is_spent_before_the_reply) {
+    chat const over = talk("100 42\n", "? 1\n? 2\n? 3\n", [](eo::interactor& it) {
+        it.input.read_int(1, 1000, "n");
+        eo::budget queries(it, 2, "queries");
+        for (;;) {
+            it.contestant.read_choice({"?", "!"}, "command");
+            it.contestant.read_int(1, 100, "x");
+            queries.spend();
+            it.send("<");
+        }
+    });
+    EO_CHECK_EQ(over.code, 1);
+    EO_CHECK_EQ(over.text, std::string("wrong answer more than 2 queries"));
+    EO_CHECK_EQ(over.said, std::string("<\n<\n"));
+    chat const bulk = talk("100 42\n", "? 1\n", [](eo::interactor& it) {
+        it.input.read_int(1, 1000, "n");
+        eo::budget queries(it, 10, "queries");
+        it.contestant.read_choice({"?", "!"}, "command");
+        it.contestant.read_int(1, 100, "x");
+        queries.spend(3);
+        EO_CHECK_EQ(queries.used(), 3LL);
+        eo::accept("{} spent", queries.used());
+    });
+    EO_CHECK_EQ(bulk.code, 0);
+}
+
+EO_TEST(a_last_word_before_the_verdict_reaches_the_solution) {
+    chat const told = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.send("guess");
+        it.contestant.read_int(1, 9, "x");
+        it.send("correct");
+        eo::accept();
+    });
+    EO_CHECK_EQ(told.code, 0);
+    EO_CHECK_EQ(told.said, std::string("guess\ncorrect\n"));
+
+    chat const refused = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        it.send("-1");
+        eo::wrong("five is not it");
+    });
+    EO_CHECK_EQ(refused.code, 1);
+    EO_CHECK_EQ(refused.said, std::string("-1\n"));
+}
+
+EO_TEST(a_budget_starts_over_for_each_round) {
+    chat const rounds = talk("3\n", "? 1\n? 2\n? 3\n? 4\n? 5\n? 6\n", [](eo::interactor& it) {
+        long long const hunts = it.input.read_int(1, 9, "hunts");
+        eo::budget queries(it, 2, "queries");
+        for (long long hunt = 0; hunt < hunts; hunt++) {
+            queries.restart();
+            EO_CHECK_EQ(queries.used(), 0LL);
+            EO_CHECK_EQ(queries.left(), 2LL);
+            for (long long at = 0; at < 2; at++) {
+                it.contestant.read_choice({"?"}, "command");
+                it.contestant.read_int(1, 9, "x");
+                queries.spend();
+                it.send("<");
+            }
+            EO_CHECK_EQ(queries.used(), 2LL);
+        }
+        eo::accept("{} hunts", hunts);
+    });
+    EO_CHECK_EQ(rounds.code, 0);
+    EO_CHECK_EQ(rounds.text, std::string("ok 3 hunts"));
+
+    chat const widened = talk("1\n", "? 1\n? 2\n? 3\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        eo::budget queries(it, 1, "queries");
+        EO_CHECK_EQ(queries.limit(), 1LL);
+        queries.spend();
+        queries.restart(3);
+        EO_CHECK_EQ(queries.limit(), 3LL);
+        EO_CHECK_EQ(queries.used(), 0LL);
+        for (long long at = 0; at < 3; at++) {
+            it.contestant.read_choice({"?"}, "command");
+            it.contestant.read_int(1, 9, "x");
+            queries.spend();
+        }
+        eo::accept("{} of {}", queries.used(), queries.limit());
+    });
+    EO_CHECK_EQ(widened.code, 0);
+    EO_CHECK_EQ(widened.text, std::string("ok 3 of 3"));
+
+    chat const beyond = talk("1\n", "? 1\n? 2\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        eo::budget queries(it, 5, "queries");
+        queries.restart(1);
+        for (;;) {
+            it.contestant.read_choice({"?"}, "command");
+            it.contestant.read_int(1, 9, "x");
+            queries.spend();
+        }
+    });
+    EO_CHECK_EQ(beyond.code, 1);
+    EO_CHECK_EQ(beyond.text, std::string("wrong answer more than 1 queries"));
+}
+
+EO_TEST(an_interactor_is_told_when_it_judges_nothing) {
+    chat const blind = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        eo::accept("looks fine");
+    });
+    EO_CHECK_EQ(blind.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO405: the interactor accepted without reading anything");
+    chat const unused = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        EO_CHECK(it.has_jury());
+        it.contestant.read_int(1, 9, "x");
+        eo::accept();
+    }, true);
+    EO_CHECK_EQ(unused.code, 0);
+    EO_CHECK_IN(checker_warnings(), "note EO406: the test has an answer file that the interactor never read");
+    chat const used = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        EO_CHECK_EQ(it.jury.read_int(1, 9, "a"), 7);
+        it.contestant.read_int(1, 9, "x");
+        eo::accept();
+    }, true);
+    EO_CHECK_EQ(used.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO406"));
+}
+
+EO_TEST(a_solution_that_stopped_talking_is_not_reported_as_talking) {
+    chat const tidy = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(tidy.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO404"));
+
+    chat const ended = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        EO_CHECK(it.contestant.at_eof());
+        eo::accept();
+    });
+    EO_CHECK_EQ(ended.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO404"));
+
+    chat const extra = talk("1\n", "5\n9\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(extra.code, 0);
+    EO_CHECK_IN(checker_warnings(), "note EO404: the solution was still sending");
+
+    chat const padded = talk("1\n", "5\n" + std::string(9000, ' ') + "9\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(padded.code, 0);
+    EO_CHECK_IN(checker_warnings(), "note EO404: the solution was still sending");
+}
+
+EO_TEST(a_budget_nobody_spends_is_reported) {
+    chat const idle = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        eo::budget queries(it, 10, "queries");
+        it.contestant.read_int(1, 9, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(idle.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO403: a budget was declared and never spent");
+    std::string asked;
+    for (long long at = 0; at < 10002; at++) asked += "1\n";
+    chat const counted = talk("1\n", asked, [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        eo::budget limited(it, 1000000, "queries");
+        for (long long at = 0; at < 10002; at++) {
+            it.contestant.read_int(1, 9, "x");
+            limited.spend();
+            it.send(at);
+        }
+        eo::accept();
+    });
+    EO_CHECK_EQ(counted.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO402"));
+    chat const unlimited = talk("1\n", asked, [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        for (long long at = 0; at < 10002; at++) {
+            it.contestant.read_int(1, 9, "x");
+            it.send(at);
+        }
+        eo::accept();
+    });
+    EO_CHECK_EQ(unlimited.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO402: 10001 round trips were answered with no eo::budget");
+}
+
+EO_TEST(the_random_stream_comes_from_the_test) {
+    chat const first = talk("12345\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 99999, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::accept("{} {}", it.rng().uniform(1, 1000000), it.rng().uniform(1, 1000000));
+    });
+    chat const again = talk("12345\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 99999, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::accept("{} {}", it.rng().uniform(1, 1000000), it.rng().uniform(1, 1000000));
+    });
+    chat const other = talk("54321\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 99999, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::accept("{} {}", it.rng().uniform(1, 1000000), it.rng().uniform(1, 1000000));
+    });
+    EO_CHECK_EQ(first.text, again.text);
+    EO_CHECK(first.text != other.text);
+}
+
+namespace {
+
+int draining_pipe = -1;
+
+void drain_the_pipe(int) {
+    char sink[4096];
+    ssize_t const got = ::read(draining_pipe, sink, sizeof(sink));
+    (void)got;
+}
+
+}  // namespace
+
+EO_TEST(a_solution_that_stops_reading_is_a_wrong_answer) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    scratch_file input("1\n");
+    scratch_file said("5\n");
+    std::string const out_path = temporary_path();
+    chat result;
+    {
+        swapped_descriptors kept;
+        int ends[2] = {-1, -1};
+        EO_CHECK_EQ(::pipe(ends), 0);
+        ::close(ends[0]);
+        int const from = ::open(said.path.c_str(), O_RDONLY);
+        int const quiet = ::open("/dev/null", O_WRONLY);
+        ::dup2(from, 0);
+        ::dup2(ends[1], 1);
+        ::dup2(quiet, 2);
+        std::string program = "interactor.cpp";
+        std::vector<char*> arguments{program.data(), const_cast<char*>(input.path.c_str()),
+                                     const_cast<char*>(out_path.c_str())};
+        try {
+            eo::interactor it(static_cast<int>(arguments.size()), arguments.data());
+            it.input.read_int(1, 9, "n");
+            it.send("are you there");
+            it.flush();
+            eo::accept("never reached");
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+            result.code = reached.code;
+            result.text = reached.text;
+        }
+        ::close(from);
+        ::close(quiet);
+        ::close(ends[1]);
+    }
+    ::unlink(out_path.c_str());
+    forget_the_environment();
+    EO_CHECK_EQ(result.code, 1);
+    EO_CHECK_EQ(result.text, std::string("wrong answer the solution stopped reading"));
+}
+
+EO_TEST(a_write_cut_short_by_a_signal_is_resumed) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    scratch_file input("1\n");
+    scratch_file said("5\n");
+    std::string const out_path = temporary_path();
+    bool finished = false;
+    {
+        swapped_descriptors kept;
+        int ends[2] = {-1, -1};
+        EO_CHECK_EQ(::pipe(ends), 0);
+        draining_pipe = ends[0];
+        struct sigaction wanted = {};
+        struct sigaction previous = {};
+        wanted.sa_handler = &drain_the_pipe;
+        sigemptyset(&wanted.sa_mask);
+        wanted.sa_flags = 0;
+        ::sigaction(SIGALRM, &wanted, &previous);
+        struct itimerval timer = {};
+        timer.it_value.tv_usec = 20000;
+        timer.it_interval.tv_usec = 20000;
+        ::setitimer(ITIMER_REAL, &timer, nullptr);
+        int const from = ::open(said.path.c_str(), O_RDONLY);
+        int const quiet = ::open("/dev/null", O_WRONLY);
+        ::dup2(from, 0);
+        ::dup2(ends[1], 1);
+        ::dup2(quiet, 2);
+        std::string program = "interactor.cpp";
+        std::vector<char*> arguments{program.data(), const_cast<char*>(input.path.c_str()),
+                                     const_cast<char*>(out_path.c_str())};
+        try {
+            eo::interactor it(static_cast<int>(arguments.size()), arguments.data());
+            it.input.read_int(1, 9, "n");
+            it.send(std::string(400000, 'x'));
+            it.flush();
+            finished = true;
+            eo::accept("sent it all");
+        } catch (eo::detail::stop const&) {
+        }
+        struct itimerval off = {};
+        ::setitimer(ITIMER_REAL, &off, nullptr);
+        ::sigaction(SIGALRM, &previous, nullptr);
+        ::close(from);
+        ::close(quiet);
+        ::close(ends[0]);
+        ::close(ends[1]);
+    }
+    ::unlink(out_path.c_str());
+    forget_the_environment();
+    EO_CHECK(finished);
+}
+
+EO_TEST(an_interactor_needs_its_files_and_only_one_role) {
+    forget_the_environment();
+    std::string program = "interactor.cpp";
+    std::vector<char*> alone{program.data()};
+    eot::outcome const bare = eot::run_until_stop([&] {
+        eo::interactor it(static_cast<int>(alone.size()), alone.data());
+        (void)it.cost();
+    });
+    EO_CHECK_IN(bare.text, "an interactor needs the test and a file for its summary");
+    scratch_file input("1\n");
+    std::string const out_path = temporary_path();
+    std::vector<char*> arguments{program.data(), const_cast<char*>(input.path.c_str()),
+                                 const_cast<char*>(out_path.c_str())};
+    eot::outcome const twice = eot::run_until_stop([&] {
+        eo::interactor first(static_cast<int>(arguments.size()), arguments.data());
+        eo::interactor second(static_cast<int>(arguments.size()), arguments.data());
+        (void)second.cost();
+        eo::accept();
+    });
+    EO_CHECK_IN(twice.text, "this program already has an interactor");
+    ::unlink(out_path.c_str());
+}
+
+EO_TEST(a_dialogue_the_pipe_cannot_carry_is_reported) {
+    std::string many;
+    for (long long at = 0; at < 100002; at++) many += "1\n";
+    chat const noted = talk("1\n", many, [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        for (long long at = 0; at < 100002; at++) {
+            it.contestant.read_int(1, 9, "x");
+            it.send(at);
+        }
+        eo::accept("{} round trips", it.round_trips());
+    });
+    EO_CHECK_EQ(noted.code, 0);
+    EO_CHECK_IN(checker_warnings(), "note EO401: this run made 100001 round trips");
+}
