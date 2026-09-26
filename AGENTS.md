@@ -62,6 +62,19 @@ diffs the copy against `origin/main`. **CI cannot run that test** — it has no 
 private agent repository, so there the test skips. Run `make pin` on a machine that has one;
 with `AGENT_REPO` set the test fails instead of skipping.
 
+## Releasing
+
+`EOLYMP_H_VERSION` in `src/core.h` is the only place a version is written. Change it, run
+`make`, and merging to `main` publishes the release: the `release` workflow reads the version,
+refuses to publish headers that are not what `src/` generates, and creates the tag `v<version>`
+with both headers attached. It does nothing when that tag already exists, so an ordinary merge
+is a no-op.
+
+A release is what the judge's C++ runtime pins to, so the version has to move in the same
+change as the behaviour. Semantic versioning, and the promise in
+[docs/README.md](docs/README.md#versions): nothing that changes a verdict changes within a
+major version.
+
 ## Looking a warning code up
 
 Every code has one self-contained row in [docs/warnings.md](docs/warnings.md):
