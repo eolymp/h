@@ -1,0 +1,7 @@
+*.gcda
+*.gcno
+*.gcov
+.DS_Store
+__pycache__/
+build/
+judge/judge

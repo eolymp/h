@@ -1,0 +1,15 @@
+{
+  "title": "a sound checker and unsound answers",
+  "type": "PROGRAM",
+  "timeLimit": 1000,
+  "memoryLimit": 268435456,
+  "checker": {"source": "checker.cpp", "files": ["../../../eolymp.h"]},
+  "solutions": [{"name": "right", "source": "solution.cpp", "type": "CORRECT"}],
+  "testsets": [
+    {"index": 1, "scoringMode": "EACH", "feedbackPolicy": "COMPLETE",
+     "tests": [
+       {"index": 1, "score": 50, "input": "01.in", "answer": "01.ans"},
+       {"index": 2, "score": 50, "input": "02.in", "answer": "02.ans"}
+     ]}
+  ]
+}

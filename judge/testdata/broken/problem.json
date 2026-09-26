@@ -1,0 +1,23 @@
+{
+  "title": "everything wrong at once",
+  "type": "PROGRAM",
+  "timeLimit": 1000,
+  "memoryLimit": 268435456,
+  "uniqueAnswer": true,
+  "checker": {"source": "checker.cpp", "files": ["../../../eolymp.h"]},
+  "validator": {"source": "validator.cpp", "files": ["../../../eolymp.h"]},
+  "scripts": {
+    "gen": {"source": "generator.cpp"},
+    "solution": {"source": "solution.cpp"}
+  },
+  "solutions": [{"name": "only", "source": "solution.cpp", "type": "CORRECT"}],
+  "testsets": [
+    {"index": 1, "scoringMode": "EACH", "feedbackPolicy": "ICPC", "dependencies": [1],
+     "tests": [
+       {"index": 1, "score": 20, "generator": {"script": "gen", "arguments": ["-n=3"]}, "answerGenerator": "solution"},
+       {"index": 2, "score": 20, "generator": {"script": "gen", "arguments": ["-n=3"]}, "answerGenerator": "solution"}
+     ]},
+    {"index": 2, "scoringMode": "WORST",
+     "tests": [{"index": 1, "score": 30, "generator": {"script": "gen", "arguments": ["-n=4"]}, "answerGenerator": "solution"}]}
+  ]
+}

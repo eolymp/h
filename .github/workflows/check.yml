@@ -1,0 +1,54 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: g++
+            gcov: gcov
+          - compiler: clang++
+            gcov: llvm-cov gcov
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y llvm
+        if: matrix.compiler == 'clang++'
+      - run: make check
+        env:
+          CXX: ${{ matrix.compiler }}
+          GCOV: ${{ matrix.gcov }}
+
+  musl:
+    runs-on: ubuntu-latest
+    container: alpine:3.20
+    steps:
+      - run: apk add --no-cache g++ make python3 git
+      - uses: actions/checkout@v4
+      - run: make check
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make check
+
+  judge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - run: make judge
+
+  mutants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make mutants

@@ -1,0 +1,186 @@
+{
+  "title": "tree degrees",
+  "type": "PROGRAM",
+  "timeLimit": 2000,
+  "memoryLimit": 268435456,
+  "uniqueAnswer": true,
+  "checker": {
+    "source": "checker.cpp",
+    "runtime": "cpp:20-gnu14",
+    "files": [
+      "../../../eolymp.h"
+    ]
+  },
+  "validator": {
+    "source": "validator.cpp",
+    "runtime": "cpp:20-gnu14",
+    "files": [
+      "../../../eolymp.h"
+    ]
+  },
+  "scripts": {
+    "gen": {
+      "source": "generator.cpp",
+      "runtime": "cpp:20-gnu14",
+      "files": [
+        "../../../eolymp.h",
+        "../../../eolymp-shapes.h"
+      ]
+    },
+    "solution": {
+      "source": "solution_full.cpp",
+      "runtime": "cpp:20-gnu14"
+    }
+  },
+  "solutions": [
+    {
+      "name": "full",
+      "source": "solution_full.cpp",
+      "type": "CORRECT"
+    },
+    {
+      "name": "leaves",
+      "source": "solution_leaves.cpp"
+    },
+    {
+      "name": "zeros",
+      "source": "solution_zeros.cpp"
+    }
+  ],
+  "testsets": [
+    {
+      "index": 1,
+      "scoringMode": "EACH",
+      "feedbackPolicy": "COMPLETE",
+      "tests": [
+        {
+          "index": 1,
+          "score": 3,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=6",
+              "-shape=path"
+            ]
+          },
+          "answerGenerator": "solution"
+        },
+        {
+          "index": 2,
+          "score": 3,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=8",
+              "-shape=star"
+            ]
+          },
+          "answerGenerator": "solution"
+        },
+        {
+          "index": 3,
+          "score": 3,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=10",
+              "-shape=random"
+            ]
+          },
+          "answerGenerator": "solution"
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "scoringMode": "EACH",
+      "feedbackPolicy": "COMPLETE",
+      "tests": [
+        {
+          "index": 1,
+          "score": 13,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=2000",
+              "-shape=random"
+            ]
+          },
+          "answerGenerator": "solution"
+        },
+        {
+          "index": 2,
+          "score": 13,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=2000",
+              "-shape=path"
+            ]
+          },
+          "answerGenerator": "solution"
+        },
+        {
+          "index": 3,
+          "score": 13,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=2000",
+              "-shape=star"
+            ]
+          },
+          "answerGenerator": "solution"
+        },
+        {
+          "index": 4,
+          "score": 13,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=2000",
+              "-shape=caterpillar"
+            ]
+          },
+          "answerGenerator": "solution"
+        },
+        {
+          "index": 5,
+          "score": 13,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=2000",
+              "-shape=binary"
+            ]
+          },
+          "answerGenerator": "solution"
+        },
+        {
+          "index": 6,
+          "score": 13,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=1999",
+              "-shape=dumbbell"
+            ]
+          },
+          "answerGenerator": "solution"
+        },
+        {
+          "index": 7,
+          "score": 13,
+          "generator": {
+            "script": "gen",
+            "arguments": [
+              "-n=2000",
+              "-shape=uniform"
+            ]
+          },
+          "answerGenerator": "solution"
+        }
+      ]
+    }
+  ]
+}

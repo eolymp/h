@@ -1,0 +1,31 @@
+#include "../eolymp.h"
+#include "../eolymp-shapes.h"
+
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+#include <csignal>
+#include <sys/time.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#include "harness.h"
+
+#include "core.inc"
+#include "fmt.inc"
+#include "parse.inc"
+#include "io.inc"
+#include "diag.inc"
+#include "validate.inc"
+#include "check.inc"
+#include "interact.inc"
+#include "phases.inc"
+#include "generate.inc"
+#include "control.inc"
+#include "shapes.inc"
+#include "boundaries.inc"
+
+int main() { return eot::main_of_tests(); }
