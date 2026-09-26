@@ -1,0 +1,42 @@
+name: release
+
+on:
+  push: { branches: [ main ] }
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version
+        id: read
+        run: |
+          version=$(sed -n 's/^#define EOLYMP_H_VERSION "\(.*\)"$/\1/p' src/core.h)
+          if [ -z "$version" ]; then
+            echo "src/core.h carries no EOLYMP_H_VERSION" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to publish headers that are not what src/ generates
+        run: python3 tools/amalgamate.py --check
+
+      - name: Release, unless this version already has one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.read.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION is already released; nothing to do."
+            exit 0
+          fi
+          gh release create "v$VERSION" \
+            --title "eolymp.h $VERSION" \
+            --generate-notes \
+            eolymp.h eolymp-shapes.h
+          echo "released v$VERSION"
