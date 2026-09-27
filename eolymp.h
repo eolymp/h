@@ -33,6 +33,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <new>
 #include <optional>
 #include <poll.h>
 #include <set>
@@ -1708,8 +1709,7 @@ public:
 
     [[nodiscard]] std::vector<long long> ints(long long count, long long low, long long high) {
         if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
-        std::vector<long long> values;
-        values.reserve(static_cast<std::size_t>(count));
+        std::vector<long long> values = room_for(count);
         for (long long at = 0; at < count; at++) values.push_back(uniform(low, high));
         return values;
     }
@@ -1717,14 +1717,13 @@ public:
     [[nodiscard]] std::vector<long long> distinct(long long count, long long low, long long high) {
         if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
         if (count == 0) return {};
+        std::vector<long long> values = room_for(count);
         if (low > high) detail::library_error(fmt("distinct({}, {}) has no values in it", low, high));
         std::uint64_t const span = reach(low, high);
         std::uint64_t const wanted = static_cast<std::uint64_t>(count);
         if (span != 0 && wanted > span)
             detail::library_error(fmt("cannot draw {} different values from {}..{}", count, low, high));
 
-        std::vector<long long> values;
-        values.reserve(static_cast<std::size_t>(count));
         if (span != 0 && span <= 4 * wanted) {
             for (std::uint64_t at = 0; at < span && values.size() < wanted; at++) {
                 std::uint64_t const left = span - at;
@@ -1759,18 +1758,23 @@ public:
 
     [[nodiscard]] std::vector<long long> partition(long long count, long long sum, long long least = 1) {
         if (count < 1) detail::library_error(fmt("a partition has at least one part, not {}", count));
-        if (least * count > sum)
+        long long need = 0;
+        bool const huge = __builtin_mul_overflow(least, count, &need);
+        if ((huge && least > 0) || (!huge && need > sum))
             detail::library_error(fmt("{} parts of at least {} cannot add up to {}", count, least, sum));
-        std::vector<long long> cuts = distinct(count - 1, 1, sum - least * count + count - 1);
+        long long high = 0;
+        if (huge || __builtin_sub_overflow(sum, need, &high) || __builtin_add_overflow(high, count - 1, &high))
+            detail::library_error(fmt("partition({}, {}, {}) spans more values than a long long holds", count, sum,
+                                      least));
+        std::vector<long long> cuts = distinct(count - 1, 1, high);
         std::sort(cuts.begin(), cuts.end());
-        std::vector<long long> parts;
-        parts.reserve(static_cast<std::size_t>(count));
+        std::vector<long long> parts = room_for(count);
         long long last = 0;
         for (long long const one : cuts) {
             parts.push_back(one - last + least - 1);
             last = one;
         }
-        parts.push_back(sum - least * count + count - 1 - last + least - 1 + 1);
+        parts.push_back(high - last + least);
         return parts;
     }
 
@@ -1787,6 +1791,18 @@ public:
     }
 
 private:
+    static std::vector<long long> room_for(long long count) {
+        std::vector<long long> values;
+        if (static_cast<unsigned long long>(count) > values.max_size())
+            detail::library_error(fmt("cannot draw {} values: no vector holds that many", count));
+        try {
+            values.reserve(static_cast<std::size_t>(count));
+        } catch (std::bad_alloc const&) {
+            detail::library_error(fmt("cannot draw {} values: there is not enough memory for them", count));
+        }
+        return values;
+    }
+
     static std::uint64_t reach(long long low, long long high) {
         return static_cast<std::uint64_t>(high) - static_cast<std::uint64_t>(low) + 1;
     }

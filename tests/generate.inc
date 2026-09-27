@@ -388,6 +388,27 @@ EO_TEST(the_random_stream_refuses_what_it_cannot_draw) {
     EO_CHECK_IN(empty.text, "pick needs something to pick from");
     eot::outcome const none = eot::run_until_stop([&] { (void)r.partition(0, 10); });
     EO_CHECK_IN(none.text, "a partition has at least one part, not 0");
+    long long const top = std::numeric_limits<long long>::max();
+    eot::outcome const halves = eot::run_until_stop([&] { (void)r.partition(3, top, top / 2); });
+    EO_CHECK_IN(halves.text, "3 parts of at least 4611686018427387903 cannot add up to 9223372036854775807");
+    eot::outcome const wide = eot::run_until_stop([&] { (void)r.partition(2, top, 0); });
+    EO_CHECK_IN(wide.text, "partition(2, 9223372036854775807, 0) spans more values than a long long holds");
+    eot::outcome const deep = eot::run_until_stop([&] { (void)r.partition(3, 10, -top); });
+    EO_CHECK_IN(deep.text, "spans more values than a long long holds");
+    eot::outcome const below = eot::run_until_stop([&] { (void)r.partition(2, top, -2); });
+    EO_CHECK_IN(below.text, "spans more values than a long long holds");
+    eot::outcome const endless = eot::run_until_stop([&] { (void)r.partition(top, top, 1); });
+    EO_CHECK_EQ(endless.text,
+                std::string("eolymp.h: cannot draw 9223372036854775806 values: no vector holds that many"));
+    if (!eot::sanitized()) {
+        eot::outcome const vast = eot::run_until_stop([&] { (void)r.partition(1LL << 56, top, 1); });
+        EO_CHECK_EQ(vast.text, std::string("eolymp.h: cannot draw 72057594037927935 values: there is not enough "
+                                           "memory for them"));
+    }
+    eot::outcome const many = eot::run_until_stop([&] { (void)r.ints(top, 1, 9); });
+    EO_CHECK_IN(many.text, "cannot draw 9223372036854775807 values: no vector holds that many");
+    std::vector<long long> const edge = r.partition(2, top, top / 2);
+    EO_CHECK(edge.size() == 2 && edge[0] >= top / 2 && edge[1] >= top / 2 && edge[0] == top - edge[1]);
     eot::outcome const tight = eot::run_until_stop([&] { (void)r.partition(5, 10, 3); });
     EO_CHECK_IN(tight.text, "5 parts of at least 3 cannot add up to 10");
     eot::outcome const negative = eot::run_until_stop([&] { (void)r.perm(-1); });
