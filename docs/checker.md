@@ -172,7 +172,8 @@ per element, which on 200,000 values is the difference between 2.4 MB and 39 MB.
 ### What counts as a number
 
 An integer is an optional `-` followed by digits, with no `+`, no leading zeros and no `-0`. Real numbers may carry an exponent, because many languages print
-small numbers that way. To take contestants as they come, or to refuse an exponent:
+small numbers that way, and may be a zero written with a minus, such as `-0.000000`, which
+`printf("%.6f", -1e-9)` prints; it reads as 0. To take contestants as they come, or to refuse an exponent:
 
 ```cpp
 c.output.numbers(eo::lenient);

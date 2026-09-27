@@ -840,6 +840,22 @@ EO_TEST(the_contestant_may_be_read_loosely_or_strictly) {
     EO_CHECK_IN(decimal.text, "expected a number, found \"1.5e2\"");
 }
 
+EO_TEST(a_contestant_may_print_negative_zero) {
+    eot::outcome const read = check_run("1\n", "-0.000000 -0 -1e-400\n", "0\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        EO_CHECK(c.output.read_real(-1.0, 1.0, "x") == 0);
+        EO_CHECK(c.output.read_real(-1.0, 1.0, "y") == 0);
+        EO_CHECK(c.output.read_real(-1.0, 1.0, "z") == 0);
+        c.jury.skip_rest("compared above");
+        eo::accept();
+    });
+    EO_CHECK_EQ(read.code, 0);
+    EO_CHECK_EQ(check_run("1\n", "-0.000000 -1e-400 -0\n", "0.000000 0 0.0\n", [](eo::checker& c) {
+                    c.reals(1e-6);
+                }).code,
+                0);
+}
+
 EO_TEST(a_lenient_read_takes_a_whole_token_and_parses_it) {
     eot::outcome const glued = check_run("1\n", "1-2\n", "1 -2\n", [](eo::checker& c) {
         c.input.read_int(1, 9, "n");

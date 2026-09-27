@@ -171,7 +171,7 @@ public:
     double fractional(double low, double high, stated bounds, int least_decimals, int most_decimals,
                       bool decimals_stated, value_name const& name, site where) {
         std::string const token = take_number(name, where, true, "a number");
-        real_read const parsed = parse_real(token, exponents_);
+        real_read const parsed = parse_real(token, exponents_, lenient_);
         if (parsed.problem != number_problem::none)
             refuse(name, fmt("expected a number, found \"{}\": {}", shorten(token), describe(parsed.problem)));
         if (name.absent())

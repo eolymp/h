@@ -171,6 +171,10 @@ EO_TEST(numbers_are_read_with_their_digits_declared) {
     EO_CHECK(!good.stopped);
     eot::outcome const digits = validate("0.5\n", [](eo::validator& v) { v.read_real(0.0, 1.0, 2, 2, "p"); });
     EO_CHECK_EQ(digits.text, std::string("line 1, p: 0.5 has 1 digits after the point, not 2..2"));
+    eot::outcome const negative_zero =
+        validate("-0.0\n", [](eo::validator& v) { v.read_real(-1.0, 1.0, 1, 1, "p"); });
+    EO_CHECK_EQ(negative_zero.text,
+                std::string("line 1, p: expected a number, found \"-0.0\": it is zero written with a minus"));
     eot::outcome const many = validate("0." + std::string(100, '5') + "\n", [](eo::validator& v) {
         v.read_real(0.0, 1.0, 2, 2, "p");
     });

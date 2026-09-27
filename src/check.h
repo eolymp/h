@@ -391,8 +391,8 @@ public:
             std::string const got = contestant_token(seen, longest);
             if (got.size() > longest)
                 fail_run(fmt("token {} is longer than {} characters: \"{}\"", seen, longest, detail::shorten(got)));
-            detail::real_read const wanted = detail::parse_real(want, true);
-            detail::real_read const found = detail::parse_real(got, true);
+            detail::real_read const wanted = detail::parse_real(want, true, true);
+            detail::real_read const found = detail::parse_real(got, true, true);
             if (wanted.problem == detail::number_problem::none &&
                 found.problem == detail::number_problem::none) {
                 if (!close_enough(wanted.value, found.value, epsilon))
