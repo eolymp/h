@@ -114,6 +114,29 @@ EO_TEST(every_separator_is_read_by_the_validator) {
     EO_CHECK_EQ(nul.text, std::string("line 1: expected \":\" after hour, found \"\\x00\""));
 }
 
+EO_TEST(a_warning_repeated_at_one_line_is_counted_once) {
+    eot::outcome const counted = validate("1 2 3\n", [](eo::validator& v) {
+        for (int at = 0; at < 3; at++) {
+            if (at > 0) v.read_space();
+            v.read_int(1, 200001, "x");
+        }
+        v.read_eoln();
+    });
+    EO_CHECK(!counted.stopped);
+    EO_CHECK_IN(warnings_of_last_run(),
+                "note EO106: the bounds 1..200001 are one away from a round number (3 times)");
+    eot::outcome const silenced = validate("1 2 3\n", [](eo::validator& v) {
+        eo::allow quiet("EO106", "the statement says 200001");
+        for (int at = 0; at < 3; at++) {
+            if (at > 0) v.read_space();
+            v.read_int(1, 200001, "x");
+        }
+        v.read_eoln();
+    });
+    EO_CHECK(!silenced.stopped);
+    EO_CHECK_IN(warnings_of_last_run(), "silenced EO106 (3 times): the statement says 200001");
+}
+
 EO_TEST(an_element_of_an_element_is_named_in_full) {
     eot::outcome const nested = validate("1 2 30\n", [](eo::validator& v) {
         v.read_ints(3, 1, 9, eo::element("m", 4));

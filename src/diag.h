@@ -65,6 +65,20 @@ public:
         return fresh;
     }
 
+    bool again(char const* code, site where) {
+        for (allowance& permitted : allowed_)
+            if (permitted.code == code) {
+                permitted.count++;
+                return true;
+            }
+        for (raised& already : entries_)
+            if (already.code == code && already.where.line == where.line) {
+                already.count++;
+                return true;
+            }
+        return false;
+    }
+
     void start_the_clock(char const* code, char const* role, long long limit_ms, site where) {
         clock_ = time_budget{code, role, limit_ms, where, std::chrono::steady_clock::now()};
     }

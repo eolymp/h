@@ -472,6 +472,20 @@ public:
         return fresh;
     }
 
+    bool again(char const* code, site where) {
+        for (allowance& permitted : allowed_)
+            if (permitted.code == code) {
+                permitted.count++;
+                return true;
+            }
+        for (raised& already : entries_)
+            if (already.code == code && already.where.line == where.line) {
+                already.count++;
+                return true;
+            }
+        return false;
+    }
+
     void start_the_clock(char const* code, char const* role, long long limit_ms, site where) {
         clock_ = time_budget{code, role, limit_ms, where, std::chrono::steady_clock::now()};
     }
@@ -1255,13 +1269,13 @@ public:
         real_read const parsed = parse_real(token, exponents_, lenient_);
         if (parsed.problem != number_problem::none)
             refuse(name, fmt("expected a number, found \"{}\": {}", shorten(token), describe(parsed.problem)));
-        if (name.absent())
+        if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
-        if (!decimals_stated && !lenient_)
+        if (!decimals_stated && !lenient_ && fresh("EO109", where))
             warn("EO109", "this number is read without a rule on its digits",
                  "say how many digits follow the point: read_real(low, high, least, most, name)", where);
-        if (bounds == stated::absent)
+        if (bounds == stated::absent && fresh(loose_code_, where))
             warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
         if (bounds == stated::yes) {
             if (parsed.value < low) refuse(name, fmt("{} is below {}", parsed.value, low));
@@ -1282,16 +1296,17 @@ public:
                      value_name const& name, site where) {
         long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
         std::string const token = take_word(name, where, "a token", cap);
-        if (name.absent())
+        if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
-        if (bounds == stated::absent)
-            warn(lenient_ ? loose_code_ : "EO108", "this token is read with no length and no charset",
-                 "give a length and the characters it may hold, or say eo::any", where);
-        else if (allowed == nullptr && bounds == stated::yes && !lenient_)
+        if (bounds == stated::absent) {
+            if (fresh(lenient_ ? loose_code_ : "EO108", where))
+                warn(lenient_ ? loose_code_ : "EO108", "this token is read with no length and no charset",
+                     "give a length and the characters it may hold, or say eo::any", where);
+        } else if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this token is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
-        if (token.size() > 1024 * 1024)
+        if (token.size() > 1024 * 1024 && fresh("EO111", where))
             note("EO111", fmt("a token of {} bytes was held in memory", token.size()),
                  "bound its length if the format allows", where);
         if (bounds == stated::yes) {
@@ -1330,7 +1345,7 @@ public:
             text.pop_back();
             seen--;
         }
-        if (allowed == nullptr && bounds == stated::yes && !lenient_)
+        if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this line is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
         long long const length = cap == 0 ? static_cast<long long>(text.size()) : seen;
@@ -1444,26 +1459,29 @@ public:
 
     void study(value_name const& name, long long low, long long high, stated bounds, long long type_low,
                long long type_high, char const* type_word, site where) {
-        if (name.absent())
+        if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
         if (bounds == stated::absent) {
-            warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
+            if (fresh(loose_code_, where))
+                warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
             return;
         }
         if (bounds != stated::yes) return;
-        if (low == type_low && high == type_high)
+        if (low == type_low && high == type_high && fresh("EO104", where))
             warn("EO104", fmt("the bounds are the whole range of {}", type_word),
                  "say eo::any if any value is allowed", where);
-        if (low < type_low || high > type_high)
+        if ((low < type_low || high > type_high) && fresh("EO105", where))
             warn("EO105", fmt("the bounds {}..{} do not fit {}", low, high, type_word), "read a wider type",
                  where);
-        if (nearly_round(high) || nearly_round(low))
+        if ((nearly_round(high) || nearly_round(low)) && fresh("EO106", where))
             note("EO106", fmt("the bounds {}..{} are one away from a round number", low, high),
                  "compare them with the statement", where);
     }
 
 private:
+    static bool fresh(char const* code, site where) { return !diagnostics::shared().again(code, where); }
+
     char const* verdict_word() const {
         if (whose_ == fault::wrong_answer) return "wrong answer: ";
         if (whose_ == fault::jury_error) return "jury error: ";
