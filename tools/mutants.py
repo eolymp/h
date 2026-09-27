@@ -5,9 +5,14 @@ This changes one operator or bound at a time and requires the suite to notice. A
 that survives is a line the tests execute without checking what it is for. The table is
 the set an outside review found surviving, plus what has been added since.
 """
+import concurrent.futures
+import os
 import pathlib
+import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 
 MUTANTS = [
     ("a sum limit that allows one more", "src/validate.h",
@@ -40,46 +45,53 @@ MUTANTS = [
 ]
 
 
-def run(root, command, seconds=None):
-    return subprocess.run(command, cwd=root, shell=True, capture_output=True, text=True,
-                          timeout=seconds)
+def run_a_copy(root, compiler, where=None, old=None, new=None):
+    with tempfile.TemporaryDirectory(prefix="eolymp-mutant-") as scratch:
+        copy = pathlib.Path(scratch)
+        for part in ("src", "tools", "tests"):
+            shutil.copytree(root / part, copy / part)
+        if where is not None:
+            (copy / where).write_text((root / where).read_text().replace(old, new))
+        subprocess.run([sys.executable, "tools/amalgamate.py"], cwd=copy, check=True,
+                       capture_output=True)
+        built = subprocess.run([*compiler, "-std=c++17", "-O1", "-DEOLYMP_TESTING", "-o", "mutant",
+                                "tests/all.cpp"], cwd=copy, capture_output=True)
+        if built.returncode != 0:
+            return "does not compile"
+        try:
+            ran = subprocess.run(["./mutant"], cwd=copy, capture_output=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            return "timed out"
+        return "passed" if ran.returncode == 0 else "failed"
+
+
+def attempt(root, mutant, compiler):
+    name, where, old, new = mutant
+    before = (root / where).read_text()
+    if before.count(old) != 1:
+        return name, f"its anchor appears {before.count(old)} times in {where}"
+    outcome = run_a_copy(root, compiler, where, old, new)
+    if outcome == "does not compile":
+        return name, "the mutant does not compile"
+    return name, "survived" if outcome == "passed" else None
 
 
 def main() -> int:
     root = pathlib.Path(__file__).resolve().parent.parent
-    compiler = "c++"
-    survivors = []
-    broken = []
-
-    for name, where, old, new in MUTANTS:
-        path = root / where
-        before = path.read_text()
-        if before.count(old) != 1:
-            broken.append(f"{name}: its anchor appears {before.count(old)} times in {where}")
-            continue
-        path.write_text(before.replace(old, new))
-        try:
-            run(root, "python3 tools/amalgamate.py")
-            built = run(root, f"{compiler} -std=c++17 -O1 -DEOLYMP_TESTING -o build/mutant tests/all.cpp")
-            if built.returncode != 0:
-                broken.append(f"{name}: the mutant does not compile")
-                continue
-            try:
-                if run(root, "./build/mutant", seconds=120).returncode == 0:
-                    survivors.append(name)
-            except subprocess.TimeoutExpired:
-                pass
-        finally:
-            path.write_text(before)
-
-    run(root, "python3 tools/amalgamate.py")
-
-    print(f"mutants: {len(MUTANTS) - len(survivors) - len(broken)} of {len(MUTANTS)} killed")
-    for one in survivors:
-        print(f"  survived: {one}")
-    for one in broken:
-        print(f"  {one}")
-    return 1 if survivors or broken else 0
+    compiler = shlex.split(os.environ.get("CXX", "c++"))
+    workers = int(os.environ.get("JOBS", os.cpu_count() or 1))
+    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+        control = pool.submit(run_a_copy, root, compiler)
+        outcomes = list(pool.map(lambda one: attempt(root, one, compiler), MUTANTS))
+    if control.result() != "passed":
+        print(f"mutants: the unchanged sources, copied and built the same way, {control.result()}; "
+              f"no mutant can be said to be killed")
+        return 1
+    failed = [(name, why) for name, why in outcomes if why]
+    print(f"mutants: {len(MUTANTS) - len(failed)} of {len(MUTANTS)} killed")
+    for name, why in failed:
+        print(f"  {name}: {why}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
