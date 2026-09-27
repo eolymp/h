@@ -132,7 +132,7 @@ inline std::string assemble(pattern const& told, void const* const* values, appe
                             std::size_t count) {
     std::string_view const pattern = told.text();
     std::string out;
-    out.reserve(pattern.size() + 16 * count);
+    if (pattern.size() + 8 * count > 15) out.reserve(pattern.size() + 8 * count);
     std::size_t used = 0;
     std::size_t slots = 0;
     char lone = '\0';
