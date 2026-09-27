@@ -1262,6 +1262,23 @@ public:
         return text;
     }
 
+    std::string line_up_to(std::size_t keep, bool& longer, value_name const& name) {
+        settle();
+        std::string text;
+        longer = false;
+        while (true) {
+            int const next = from_.peek();
+            if (next < 0 || next == '\n') break;
+            from_.take();
+            if (text.size() < keep) text.push_back(static_cast<char>(next));
+            else if (next != ' ' && next != '\t' && next != '\r') longer = true;
+        }
+        if (from_.peek() == '\n') from_.take();
+        was_read(name);
+        separated_ = true;
+        return text;
+    }
+
     void start_value(value_name const& name, site where, char const* expected) {
         settle();
         if (lenient_) skip_blanks(true);
@@ -2942,8 +2959,12 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} lines, the output has more", seen - 1));
             std::string want = jury.read_line(any, fmt("line {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} lines, the answer has more", seen - 1));
-            std::string got = output.read_line(any, fmt("line {}", seen));
+            bool longer = false;
+            std::string got = output.inside().line_up_to(want.size() + 1, longer, fmt("line {}", seen));
             while (!want.empty() && trailing_blank(want.back())) want.pop_back();
+            if (longer)
+                fail_run(fmt("line {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
             while (!got.empty() && trailing_blank(got.back())) got.pop_back();
             if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
                                           detail::shorten(want)));

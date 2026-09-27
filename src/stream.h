@@ -271,6 +271,23 @@ public:
         return text;
     }
 
+    std::string line_up_to(std::size_t keep, bool& longer, value_name const& name) {
+        settle();
+        std::string text;
+        longer = false;
+        while (true) {
+            int const next = from_.peek();
+            if (next < 0 || next == '\n') break;
+            from_.take();
+            if (text.size() < keep) text.push_back(static_cast<char>(next));
+            else if (next != ' ' && next != '\t' && next != '\r') longer = true;
+        }
+        if (from_.peek() == '\n') from_.take();
+        was_read(name);
+        separated_ = true;
+        return text;
+    }
+
     void start_value(value_name const& name, site where, char const* expected) {
         settle();
         if (lenient_) skip_blanks(true);

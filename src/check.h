@@ -417,8 +417,12 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} lines, the output has more", seen - 1));
             std::string want = jury.read_line(any, fmt("line {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} lines, the answer has more", seen - 1));
-            std::string got = output.read_line(any, fmt("line {}", seen));
+            bool longer = false;
+            std::string got = output.inside().line_up_to(want.size() + 1, longer, fmt("line {}", seen));
             while (!want.empty() && trailing_blank(want.back())) want.pop_back();
+            if (longer)
+                fail_run(fmt("line {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
             while (!got.empty() && trailing_blank(got.back())) got.pop_back();
             if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
                                           detail::shorten(want)));

@@ -638,6 +638,27 @@ EO_TEST(a_summary_with_a_field_twice_is_a_jury_error) {
     EO_CHECK_IN(value.text, "the summary has a second value called \"x\"");
 }
 
+EO_TEST(lines_and_yes_no_read_no_more_of_a_line_than_they_need) {
+    std::string const huge = "abc" + std::string(2 * 1024 * 1024, 'z') + "\n";
+    eot::outcome const lines = check_run("1\n", huge, "abc\n", [](eo::checker& c) { c.lines(); });
+    EO_CHECK_EQ(lines.text,
+                std::string("wrong answer line 1 is longer than the expected \"abc\"; it starts \"abcz\""));
+    std::string const padded = "one" + std::string(1000, ' ') + "\t\r\ntwo\n";
+    EO_CHECK_EQ(check_run("1\n", padded, "one\ntwo\n", [](eo::checker& c) { c.lines(); }).code, 0);
+    std::string const tail = "one" + std::string(50, ' ') + "x\n";
+    eot::outcome const late = check_run("1\n", tail, "one\n", [](eo::checker& c) { c.lines(); });
+    EO_CHECK_EQ(late.text,
+                std::string("wrong answer line 1 is longer than the expected \"one\"; it starts \"one \""));
+    eot::outcome const carriage = check_run("1\n", "a\rb\n", "a\n", [](eo::checker& c) { c.lines(); });
+    EO_CHECK_EQ(carriage.text,
+                std::string("wrong answer line 1 is longer than the expected \"a\"; it starts \"a\\x0d\""));
+    eot::outcome const verdict = check_run("1\n", "YES" + std::string(2 * 1024 * 1024, 'S') + "\n", "NO\n",
+                                           [](eo::checker& c) { c.yes_no([](eo::stream&) {}); });
+    EO_CHECK_EQ(verdict.code, 1);
+    EO_CHECK_IN(verdict.text, "is not one of YES, NO");
+    EO_CHECK(!eot::contains(checker_warnings(), "EO111"));
+}
+
 EO_TEST(yes_and_no_with_a_certificate) {
     auto const certificate = [](eo::answer_stream& a) {
         int const k = a.read_int(1, 9, "k");
