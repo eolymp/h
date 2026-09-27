@@ -413,17 +413,17 @@ public:
         }
     }
 
-    [[noreturn]] void from_interactor() {
-        from_interactor([](summary const& what) { return what.fraction(); });
+    [[noreturn]] void from_interactor(detail::site where = detail::site::here()) {
+        from_interactor([](summary const& what) { return what.fraction(); }, where);
     }
 
     template <class Mapping>
-    [[noreturn]] void from_interactor(Mapping mapping) {
+    [[noreturn]] void from_interactor(Mapping mapping, detail::site where = detail::site::here()) {
         stock_ = true;
         output.inside().blame(detail::fault::jury_error);
         if (jury.inside().read_anything() == false) jury.skip_rest("an interactive problem is graded by the interactor");
         summary const said = read_summary(output);
-        pass(detail::clamped(mapping(said)), said.message());
+        pass(detail::clamped(mapping(said), where), said.message());
     }
 
     template <class Certificate>

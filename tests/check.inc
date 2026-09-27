@@ -289,6 +289,71 @@ EO_TEST(a_score_outside_the_test_is_clamped_and_reported) {
     EO_CHECK_IN(checker_warnings(), "warning EO206");
 }
 
+EO_TEST(a_score_warning_points_at_the_line_that_scored) {
+    int line = 0;
+    check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        line = __LINE__ + 1;
+        eo::score(-0.5, "undershot");
+    });
+    EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO205", line).c_str());
+    check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        line = __LINE__ + 1;
+        eo::score(30, "a percentage");
+    });
+    EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO205: a score of 30", line).c_str());
+    check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        line = __LINE__ + 1;
+        eo::score(1 - 1e-12, eo::round_to(20), "a hair short");
+    });
+    EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO206", line).c_str());
+    check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        line = __LINE__ + 1;
+        eo::points(99, "too many");
+    });
+    EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO207", line).c_str());
+}
+
+EO_TEST(a_score_may_be_anything_that_converts_to_a_double) {
+    struct measured {
+        double share;
+        operator double() const { return share; }
+    };
+    eot::outcome const scored = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(measured{0.5}, "half");
+    });
+    EO_CHECK_EQ(scored.text, std::string("points 20 half"));
+    eot::outcome const rounded = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(measured{0.26}, eo::round_to(0), "rounded");
+    });
+    EO_CHECK_EQ(rounded.text, std::string("points 10 rounded"));
+    eot::outcome const paid = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::points(measured{7.5}, "a bonus");
+    });
+    EO_CHECK_EQ(paid.text, std::string("points 7.5 a bonus"));
+    int line = 0;
+    check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        line = __LINE__ + 1;
+        eo::score(measured{-0.5}, "undershot");
+    });
+    EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO205", line).c_str());
+}
+
 EO_TEST(a_test_worth_nothing_says_so) {
     eo::detail::diagnostics::shared().forget_everything();
     forget_the_environment();

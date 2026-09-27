@@ -67,10 +67,10 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void finish(double fraction, std::string_view pattern = "", Args const&... args) {
-        if (number_ >= count_) owner_->pass(detail::clamped(fraction), fmt(pattern, args...));
+    [[noreturn]] void finish(detail::scored fraction, std::string_view pattern = "", Args const&... args) {
+        if (number_ >= count_) owner_->pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
         finished_ = true;
-        share_ = detail::clamped(fraction);
+        share_ = detail::clamped(fraction.value, fraction.where);
         note_ = fmt(pattern, args...);
         hand_on(std::string());
     }
