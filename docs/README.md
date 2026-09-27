@@ -50,12 +50,15 @@ that is the page to look a code up in.
 - **It says what is wrong with the validator, not with the test.** Leave out a separator and
   the message names the value, the line of your source and the fix:
   `validator.cpp:18: line 2, k: a space follows n; read it with read_space()`.
-- **It reads in constant memory.** The reader holds a fixed buffer and a window of recent
-  bytes, whatever the input's size, so a 49 MB test costs the same as a small one. A token or
-  a line read with a stated maximum stops one character past it rather than holding the rest.
-- **It compiles quickly.** A minimal validator takes **0.76 s** and leaves a 61 KB object
-  (Apple clang 17, `-O2`, three runs, best of each). The judge compiles the validator again
-  for every run that needs it.
+- **It reads in constant memory.** The reader holds one fixed buffer, 1 MB, whatever the
+  input's size, so a 49 MB test costs the same as a small one. A token or a line read with a
+  stated maximum stops one character past it rather than holding the rest.
+- **It compiles in about two seconds.** The validator above builds with `-O2` in about 2 s and
+  leaves a 164 KB object, and the first checker in [checker.md](checker.md) is the same
+  (g++ 12 and clang 14 on Linux; the standard headers alone take 0.4 s). `make budget`
+  measures the compiler's CPU time for both on every run of the gate, against the standard
+  headers built in the same run, and fails when either takes more than 9 times as much. The judge compiles the
+  validator again for every run that needs it.
 - **It cannot collide with your code.** Everything is inside `namespace eo`, with no global
   names and no macros beyond the include guard and the version. `make check` builds the
   header after `<bits/stdc++.h>` with `using namespace std`, and beside globals named `OK`,
@@ -213,7 +216,7 @@ clang++, musl and macOS. Each part answers a question:
 | `mutants` | a changed operator or bound in either header makes the suite fail; run with `make mutants` |
 | `sanitize` | the suite and the end-to-end programs pass under ASan and UBSan; run with `make sanitize` |
 | `version` | a change to the headers raises `EOLYMP_H_VERSION`; CI runs `make version` on every pull request |
-| `budget` | what including the header costs a translation unit |
+| `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
 | `examples` | every example in `docs/` compiles |
 
 Set `CXX` and `CXXSTD` to choose a toolchain, and `GCOV` to the matching coverage tool:
