@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 root=$(cd "$(dirname "$0")/../.." && pwd)
-build=$root/build/e2e
+build=${E2E_BUILD:-$root/build/e2e}
 mkdir -p "$build"
 pids=
 build_one() {

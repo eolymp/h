@@ -209,6 +209,7 @@ clang++, musl and macOS. Each part answers a question:
 | `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals |
 | `codes` | every warning code the sources raise has a row in `docs/warnings.md` |
 | `mutants` | a changed operator or bound in either header makes the suite fail; run with `make mutants` |
+| `sanitize` | the suite and the end-to-end programs pass under ASan and UBSan; run with `make sanitize` |
 | `budget` | what including the header costs a translation unit |
 | `examples` | every example in `docs/` compiles |
 

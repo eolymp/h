@@ -27,10 +27,11 @@ directly in `eolymp.h` is lost and breaks the build.
 make check      # the C++ gate: 9 parts, what CI runs on four toolchains
 make judge      # gofmt, go vet and the eo-judge tests
 make mutants    # a changed operator or bound must make the suite fail
+make sanitize   # the suite and the end-to-end programs under ASan and UBSan
 ```
 
-CI runs all three: `make check` on g++, clang++, musl and macOS, and `make judge` and
-`make mutants` once each.
+CI runs all four: `make check` on g++, clang++, musl and macOS, and `make judge`,
+`make mutants` and `make sanitize` once each.
 
 Two parts fail for reasons worth knowing in advance:
 

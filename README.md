@@ -60,8 +60,9 @@ make check
 tests, every line of both headers covered, C++17, 20 and 23 under `-Wall -Wextra -Wshadow
 -Werror`, the judge's real exit codes from a compiled validator, builds in hostile
 surroundings, every example in these pages compiled, and every warning code the sources raise
-documented. CI also runs `make judge` for the `eo-judge` tests and `make mutants`, which
-requires the suite to notice a changed operator or bound.
+documented. CI also runs `make judge` for the `eo-judge` tests, `make mutants`, which
+requires the suite to notice a changed operator or bound, and `make sanitize`, which runs the
+suite and the end-to-end programs under ASan and UBSan.
 
 ## Where to read
 

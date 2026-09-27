@@ -4,7 +4,7 @@ WARNINGS := -Wall -Wextra -Wshadow -Werror
 SOURCES := $(wildcard src/*.h) $(wildcard src/shapes/*.h)
 TESTS := tests/all.cpp tests/harness.h $(wildcard tests/*.inc)
 
-.PHONY: all check amalgamate amalgamation-check test coverage e2e standards hostile budget examples codes mutants judge pin clean
+.PHONY: all check amalgamate amalgamation-check test coverage e2e standards hostile budget examples codes mutants sanitize judge pin clean
 
 all: eolymp.h eolymp-shapes.h
 
@@ -49,6 +49,16 @@ examples: eolymp.h eolymp-shapes.h
 
 codes:
 	python3 tools/codes.py
+
+SANITIZERS := -fsanitize=address,undefined -fno-sanitize-recover=all
+
+SANITIZED := ASAN_OPTIONS=exitcode=86:halt_on_error=1 UBSAN_OPTIONS=exitcode=86:halt_on_error=1
+
+sanitize: eolymp.h eolymp-shapes.h $(TESTS)
+	@mkdir -p build
+	$(CXX) -std=$(CXXSTD) -O1 -g $(WARNINGS) $(SANITIZERS) -DEOLYMP_TESTING -o build/tests-sanitized tests/all.cpp
+	$(SANITIZED) ./build/tests-sanitized
+	$(SANITIZED) E2E_BUILD="$(CURDIR)/build/e2e-sanitized" CXX="$(CXX) $(SANITIZERS)" sh tests/e2e/run.sh
 
 mutants: eolymp.h eolymp-shapes.h
 	@mkdir -p build
