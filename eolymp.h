@@ -1722,7 +1722,13 @@ private:
     reader* before_;
 };
 
+[[noreturn]] inline void refuse_a_score(std::string const& what) {
+    library_error(fmt("{} is not a number the judge can pay; look for zero divided by zero, or an infinity "
+                      "less an infinity, in the formula", what));
+}
+
 inline double clamped(double fraction) {
+    if (std::isnan(fraction)) refuse_a_score(fmt("a score of {}", fraction));
     if (fraction < 0 || fraction > 1) {
         warn("EO205", fmt("a score of {} was clamped into 0..1", fraction), "keep the formula inside the test",
              site::here());
@@ -1746,6 +1752,7 @@ inline std::string format_points(double value) {
 }
 
 inline double rounded(double value, int digits) {
+    if (digits > 15) return value;
     double scale = 1;
     for (int at = 0; at < digits; at++) scale *= 10;
     return std::round(value * scale) / scale;
@@ -1827,6 +1834,7 @@ template <class... Args>
 template <class... Args>
 [[noreturn]] inline void points(double paid, std::string_view pattern = "", Args const&... args) {
     detail::scorer& one = detail::judging();
+    if (std::isnan(paid)) detail::refuse_a_score(fmt("{} points", paid));
     if (paid > one.cost())
         detail::warn("EO207", fmt("{} points is more than the test's {}", paid, one.cost()),
                      "the judge clamps it", detail::site::here());
@@ -2814,6 +2822,7 @@ public:
     }
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
         if (fraction >= 1) deliver(0, "ok", message);
         double const paid = fraction * cost();
@@ -3067,6 +3076,7 @@ public:
 
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
         held_.set_fraction(fraction);
         held_.set_message(message);
@@ -3574,6 +3584,7 @@ public:
     void spent_a_budget() final { budget_spent_ = true; }
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
         held_.set_fraction(fraction);
         held_.set_message(message);

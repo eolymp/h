@@ -158,6 +158,15 @@ EO_TEST(every_channel_is_flushed_before_the_controller_waits_on_any) {
     EO_CHECK_IN(result.log, "2 instances, 1 round trips");
 }
 
+EO_TEST(a_controller_refuses_a_score_that_is_not_a_number) {
+    staged const result = run_control("1\n", {}, {}, 10, [](eo::controller& ctl) {
+        ctl.input.read_int(1, 9, "n");
+        ctl.pass(-std::nan(""), "degenerate");
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "a score of -nan is not a number the judge can pay");
+}
+
 EO_TEST(a_controller_can_award_part_of_the_test) {
     staged const result = run_control("3 1\n", {"ok"}, {"5\n"}, 10, [](eo::controller& ctl) {
         ctl.input.read_int(2, 100, "instances");

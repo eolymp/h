@@ -116,6 +116,17 @@ EO_TEST(an_interactor_answers_and_accepts) {
     EO_CHECK_IN(result.log, "round trips");
 }
 
+EO_TEST(an_interactor_refuses_a_score_that_is_not_a_number) {
+    chat const result = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        it.pass(std::nan(""), "degenerate");
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "a score of nan is not a number the judge can pay");
+    EO_CHECK_EQ(result.summary, std::string());
+}
+
 EO_TEST(an_interactor_can_award_part_of_the_test) {
     chat const half = talk("1\n", "5\n", [](eo::interactor& it) {
         it.input.read_int(1, 9, "n");

@@ -226,6 +226,7 @@ public:
     void spent_a_budget() final { budget_spent_ = true; }
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
         held_.set_fraction(fraction);
         held_.set_message(message);

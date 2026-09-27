@@ -211,8 +211,8 @@ eo::jury_error("the jury's path is not simple");
 testset configuration, and the checker never hard-codes 100.
 
 **Use `eo::ratio(a, b)`** for "a out of b": it is exact, so `eo::ratio(n, n)` is exactly 1 and
-a perfect answer is an accept. A fraction outside [0, 1] is clamped with warning EO205, and
-one within 10⁻⁹ of 1 gets EO206.
+a perfect answer is an accept. A fraction outside [0, 1], an infinity included, is clamped
+with warning EO205, one that is NaN is a jury error, and one within 10⁻⁹ of 1 gets EO206.
 
 **Rounding.** Some tasks round the score, and a documented full score can be unreachable
 without it:

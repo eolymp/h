@@ -451,6 +451,7 @@ public:
     }
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
         if (fraction >= 1) deliver(0, "ok", message);
         double const paid = fraction * cost();

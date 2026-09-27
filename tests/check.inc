@@ -178,6 +178,69 @@ EO_TEST(a_scored_zero_is_not_the_same_run_as_a_wrong_answer) {
     EO_CHECK_EQ(refused.text, std::string("wrong answer not an answer at all"));
 }
 
+EO_TEST(a_score_that_is_not_a_number_is_a_jury_error) {
+    for (double const value : {std::nan(""), -std::nan("")}) {
+        eot::outcome const scored = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+            c.input.read_int(1, 9, "n");
+            c.output.read_int(1, 9, "a");
+            eo::score(value, "degenerate");
+        });
+        EO_CHECK_EQ(scored.code, 3);
+        EO_CHECK_IN(scored.text, "eolymp.h: a score of ");
+        EO_CHECK_IN(scored.text, "is not a number the judge can pay");
+        eot::outcome const paid = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+            c.input.read_int(1, 9, "n");
+            c.output.read_int(1, 9, "a");
+            eo::points(value, "degenerate");
+        });
+        EO_CHECK_EQ(paid.code, 3);
+        EO_CHECK_IN(paid.text, " points is not a number the judge can pay");
+        eot::outcome const direct = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+            c.input.read_int(1, 9, "n");
+            c.output.read_int(1, 9, "a");
+            c.pass(value, "degenerate");
+        });
+        EO_CHECK_EQ(direct.code, 3);
+        EO_CHECK_IN(direct.text, "is not a number the judge can pay");
+    }
+}
+
+EO_TEST(an_infinite_score_is_clamped_like_any_score_outside_the_test) {
+    double const infinity = std::numeric_limits<double>::infinity();
+    eot::outcome const beaten = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(infinity, "the jury's cost over a cost of 0");
+    });
+    EO_CHECK_EQ(beaten.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO205: a score of inf was clamped into 0..1");
+    eot::outcome const below = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(-infinity, "far below");
+    });
+    EO_CHECK_EQ(below.code, 7);
+    EO_CHECK_EQ(below.text, std::string("points 0 far below"));
+    EO_CHECK_IN(checker_warnings(), "warning EO205: a score of -inf was clamped into 0..1");
+    eot::outcome const paid = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::points(infinity, "endless");
+    });
+    EO_CHECK_EQ(paid.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO207: inf points is more than the test's 40");
+}
+
+EO_TEST(rounding_to_more_digits_than_a_double_holds_changes_nothing) {
+    eot::outcome const result = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(0.5, eo::round_to(400), "half");
+    });
+    EO_CHECK_EQ(result.code, 7);
+    EO_CHECK_EQ(result.text, std::string("points 20 half"));
+}
+
 EO_TEST(a_score_outside_the_test_is_clamped_and_reported) {
     eot::outcome const above = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
         c.input.read_int(1, 9, "n");
