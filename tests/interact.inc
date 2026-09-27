@@ -184,6 +184,27 @@ EO_TEST(an_interactor_can_award_part_of_the_test) {
     EO_CHECK_IN(absolute.summary, "fraction 0.25");
 }
 
+EO_TEST(a_summary_carries_only_numbers_the_checker_reads_back) {
+    chat const zero = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        it.value("loss", -0.0);
+        eo::score(-0.0, "nothing");
+    });
+    EO_CHECK_EQ(zero.summary, std::string("eolymp-summary 1\nfraction 0\nvalue loss 0\nmessage nothing\n"));
+    for (double const value : {std::numeric_limits<double>::infinity(), std::nan("")}) {
+        chat const odd = talk("1\n", "5\n", [&](eo::interactor& it) {
+            it.input.read_int(1, 9, "n");
+            it.contestant.read_int(1, 9, "x");
+            it.value("ratio", value);
+            eo::accept();
+        });
+        EO_CHECK_EQ(odd.code, 3);
+        EO_CHECK_IN(odd.text, "eolymp.h: the value \"ratio\" is ");
+        EO_CHECK_IN(odd.text, "which a summary cannot carry");
+    }
+}
+
 EO_TEST(an_interactor_refuses_what_the_solution_sends) {
     chat const early = talk("100 42\n", "", [](eo::interactor& it) {
         it.input.read_int(1, 1000, "n");
