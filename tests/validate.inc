@@ -114,6 +114,23 @@ EO_TEST(every_separator_is_read_by_the_validator) {
     EO_CHECK_EQ(nul.text, std::string("line 1: expected \":\" after hour, found \"\\x00\""));
 }
 
+EO_TEST(an_element_of_an_element_is_named_in_full) {
+    eot::outcome const nested = validate("1 2 30\n", [](eo::validator& v) {
+        v.read_ints(3, 1, 9, eo::element("m", 4));
+    });
+    EO_CHECK_EQ(nested.text, std::string("line 1, m[4][3]: 30 is above 9"));
+    eot::outcome const glued = validate("1 2\n", [](eo::validator& v) {
+        v.read_int(1, 9, eo::element("a", 7));
+        v.read_int(1, 9, "b");
+    });
+    EO_CHECK_IN(glued.text, "line 1, b: a space follows a[7]; read it with read_space()");
+    eot::outcome const empty = validate("1 2\n", [](eo::validator& v) {
+        v.read_int(1, 9, "");
+        v.read_int(1, 9, "b");
+    });
+    EO_CHECK_EQ(empty.text, std::string("line 1, b: expected an integer, found a space"));
+}
+
 EO_TEST(a_separator_left_out_of_the_validator_blames_the_validator) {
     eot::outcome const space = validate("5 7\n", [](eo::validator& v) {
         v.read_int(1, 9, "n");

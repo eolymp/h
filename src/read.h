@@ -59,21 +59,24 @@ public:
 
     bool known() const { return state_ == stated::yes; }
     bool absent() const { return state_ == stated::absent; }
-    std::string const& text() const { return text_; }
+    std::string text() const { return indexed_ ? fmt("{}[{}]", text_, index_) : text_; }
+    std::string const& key() const { return text_; }
+    bool indexed() const { return indexed_; }
+    long long index() const { return index_; }
 
     value_name at(long long index) const {
         if (!known()) return *this;
-        value_name made(fmt("{}[{}]", text_, index));
-        made.key_ = text_;
+        value_name made(indexed_ ? text() : text_);
+        made.indexed_ = true;
+        made.index_ = index;
         return made;
     }
 
-    std::string const& key() const { return key_.empty() ? text_ : key_; }
-
 private:
     std::string text_;
-    std::string key_;
     stated state_;
+    bool indexed_ = false;
+    long long index_ = 0;
 };
 
 inline bool is_round(long long value) {

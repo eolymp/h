@@ -77,7 +77,7 @@ public:
 
     long long line() const { return from_.line(); }
     bool carriage_returns() const { return from_.carriage_returns(); }
-    std::string const& last_value() const { return last_value_; }
+    std::string last_value() const { return last_indexed_ ? fmt("{}[{}]", last_value_, last_index_) : last_value_; }
     bool separated() const { return separated_; }
     void mark_separated() { separated_ = true; }
     std::map<std::string, seen_bounds> const& bounds() const { return bounds_; }
@@ -296,7 +296,7 @@ public:
         int const here = from_.peek();
         if (here >= 0 && !is_blank(here)) return;
         if (here < 0 && !end_text_.empty()) refuse(name, end_text_);
-        if (here >= 0 && !last_value_.empty() && !separated_) missing_separator(name, where, here);
+        if (here >= 0 && (last_indexed_ || !last_value_.empty()) && !separated_) missing_separator(name, where, here);
         refuse(name, fmt("expected {}, found {}", expected, name_of(here)));
     }
 
@@ -304,7 +304,7 @@ public:
         char const* const call = found == '\n' ? "read_eoln()" : "read_space()";
         std::string message = fmt("{}: {}line {}", where_of(where), case_prefix(), from_.line());
         if (name.known()) message += fmt(", {}", name.text());
-        finish(3, message + fmt(": {} follows {}; read it with {}", name_of(found), last_value_, call));
+        finish(3, message + fmt(": {} follows {}; read it with {}", name_of(found), last_value(), call));
     }
 
     static long long constexpr longest_number = 4096;
@@ -406,7 +406,10 @@ private:
     }
 
     void was_read(value_name const& name) {
-        last_value_ = name.known() ? name.text() : std::string("the value before");
+        if (name.known()) last_value_ = name.key();
+        else last_value_ = "the value before";
+        last_indexed_ = name.known() && name.indexed();
+        last_index_ = name.index();
         separated_ = false;
         read_anything_ = true;
     }
@@ -470,6 +473,8 @@ private:
     bool lenient_ = false;
     char const* loose_code_ = "EO102";
     std::string last_value_;
+    bool last_indexed_ = false;
+    long long last_index_ = 0;
     std::map<std::string, seen_bounds> bounds_;
     bool separated_ = true;
     bool read_anything_ = false;
