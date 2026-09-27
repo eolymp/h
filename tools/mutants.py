@@ -17,6 +17,9 @@ import tempfile
 MUTANTS = [
     ("a sum limit that allows one more", "src/validate.h",
      "if (total_ > limit_)", "if (total_ > limit_ + 1)"),
+    ("a test whose earlier write failed passed as written", "src/generate.h",
+     "        if (std::ferror(stdout))\n            detail::finish(3, \"the test could not be written: an",
+     "        if (false)\n            detail::finish(3, \"the test could not be written: an"),
     ("negative points let through down to -1", "src/role.h",
      "    if (paid < 0) {", "    if (paid < -1) {"),
     ("a token one character too long", "src/stream.h",

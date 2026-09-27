@@ -224,6 +224,18 @@ else
            failures=$((failures + 1)) ;;
     esac
 fi
+if [ ! -w /dev/full ]; then
+    echo "e2e: a generator writing to a full disk skipped, there is no /dev/full"
+else
+    "$build/generator" -n=20 -max=1000 > /dev/full 2>"$build/generator_full.log" && code=0 || code=$?
+    case "$code $(cat "$build/generator_full.log")" in
+        "3 the test could not be written: No space left on device"* | \
+        "3 the test could not be written: an earlier write to stdout failed"*)
+            echo "e2e: a generator whose test cannot be written fails" ;;
+        *) echo "e2e: a generator writing to a full disk exited $code: $(cat "$build/generator_full.log")" >&2
+           failures=$((failures + 1)) ;;
+    esac
+fi
 
 for kind in random path star caterpillar; do
     "$build/shaper" -n=400 "-shape=$kind" -maxw=1000 > "$build/shaped_$kind.txt" 2>/dev/null

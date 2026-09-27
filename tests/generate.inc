@@ -49,6 +49,73 @@ made generate(std::vector<char const*> given, Body&& body) {
 
 }  // namespace
 
+EO_TEST(a_generator_that_cannot_write_its_test_fails) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    std::string const log_path = temporary_path();
+    made result;
+    {
+        swapped_descriptors kept;
+        int const grumbles = ::open(log_path.c_str(), O_WRONLY | O_TRUNC);
+        ::dup2(grumbles, 2);
+        ::close(1);
+        std::string program = "gen.cpp";
+        std::vector<char*> arguments{program.data()};
+        try {
+            eo::generator g(static_cast<int>(arguments.size()), arguments.data());
+            g.out.line(std::string(100, 'x'));
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+            result.code = reached.code;
+            result.text = reached.text;
+        }
+        std::clearerr(stdout);
+        std::fflush(stderr);
+        ::close(grumbles);
+    }
+    result.log = slurp(log_path);
+    ::unlink(log_path.c_str());
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "the test could not be written: ");
+    EO_CHECK_IN(result.log, "the test could not be written: ");
+}
+
+EO_TEST(a_generator_whose_earlier_write_failed_fails_too) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    std::string const test_path = temporary_path();
+    std::string const log_path = temporary_path();
+    made result;
+    {
+        swapped_descriptors kept;
+        int const to = ::open(test_path.c_str(), O_WRONLY | O_TRUNC);
+        int const grumbles = ::open(log_path.c_str(), O_WRONLY | O_TRUNC);
+        ::dup2(grumbles, 2);
+        std::string program = "gen.cpp";
+        std::vector<char*> arguments{program.data()};
+        try {
+            eo::generator g(static_cast<int>(arguments.size()), arguments.data());
+            ::close(1);
+            std::fputs("lost", stdout);
+            EO_CHECK(std::fflush(stdout) != 0);
+            ::dup2(to, 1);
+            g.out.line(1);
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+            result.code = reached.code;
+            result.text = reached.text;
+        }
+        std::clearerr(stdout);
+        std::fflush(stderr);
+        ::close(to);
+        ::close(grumbles);
+    }
+    ::unlink(test_path.c_str());
+    ::unlink(log_path.c_str());
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_EQ(result.text, std::string("the test could not be written: an earlier write to stdout failed"));
+}
+
 EO_TEST(a_generator_writes_a_test_from_its_options) {
     made const result = generate({"-n=5", "-max=9"}, [](eo::generator& g) {
         int const n = g.option<int>("n", 1, 200000);

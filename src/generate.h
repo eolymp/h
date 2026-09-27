@@ -6,8 +6,10 @@
 #include <string>
 #include <vector>
 
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 
 #include <unistd.h>
 
@@ -279,7 +281,11 @@ private:
         if (written_ > 64ll * 1024 * 1024)
             detail::warn("EO502", fmt("this test is {} bytes", written_),
                          "storage and judging time", where_of_run_);
-        std::fflush(stdout);
+        int const flushed = std::fflush(stdout);
+        int const reason = errno;
+        if (flushed != 0) detail::finish(3, fmt("the test could not be written: {}", std::strerror(reason)));
+        if (std::ferror(stdout))
+            detail::finish(3, "the test could not be written: an earlier write to stdout failed");
         long long const ended = ::lseek(1, 0, SEEK_CUR);
         if (!describing_ && started_ >= 0 && ended >= 0 && ended - started_ != written_)
             detail::warn("EO503", fmt("{} bytes reached stdout without going through g.out",
