@@ -115,8 +115,8 @@ public:
 
     eo::rng& rng() {
         if (!seeded_) {
-            std::string const bytes = kept_test_.empty() ? whole_input() : kept_test_;
-            dice_ = eo::rng(detail::seed_of(bytes));
+            dice_ = eo::rng(kept_test_.empty() ? detail::seed_of_file(paths_[0].c_str())
+                                               : detail::seed_of(kept_test_));
             seeded_ = true;
         }
         return dice_;

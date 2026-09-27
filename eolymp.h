@@ -1950,12 +1950,23 @@ private:
 
 namespace detail {
 
+inline std::uint64_t constexpr seed_start = 0xcbf29ce484222325ull;
+
+inline std::uint64_t seed_step(std::uint64_t mixed, unsigned char one) {
+    return (mixed ^ static_cast<std::uint64_t>(one)) * 0x100000001b3ull;
+}
+
 inline std::uint64_t seed_of(std::string const& bytes) {
-    std::uint64_t mixed = 0xcbf29ce484222325ull;
-    for (char const one : bytes) {
-        mixed ^= static_cast<std::uint64_t>(static_cast<unsigned char>(one));
-        mixed *= 0x100000001b3ull;
-    }
+    std::uint64_t mixed = seed_start;
+    for (char const one : bytes) mixed = seed_step(mixed, static_cast<unsigned char>(one));
+    return mixed;
+}
+
+inline std::uint64_t seed_of_file(char const* path) {
+    source reading = source::over_file(path, true);
+    std::uint64_t mixed = seed_start;
+    for (int one = reading.take(); one >= 0; one = reading.take())
+        mixed = seed_step(mixed, static_cast<unsigned char>(one));
     return mixed;
 }
 
@@ -3537,8 +3548,8 @@ public:
 
     eo::rng& rng() {
         if (!seeded_) {
-            std::string const bytes = kept_test_.empty() ? whole_input() : kept_test_;
-            dice_ = eo::rng(detail::seed_of(bytes));
+            dice_ = eo::rng(kept_test_.empty() ? detail::seed_of_file(paths_[0].c_str())
+                                               : detail::seed_of(kept_test_));
             seeded_ = true;
         }
         return dice_;
@@ -4070,11 +4081,7 @@ public:
 
     eo::rng& rng() {
         if (!seeded_) {
-            detail::source reading = detail::source::over_file(paths_[0].c_str(), true);
-            std::string bytes;
-            for (int one = reading.take(); one >= 0; one = reading.take())
-                bytes.push_back(static_cast<char>(one));
-            dice_ = eo::rng(detail::seed_of(bytes));
+            dice_ = eo::rng(detail::seed_of_file(paths_[0].c_str()));
             seeded_ = true;
         }
         return dice_;

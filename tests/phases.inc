@@ -59,6 +59,26 @@ EO_TEST(a_later_phase_reads_the_test_and_what_was_handed_on) {
     EO_CHECK_IN(result.summary, "fraction 1");
 }
 
+EO_TEST(every_phase_draws_from_the_same_seed_the_test_gives) {
+    long long const expected = eo::rng(eo::detail::seed_of("7\n")).uniform(1, 1000000000);
+    long long first = 0;
+    long long later = 0;
+    talk("7\n", "", [&](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        first = it.rng().uniform(1, 1000000000);
+        it.input.read_long(0, 99, "x");
+        ph.handoff([](eo::writer& w) { w.line("rest"); });
+    });
+    talk(handoff_for(2, 2, "7\n", "rest\n"), "", [&](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        later = it.rng().uniform(1, 1000000000);
+        it.input.read_long(0, 99, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(first, expected);
+    EO_CHECK_EQ(later, expected);
+}
+
 EO_TEST(a_partial_score_from_an_early_phase_is_carried_on) {
     chat const first = talk("7\n", "0101\n", [](eo::interactor& it) {
         eo::phases ph(it, 2);

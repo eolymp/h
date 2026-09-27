@@ -10,6 +10,7 @@
 
 #include "core.h"
 #include "fmt.h"
+#include "io.h"
 #include "read.h"
 
 namespace eo {
@@ -189,12 +190,23 @@ private:
 
 namespace detail {
 
+inline std::uint64_t constexpr seed_start = 0xcbf29ce484222325ull;
+
+inline std::uint64_t seed_step(std::uint64_t mixed, unsigned char one) {
+    return (mixed ^ static_cast<std::uint64_t>(one)) * 0x100000001b3ull;
+}
+
 inline std::uint64_t seed_of(std::string const& bytes) {
-    std::uint64_t mixed = 0xcbf29ce484222325ull;
-    for (char const one : bytes) {
-        mixed ^= static_cast<std::uint64_t>(static_cast<unsigned char>(one));
-        mixed *= 0x100000001b3ull;
-    }
+    std::uint64_t mixed = seed_start;
+    for (char const one : bytes) mixed = seed_step(mixed, static_cast<unsigned char>(one));
+    return mixed;
+}
+
+inline std::uint64_t seed_of_file(char const* path) {
+    source reading = source::over_file(path, true);
+    std::uint64_t mixed = seed_start;
+    for (int one = reading.take(); one >= 0; one = reading.take())
+        mixed = seed_step(mixed, static_cast<unsigned char>(one));
     return mixed;
 }
 

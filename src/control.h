@@ -207,11 +207,7 @@ public:
 
     eo::rng& rng() {
         if (!seeded_) {
-            detail::source reading = detail::source::over_file(paths_[0].c_str(), true);
-            std::string bytes;
-            for (int one = reading.take(); one >= 0; one = reading.take())
-                bytes.push_back(static_cast<char>(one));
-            dice_ = eo::rng(detail::seed_of(bytes));
+            dice_ = eo::rng(detail::seed_of_file(paths_[0].c_str()));
             seeded_ = true;
         }
         return dice_;
