@@ -10,6 +10,16 @@ struct staged {
     std::string summary;
 };
 
+int& deaf_reader() {
+    static int descriptor = -1;
+    return descriptor;
+}
+
+void stop_listening() {
+    if (deaf_reader() >= 0) ::close(deaf_reader());
+    deaf_reader() = -1;
+}
+
 template <class Body>
 staged run_control(std::string const& test, std::vector<std::string> const& replies,
                    std::vector<std::string> const& heard, long long limit, Body&& body,
@@ -31,6 +41,11 @@ staged run_control(std::string const& test, std::vector<std::string> const& repl
             continue;
         }
         towards.push_back(temporary_path());
+        if (replies[at] == "DEAF") {
+            ::unlink(towards.back().c_str());
+            EO_CHECK_EQ(::mkfifo(towards.back().c_str(), 0600), 0);
+            deaf_reader() = ::open(towards.back().c_str(), O_RDONLY | O_NONBLOCK);
+        }
         std::string const back = temporary_path();
         three_files::put(back, at < heard.size() ? heard[at] : std::string());
         towards.push_back(back);
@@ -63,7 +78,11 @@ staged run_control(std::string const& test, std::vector<std::string> const& repl
     result.asked = slurp(requests);
     result.log = slurp(complaints);
     result.summary = slurp(out_path);
-    for (std::size_t at = 0; at + 1 < towards.size(); at += 2) result.said += slurp(towards[at]);
+    stop_listening();
+    for (std::size_t at = 0; at + 1 < towards.size(); at += 2) {
+        struct stat seen {};
+        if (::stat(towards[at].c_str(), &seen) == 0 && S_ISREG(seen.st_mode)) result.said += slurp(towards[at]);
+    }
     for (std::string const& one : towards) ::unlink(one.c_str());
     ::unlink(out_path.c_str());
     ::unlink(requests.c_str());
@@ -186,6 +205,43 @@ EO_TEST(a_controller_writes_points_above_the_cost_as_full_marks) {
     });
     EO_CHECK_EQ(result.code, 0);
     EO_CHECK_IN(result.summary, "fraction 1\n");
+}
+
+EO_TEST(an_instance_that_stopped_reading_is_judged_by_what_it_said) {
+    staged const closed = run_control("1\n", {"DEAF"}, {"7\n"}, 10, [](eo::controller& ctl) {
+        ctl.input.read_int(1, 9, "n");
+        eo::channel& one = ctl.spawn();
+        stop_listening();
+        one.send("go");
+        EO_CHECK_EQ(one.read_long(eo::any, "x"), 7LL);
+        one.send("thanks");
+        one.close();
+        eo::accept("heard 7");
+    });
+    EO_CHECK_EQ(closed.code, 0);
+    EO_CHECK_EQ(closed.text, std::string("ok heard 7"));
+    staged const early = run_control("1\n", {"DEAF"}, {"7\n"}, 10, [](eo::controller& ctl) {
+        ctl.input.read_int(1, 9, "n");
+        eo::channel& one = ctl.spawn();
+        stop_listening();
+        one.send("go");
+        one.read_long(eo::any, "x");
+        one.send("again");
+        one.read_long(eo::any, "y");
+        eo::accept("never reached");
+    });
+    EO_CHECK_EQ(early.code, 1);
+    EO_CHECK_IN(early.text, "instance 1 ended the dialogue early");
+    staged const left = run_control("1\n", {"DEAF"}, {"7\n"}, 10, [](eo::controller& ctl) {
+        ctl.input.read_int(1, 9, "n");
+        eo::channel& one = ctl.spawn();
+        stop_listening();
+        one.send("go");
+        one.read_long(eo::any, "x");
+        one.send("unsent");
+        eo::accept("with a line left over");
+    });
+    EO_CHECK_EQ(left.code, 0);
 }
 
 EO_TEST(a_controller_can_award_part_of_the_test) {

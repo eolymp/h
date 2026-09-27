@@ -1,5 +1,7 @@
 #include "../../eolymp.h"
 
+#include <unistd.h>
+
 int main(int argc, char** argv) {
     eo::controller ctl(argc, argv);
     int k = ctl.input.read_int(2, 100, "instances");
@@ -8,6 +10,8 @@ int main(int argc, char** argv) {
     eo::channel& first = ctl.spawn();
     first.send("first", secret);
     std::string message = first.read_token(1, 20, eo::charset("a-z"), "message");
+    ::usleep(20000);
+    first.send("thanks");
     first.close();
 
     for (int at = 2; at < k; at++) {

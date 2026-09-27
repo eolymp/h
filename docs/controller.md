@@ -136,7 +136,9 @@ wrong answer: instance 1, line 1, message: instance 1 ended the dialogue early
 **Flushing.** Whatever the controller sends to any channel is buffered. Before it waits on
 *any* channel, the library flushes *every* channel — so an instance can never sit waiting for
 a line that is still in the controller's buffer. A write to an instance that stopped reading
-is a wrong answer, and `SIGPIPE` is ignored.
+is not a verdict: what could not be written is dropped, nothing more is written to that
+instance, and the next read from it decides, so sending a last line and closing a channel
+is safe. `SIGPIPE` is ignored.
 
 **Read the channels in an order your code fixes**, such as instance 1, then 2, then 3. Never
 let the dialogue depend on which instance happens to answer first: that depends on the

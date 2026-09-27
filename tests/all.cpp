@@ -9,6 +9,7 @@
 
 #include <csignal>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>

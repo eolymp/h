@@ -102,10 +102,8 @@ public:
         if (pending_.empty()) return;
         if (waiting_) round_trips_++;
         waiting_ = false;
-        bool broken = false;
-        detail::write_all(1, pending_.data(), pending_.size(), broken);
+        if (!deaf_) detail::write_all(1, pending_.data(), pending_.size(), deaf_);
         pending_.clear();
-        if (broken) fail_run("the solution stopped reading");
     }
 
     double cost() const final { return detail::test_cost(); }
@@ -227,7 +225,7 @@ private:
 
     [[noreturn]] void deliver(int code, std::string text) {
         delivered_ = true;
-        detail::write_without_waiting(1, pending_);
+        if (!deaf_) detail::write_without_waiting(1, pending_);
         pending_.clear();
         detail::finish(code, text);
     }
@@ -239,6 +237,7 @@ private:
     eo::rng dice_{0};
     bool seeded_ = false;
     bool delivered_ = false;
+    bool deaf_ = false;
     bool reported_ = false;
     bool waiting_ = false;
     bool budget_spent_ = false;

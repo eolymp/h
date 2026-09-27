@@ -109,6 +109,7 @@ private:
     std::string pending_;
     bool spoken_to_ = false;
     bool shut_ = false;
+    bool deaf_ = false;
 };
 
 class controller final : public detail::scorer, public detail::limits_keeper {
@@ -341,15 +342,13 @@ private:
 inline void channel::flush() {
     if (pending_.empty() || shut_) return;
     spoken_to_ = true;
-    bool broken = false;
-    detail::write_all(writes_, pending_.data(), pending_.size(), broken);
+    if (!deaf_) detail::write_all(writes_, pending_.data(), pending_.size(), deaf_);
     owner_->sent_bytes_ += static_cast<long long>(pending_.size());
     pending_.clear();
-    if (broken) owner_->fail_run(fmt("instance {} stopped reading", index_));
 }
 
 inline void channel::hand_over() {
-    if (pending_.empty() || shut_) return;
+    if (pending_.empty() || shut_ || deaf_) return;
     detail::write_without_waiting(writes_, pending_);
     pending_.clear();
 }

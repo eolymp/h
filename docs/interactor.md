@@ -153,9 +153,12 @@ it.send(values);
   the solution, and at exit. Several replies between two reads cost one system call, and a
   reply can never sit in a buffer while both programs wait for each other. `it.flush()`
   exists but is rarely needed.
-- **The solution may have stopped reading.** A write to a closed pipe is a wrong answer,
-  "the solution stopped reading". `SIGPIPE` is ignored, so the interactor is never killed by
-  it.
+- **The solution may have stopped reading.** A correct solution often exits right after its
+  last answer, before the interactor's last line reaches it. A write to a closed pipe is
+  therefore not a verdict: the library drops what could not be written, stops writing to the
+  solution, and lets the next read decide — a read past the end of what the solution said is
+  "the solution ended the dialogue early". `SIGPIPE` is ignored, so the interactor is never
+  killed by it.
 
 ## Limiting queries
 

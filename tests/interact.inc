@@ -513,11 +513,14 @@ void drain_the_pipe(int) {
 
 }  // namespace
 
-EO_TEST(a_solution_that_stops_reading_is_a_wrong_answer) {
+namespace {
+
+template <class Body>
+chat talk_to_the_deaf(std::string const& from_solution, Body&& body) {
     eo::detail::diagnostics::shared().forget_everything();
     forget_the_environment();
     scratch_file input("1\n");
-    scratch_file said("5\n");
+    scratch_file said(from_solution);
     std::string const out_path = temporary_path();
     chat result;
     {
@@ -535,10 +538,7 @@ EO_TEST(a_solution_that_stops_reading_is_a_wrong_answer) {
                                      const_cast<char*>(out_path.c_str())};
         try {
             eo::interactor it(static_cast<int>(arguments.size()), arguments.data());
-            it.input.read_int(1, 9, "n");
-            it.send("are you there");
-            it.flush();
-            eo::accept("never reached");
+            body(it);
         } catch (eo::detail::stop const& reached) {
             result.stopped = true;
             result.code = reached.code;
@@ -550,8 +550,43 @@ EO_TEST(a_solution_that_stops_reading_is_a_wrong_answer) {
     }
     ::unlink(out_path.c_str());
     forget_the_environment();
-    EO_CHECK_EQ(result.code, 1);
-    EO_CHECK_EQ(result.text, std::string("wrong answer the solution stopped reading"));
+    return result;
+}
+
+}  // namespace
+
+EO_TEST(a_solution_that_stopped_reading_is_judged_by_what_it_said) {
+    chat const finished = talk_to_the_deaf("5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.send("are you there");
+        it.flush();
+        EO_CHECK_EQ(it.contestant.read_int(1, 9, "x"), 5);
+        it.send("OK");
+        if (!it.contestant.at_eof()) eo::wrong("extra output");
+        eo::accept("heard 5");
+    });
+    EO_CHECK_EQ(finished.code, 0);
+    EO_CHECK_EQ(finished.text, std::string("ok heard 5"));
+    chat const early = talk_to_the_deaf("5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.send("first");
+        it.contestant.read_int(1, 9, "x");
+        it.send("second");
+        it.contestant.read_int(1, 9, "y");
+        eo::accept("never reached");
+    });
+    EO_CHECK_EQ(early.code, 1);
+    EO_CHECK_EQ(early.text,
+                std::string("wrong answer: the solution, line 2, y: the solution ended the dialogue early"));
+    chat const verdict = talk_to_the_deaf("5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.send("the last line");
+        it.contestant.read_int(1, 9, "x");
+        it.send("never written");
+        eo::wrong("a verdict with output still waiting");
+    });
+    EO_CHECK_EQ(verdict.code, 1);
+    EO_CHECK_EQ(verdict.text, std::string("wrong answer a verdict with output still waiting"));
 }
 
 EO_TEST(a_write_cut_short_by_a_signal_is_resumed) {
