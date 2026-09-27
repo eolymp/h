@@ -6,6 +6,7 @@
 
 #include "core.h"
 #include "fmt.h"
+#include "read.h"
 
 namespace eo {
 
@@ -34,6 +35,11 @@ public:
         return what;
     }
     void record(std::string name, double what) {
+        bool plain = !name.empty();
+        for (char const one : name) plain = plain && static_cast<unsigned char>(one) > ' ' && one != 0x7F;
+        if (!plain)
+            detail::library_error(fmt("the value name \"{}\" is not one word; a summary needs a name with no "
+                                      "spaces or line breaks in it", detail::shorten(name)));
         if (!std::isfinite(what))
             detail::library_error(fmt("the value \"{}\" is {}, which a summary cannot carry; record a finite number",
                                       name, what));

@@ -203,6 +203,23 @@ EO_TEST(a_summary_carries_only_numbers_the_checker_reads_back) {
         EO_CHECK_IN(odd.text, "eolymp.h: the value \"ratio\" is ");
         EO_CHECK_IN(odd.text, "which a summary cannot carry");
     }
+    for (char const* name : {"", "two words", "line\nbreak", "tab\there", "del\x7f"}) {
+        chat const named = talk("1\n", "5\n", [&](eo::interactor& it) {
+            it.input.read_int(1, 9, "n");
+            it.contestant.read_int(1, 9, "x");
+            it.value(name, 1);
+            eo::accept();
+        });
+        EO_CHECK_EQ(named.code, 3);
+        EO_CHECK_IN(named.text, "is not one word; a summary needs a name with no spaces or line breaks in it");
+    }
+    chat const escaped = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        it.value("line\nbreak", 1);
+        eo::accept();
+    });
+    EO_CHECK_IN(escaped.text, "the value name \"line\\x0abreak\"");
 }
 
 EO_TEST(an_interactor_refuses_what_the_solution_sends) {
