@@ -91,7 +91,7 @@ EO_TEST(a_buffer_too_small_to_look_ahead_keeps_the_carriage_return) {
 
 EO_TEST(ahead_shows_what_comes_next_without_consuming_it) {
     eo::detail::source over = eo::detail::source::over_text("hello world", false);
-    EO_CHECK_EQ(over.ahead(5), std::string(""));
+    EO_CHECK_EQ(over.ahead(5), std::string("hello"));
     EO_CHECK_EQ(over.peek(), static_cast<int>('h'));
     EO_CHECK_EQ(over.ahead(5), std::string("hello"));
     EO_CHECK_EQ(over.ahead(5), std::string("hello"));
@@ -133,6 +133,24 @@ EO_TEST(looking_ahead_never_waits_for_more_of_a_pipe) {
 
     ::close(ends[1]);
     ::close(ends[0]);
+}
+
+EO_TEST(looking_ahead_takes_what_has_arrived_beyond_the_buffer) {
+    std::string const text = "abcdefghijklmnopqrst";
+    eo::detail::source over = eo::detail::source::over_text(text, false, 16);
+    for (int at = 0; at < 10; at++) (void)over.take();
+    EO_CHECK_EQ(over.held(), static_cast<std::size_t>(6));
+    EO_CHECK_EQ(over.ahead(8), std::string("klmnopqr"));
+    EO_CHECK_EQ(over.ahead(64), std::string("klmnopqrst"));
+
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    EO_CHECK_EQ(::write(ends[1], "abc", 3), static_cast<ssize_t>(3));
+    eo::detail::source piped = eo::detail::source::over_descriptor(ends[0], true, false);
+    EO_CHECK_EQ(piped.peek(), static_cast<int>('a'));
+    EO_CHECK_EQ(::write(ends[1], "def\n", 4), static_cast<ssize_t>(4));
+    EO_CHECK_EQ(piped.ahead(64), std::string("abcdef\n"));
+    ::close(ends[1]);
 }
 
 EO_TEST(topping_up_takes_only_what_is_already_waiting) {

@@ -701,7 +701,9 @@ public:
 
     bool at_end() { return peek() < 0; }
 
-    std::string ahead(std::size_t limit) const {
+    std::string ahead(std::size_t limit) {
+        while (held() < limit && top_up()) {
+        }
         return std::string(buffer_.data() + begin_, std::min(limit, end_ - begin_));
     }
 

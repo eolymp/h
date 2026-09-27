@@ -45,8 +45,8 @@ MUTANTS = [
     ("a token read past the cap it was given", "src/stream.h",
      "            if (cap > 0 && static_cast<long long>(token.size()) >= cap) break;", ""),
     ("a look ahead that reads", "src/io.h",
-     "std::string ahead(std::size_t limit) const {\n        return std::string(",
-     "std::string ahead(std::size_t limit) {\n        have(limit);\n        return std::string("),
+     "        while (held() < limit && top_up()) {\n        }\n",
+     "        have(limit);\n"),
 ]
 
 
