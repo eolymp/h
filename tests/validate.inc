@@ -679,6 +679,20 @@ EO_TEST(bounds_that_look_wrong_are_pointed_out) {
     EO_CHECK_IN(said, "warning EO107: \"twice\" is read as 1..8 here and as 1..9 elsewhere");
 }
 
+EO_TEST(bounds_at_the_ends_of_a_long_long_are_not_near_a_round_number) {
+    EO_CHECK(!eo::detail::nearly_round(std::numeric_limits<long long>::max()));
+    EO_CHECK(!eo::detail::nearly_round(std::numeric_limits<long long>::min()));
+    EO_CHECK(eo::detail::nearly_round(1000001));
+    eot::outcome const result = validate("5 -5\n", [](eo::validator& v) {
+        v.read_long(1, std::numeric_limits<long long>::max(), "top");
+        v.read_space();
+        v.read_long(std::numeric_limits<long long>::min(), 0, "bottom");
+        v.read_eoln();
+    });
+    EO_CHECK(!result.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO106"));
+}
+
 EO_TEST(a_token_or_a_number_read_loosely_is_pointed_out) {
     eot::outcome const result = validate("abc 0.5 hello\n", [](eo::validator& v) {
         v.read_token(1, 5, "s");

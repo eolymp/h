@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -82,6 +83,8 @@ inline bool is_round(long long value) {
 }
 
 inline bool nearly_round(long long value) {
+    if (value == std::numeric_limits<long long>::min() || value == std::numeric_limits<long long>::max())
+        return false;
     return !is_round(value) && (is_round(value - 1) || is_round(value + 1));
 }
 
