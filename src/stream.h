@@ -199,7 +199,7 @@ public:
 
     std::string word(long long least, long long most, charset const* allowed, stated bounds,
                      value_name const& name, site where) {
-        long long const cap = bounds == stated::yes ? most + 1 : 0;
+        long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
         std::string const token = take_word(name, where, "a token", cap);
         if (name.absent())
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
@@ -235,7 +235,7 @@ public:
                              value_name const& name, site where) {
         settle();
         std::string text;
-        long long const cap = bounds == stated::yes ? most + 1 : 0;
+        long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
         long long seen = 0;
         while (true) {
             int const next = from_.peek();

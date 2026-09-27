@@ -693,6 +693,17 @@ EO_TEST(bounds_at_the_ends_of_a_long_long_are_not_near_a_round_number) {
     EO_CHECK(!eot::contains(warnings_of_last_run(), "EO106"));
 }
 
+EO_TEST(a_length_bound_may_be_the_largest_long_long) {
+    eot::outcome const result = validate("abc\nhello world\n", [](eo::validator& v) {
+        EO_CHECK_EQ(v.read_token(1, std::numeric_limits<long long>::max(), eo::charset("a-z"), "word"),
+                    std::string("abc"));
+        v.read_eoln();
+        EO_CHECK_EQ(v.read_line(1, std::numeric_limits<long long>::max(), eo::charset("a-z "), "line"),
+                    std::string("hello world"));
+    });
+    EO_CHECK(!result.stopped);
+}
+
 EO_TEST(a_token_or_a_number_read_loosely_is_pointed_out) {
     eot::outcome const result = validate("abc 0.5 hello\n", [](eo::validator& v) {
         v.read_token(1, 5, "s");
