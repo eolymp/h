@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestAnAttachedHeaderIsFoundWithAngleBrackets(t *testing.T) {
@@ -53,5 +54,40 @@ func TestTheSystemCopyOfAHeaderWinsOverAnAttachedOne(t *testing.T) {
 	}
 	if status.ExitCode != 7 {
 		t.Errorf("the program used the attached header, exiting %d", status.ExitCode)
+	}
+}
+
+func TestATimeLimitStopsEveryProcessTheProgramStarted(t *testing.T) {
+	started := time.Now()
+	status, err := run(context.Background(), "/bin/sh", Invocation{Args: []string{"-c", "sleep 30 & sleep 30"},
+		LimitMS: 300})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.TimedOut {
+		t.Error("the run did not time out")
+	}
+	if waited := time.Since(started); waited > 5*time.Second {
+		t.Errorf("the run took %v; a child kept it alive", waited)
+	}
+}
+
+func TestAChildLeftBehindIsStoppedWhenTheProgramEnds(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "still-here")
+	started := time.Now()
+	status, err := run(context.Background(), "/bin/sh", Invocation{
+		Args: []string{"-c", "(sleep 1; touch " + marker + ") & echo started"}, LimitMS: 10000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.TimedOut || status.ExitCode != 0 || string(status.Stdout) != "started\n" {
+		t.Errorf("status %+v", status)
+	}
+	if waited := time.Since(started); waited > 900*time.Millisecond {
+		t.Errorf("the run took %v; it waited for the child", waited)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the child outlived the run")
 	}
 }

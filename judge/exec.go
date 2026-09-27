@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -104,6 +105,9 @@ func run(ctx context.Context, exe string, call Invocation) (*Status, error) {
 	defer stop()
 
 	command := exec.CommandContext(inner, exe, call.Args...)
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error { return killGroup(command) }
+	command.WaitDelay = 250 * time.Millisecond
 	command.Dir = call.Dir
 	command.Env = append(os.Environ(), flatten(call.Env)...)
 	command.Stdin = call.Stdin
@@ -123,6 +127,12 @@ func run(ctx context.Context, exe string, call Invocation) (*Status, error) {
 	started := time.Now()
 	err := command.Run()
 	elapsed := int(time.Since(started).Milliseconds())
+	if command.Process != nil {
+		killGroup(command)
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
 
 	status := &Status{Wall: elapsed, Stdout: out.Bytes(), Stderr: errs.Bytes()}
 	if state := command.ProcessState; state != nil {
@@ -142,6 +152,10 @@ func run(ctx context.Context, exe string, call Invocation) (*Status, error) {
 		return status, err
 	}
 	return status, nil
+}
+
+func killGroup(command *exec.Cmd) error {
+	return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 }
 
 func flatten(env map[string]string) []string {

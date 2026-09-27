@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 const version = "1.0.0"
@@ -107,7 +109,8 @@ func realMain(args []string, out, errs io.Writer) int {
 		return 3
 	}
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	shop := NewWorkspace(problem, space)
 
 	switch command {

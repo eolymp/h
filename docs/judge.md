@@ -171,6 +171,11 @@ so run a problem you do not trust in a container.
 
 ## What it does not do
 
+- **It is not a sandbox.** Programs run as you, with your files and your network. Each one
+  runs in a process group of its own, and when it ends, times out or eo-judge is interrupted
+  the whole group is killed, so a child that stays in that group cannot outlive it; one that
+  starts a group or a session of its own escapes, and nothing else is confined. Run problems
+  you do not trust in a container.
 - **It does not enforce memory.** It measures peak usage and reports it; the time limit is
   enforced, memory is not. A memory-limit verdict is the judge's to give.
 - **It does not run `COMMUNICATION` problems.** One interactor against one solution works;
