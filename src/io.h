@@ -134,6 +134,14 @@ public:
     }
 
     int peek() {
+        if (begin_ < end_) {
+            int const quick = static_cast<unsigned char>(buffer_[begin_]);
+            if (quick != '\r') return quick;
+        }
+        return peek_slowly();
+    }
+
+    int peek_slowly() {
         for (;;) {
             if (!have(1)) return -1;
             int const here = static_cast<unsigned char>(buffer_[begin_]);
@@ -167,6 +175,12 @@ public:
     }
 
     std::size_t held() const { return end_ - begin_; }
+    char const* window() const { return buffer_.data() + begin_; }
+
+    void skip_plain(std::size_t count) {
+        begin_ += count;
+        column_ += static_cast<long long>(count);
+    }
 
     absorbed absorb(std::size_t most) {
         if (drained_ || text_backed_) return absorbed::nothing;

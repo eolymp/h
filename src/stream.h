@@ -322,15 +322,26 @@ public:
         std::string token;
         if (from_.peek() == '-' || (relaxed_ && from_.peek() == '+'))
             token.push_back(static_cast<char>(from_.take()));
-        while (from_.peek() >= '0' && from_.peek() <= '9') token.push_back(static_cast<char>(from_.take()));
+        digits_into(token);
         if (with_a_point && from_.peek() == '.') {
             token.push_back(static_cast<char>(from_.take()));
-            while (from_.peek() >= '0' && from_.peek() <= '9') token.push_back(static_cast<char>(from_.take()));
+            digits_into(token);
         }
         if (token.empty() || token == "-" || token == "+")
             refuse(name, fmt("expected {}, found \"{}\"", expected, shorten(token + ahead_of_the_value())));
         was_read(name);
         return token;
+    }
+
+    void digits_into(std::string& token) {
+        while (from_.peek() >= '0' && from_.peek() <= '9') {
+            char const* const at = from_.window();
+            std::size_t const held = from_.held();
+            std::size_t run = 0;
+            while (run < held && at[run] >= '0' && at[run] <= '9') run++;
+            token.append(at, run);
+            from_.skip_plain(run);
+        }
     }
 
     std::string take_word(value_name const& name, site where, char const* expected, long long cap = 0) {
@@ -340,7 +351,13 @@ public:
             int const next = from_.peek();
             if (next < 0 || is_blank(next)) break;
             if (cap > 0 && static_cast<long long>(token.size()) >= cap) break;
-            token.push_back(static_cast<char>(from_.take()));
+            char const* const at = from_.window();
+            std::size_t held = from_.held();
+            if (cap > 0) held = std::min<std::size_t>(held, static_cast<std::size_t>(cap) - token.size());
+            std::size_t run = 0;
+            while (run < held && !is_blank(static_cast<unsigned char>(at[run]))) run++;
+            token.append(at, run);
+            from_.skip_plain(run);
         }
         was_read(name);
         return token;
