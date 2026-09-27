@@ -418,14 +418,19 @@ private:
     void remember(value_name const& name, char const* kind, Bound low, Bound high, bool at_low, bool at_high,
                   site where) {
         if (!name.known()) return;
-        auto const found = bounds_.find(name.key());
-        if (found == bounds_.end()) {
-            seen_bounds fresh{kind, fmt("{}", low), fmt("{}", high), at_low, at_high, where, true};
-            note_the_numbers(fresh, low, high);
-            bounds_.emplace(name.key(), std::move(fresh));
-            return;
+        if (last_bounds_ == nullptr || last_key_ != name.key()) {
+            auto const found = bounds_.find(name.key());
+            if (found == bounds_.end()) {
+                seen_bounds fresh{kind, fmt("{}", low), fmt("{}", high), at_low, at_high, where, true};
+                note_the_numbers(fresh, low, high);
+                last_bounds_ = &bounds_.emplace(name.key(), std::move(fresh)).first->second;
+                last_key_ = name.key();
+                return;
+            }
+            last_bounds_ = &found->second;
+            last_key_ = name.key();
         }
-        seen_bounds& known = found->second;
+        seen_bounds& known = *last_bounds_;
         if (known.kind == kind && same_numbers(known, low, high)) {
             if (at_low) known.reached_low = true;
             if (at_high) known.reached_high = true;
@@ -476,6 +481,8 @@ private:
     bool last_indexed_ = false;
     long long last_index_ = 0;
     std::map<std::string, seen_bounds> bounds_;
+    std::string last_key_;
+    seen_bounds* last_bounds_ = nullptr;
     bool separated_ = true;
     bool read_anything_ = false;
     bool exponents_ = false;
