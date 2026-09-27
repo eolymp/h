@@ -288,6 +288,34 @@ EO_TEST(writing_around_the_writer_is_reported) {
     EO_CHECK_IN(checker_warnings(), "warning EO503: 6 bytes reached stdout without going through g.out");
 }
 
+EO_TEST(a_test_sent_nowhere_is_not_counted_as_stray_bytes) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    std::string const log_path = temporary_path();
+    made result;
+    {
+        swapped_descriptors kept;
+        int const nowhere = ::open("/dev/null", O_WRONLY);
+        int const grumbles = ::open(log_path.c_str(), O_WRONLY | O_TRUNC);
+        ::dup2(nowhere, 1);
+        ::dup2(grumbles, 2);
+        std::string program = "gen.cpp";
+        std::vector<char*> arguments{program.data()};
+        try {
+            eo::generator g(static_cast<int>(arguments.size()), arguments.data());
+            g.out.line(1, 2, 3);
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+        }
+        std::fflush(stdout);
+        ::close(nowhere);
+        ::close(grumbles);
+    }
+    ::unlink(log_path.c_str());
+    EO_CHECK(!result.stopped);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO503"));
+}
+
 EO_TEST(a_test_too_big_to_store_is_reported) {
     made const result = generate({}, [](eo::generator& g) {
         std::string const wide(1024 * 1024 - 1, 'x');

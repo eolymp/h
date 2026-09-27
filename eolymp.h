@@ -4301,7 +4301,8 @@ public:
         base_ = detail::seed_of(all);
         dice_.emplace("", eo::rng(base_));
         std::fflush(stdout);
-        started_ = ::lseek(1, 0, SEEK_CUR);
+        struct stat towards {};
+        if (::fstat(1, &towards) == 0 && S_ISREG(towards.st_mode)) started_ = ::lseek(1, 0, SEEK_CUR);
         detail::log_file() = stderr;
         detail::emitter() = &generator::say;
         out.owner_ = this;
