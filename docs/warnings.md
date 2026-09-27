@@ -24,7 +24,7 @@ line on the judge, and the channel each role can afford to write to — is in
 | `eo-judge check` | the emulator, reading the whole problem; **never appears in a judge log** |
 | `eo-judge lint` | a textual scan of the source, for what no run can see |
 
-All 76 designed codes are built.
+All 77 designed codes are built.
 
 ## EO1xx — reading a value
 
@@ -87,6 +87,7 @@ Raised by `eo::interactor`, `eo::controller` and `eo::phases`.
 | `EO406` | note | the program | the test has an answer file the interactor never read | drop it, or read it |
 | `EO407` | warning | the program | a `run_count` handoff is large | the judge copies it between runs, so keep it small |
 | `EO408` | warning | the program | an instance was started and never talked to | spawn it where it is needed, or drop it |
+| `EO409` | warning | the program | while the interactor was still writing to the solution, the solution sent more than 16 MB of answers, which the library stops taking in, so the pair can wait for each other until the time limit; it is written to stderr the moment it is raised, because a run killed at the limit never reaches the report | read the solution's answers between sends instead of sending everything first |
 
 ## EO5xx — the generator
 

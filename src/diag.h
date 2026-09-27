@@ -58,9 +58,11 @@ public:
         return only;
     }
 
-    void raise(char const* code, severity level, std::string message, std::string fix, site where) {
-        if (record(code, level, message, std::move(fix), where) && level == severity::warning && strict_mode())
+    bool raise(char const* code, severity level, std::string message, std::string fix, site where) {
+        bool const fresh = record(code, level, message, std::move(fix), where);
+        if (fresh && level == severity::warning && strict_mode())
             finish(3, fmt("{}: {} {}: {}", where_of(where), "strict mode stops at", code, message));
+        return fresh;
     }
 
     void start_the_clock(char const* code, char const* role, long long limit_ms, site where) {
@@ -197,6 +199,14 @@ private:
 
 inline void warn(char const* code, std::string message, std::string fix, site where) {
     diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where);
+}
+
+inline void warn_at_once(char const* code, std::string message, std::string fix, site where) {
+    std::string const line = fmt("warning {} {} {}\n", code, where_of(where), message);
+    if (diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where)) {
+        std::fwrite(line.data(), 1, line.size(), stderr);
+        std::fflush(stderr);
+    }
 }
 
 inline void note(char const* code, std::string message, std::string fix, site where) {

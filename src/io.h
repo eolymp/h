@@ -86,6 +86,8 @@ inline void write_file(std::string const& path, std::string const& bytes, char c
         library_error(fmt("the {} could not be written to {}: {}", what, path, std::strerror(errno)));
 }
 
+enum class absorbed { nothing, some, full };
+
 class source {
 public:
     static std::size_t constexpr default_chunk = 1u << 20;
@@ -165,6 +167,20 @@ public:
     }
 
     std::size_t held() const { return end_ - begin_; }
+
+    absorbed absorb(std::size_t most) {
+        if (drained_ || text_backed_) return absorbed::nothing;
+        int ready = 0;
+        if (::ioctl(descriptor_, FIONREAD, &ready) != 0 || ready <= 0) return absorbed::nothing;
+        std::size_t const wanted = static_cast<std::size_t>(ready);
+        if (held() + wanted > most) return absorbed::full;
+        compact();
+        if (buffer_.size() - end_ < wanted) buffer_.resize(end_ + wanted);
+        ssize_t const got = ::read(descriptor_, buffer_.data() + end_, wanted);
+        if (got < 0) return errno == EINTR ? absorbed::some : absorbed::nothing;
+        end_ += static_cast<std::size_t>(got);
+        return got > 0 ? absorbed::some : absorbed::nothing;
+    }
 
     bool top_up() {
         if (drained_) return false;

@@ -19,6 +19,7 @@
 #include <cerrno>
 #include <charconv>
 #include <chrono>
+#include <climits>
 #include <cmath>
 #include <csignal>
 #include <cstddef>
@@ -463,9 +464,11 @@ public:
         return only;
     }
 
-    void raise(char const* code, severity level, std::string message, std::string fix, site where) {
-        if (record(code, level, message, std::move(fix), where) && level == severity::warning && strict_mode())
+    bool raise(char const* code, severity level, std::string message, std::string fix, site where) {
+        bool const fresh = record(code, level, message, std::move(fix), where);
+        if (fresh && level == severity::warning && strict_mode())
             finish(3, fmt("{}: {} {}: {}", where_of(where), "strict mode stops at", code, message));
+        return fresh;
     }
 
     void start_the_clock(char const* code, char const* role, long long limit_ms, site where) {
@@ -604,6 +607,14 @@ inline void warn(char const* code, std::string message, std::string fix, site wh
     diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where);
 }
 
+inline void warn_at_once(char const* code, std::string message, std::string fix, site where) {
+    std::string const line = fmt("warning {} {} {}\n", code, where_of(where), message);
+    if (diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where)) {
+        std::fwrite(line.data(), 1, line.size(), stderr);
+        std::fflush(stderr);
+    }
+}
+
 inline void note(char const* code, std::string message, std::string fix, site where) {
     diagnostics::shared().raise(code, severity::note, std::move(message), std::move(fix), where);
 }
@@ -703,6 +714,8 @@ inline void write_file(std::string const& path, std::string const& bytes, char c
         library_error(fmt("the {} could not be written to {}: {}", what, path, std::strerror(errno)));
 }
 
+enum class absorbed { nothing, some, full };
+
 class source {
 public:
     static std::size_t constexpr default_chunk = 1u << 20;
@@ -782,6 +795,20 @@ public:
     }
 
     std::size_t held() const { return end_ - begin_; }
+
+    absorbed absorb(std::size_t most) {
+        if (drained_ || text_backed_) return absorbed::nothing;
+        int ready = 0;
+        if (::ioctl(descriptor_, FIONREAD, &ready) != 0 || ready <= 0) return absorbed::nothing;
+        std::size_t const wanted = static_cast<std::size_t>(ready);
+        if (held() + wanted > most) return absorbed::full;
+        compact();
+        if (buffer_.size() - end_ < wanted) buffer_.resize(end_ + wanted);
+        ssize_t const got = ::read(descriptor_, buffer_.data() + end_, wanted);
+        if (got < 0) return errno == EINTR ? absorbed::some : absorbed::nothing;
+        end_ += static_cast<std::size_t>(got);
+        return got > 0 ? absorbed::some : absorbed::nothing;
+    }
 
     bool top_up() {
         if (drained_) return false;
@@ -1153,6 +1180,8 @@ public:
         while (at < rest.size() && !is_blank(static_cast<unsigned char>(rest[at]))) at++;
         return rest.substr(0, at);
     }
+
+    absorbed absorb(std::size_t most) { return from_.absorb(most); }
 
     bool content_waiting() {
         for (;;) {
@@ -3351,7 +3380,7 @@ public:
         if (pending_.empty()) return;
         if (waiting_) round_trips_++;
         waiting_ = false;
-        if (!deaf_) detail::write_all(1, pending_.data(), pending_.size(), deaf_);
+        if (!deaf_) write_while_listening();
         pending_.clear();
     }
 
@@ -3426,6 +3455,40 @@ private:
         std::fputc('\n', stderr);
         if (detail::live_interactor() != nullptr) detail::live_interactor()->report_traffic();
         std::fflush(stderr);
+    }
+
+    void write_while_listening() {
+        std::size_t sent = 0;
+        bool listening = true;
+        while (sent < pending_.size()) {
+            pollfd both[2] = {{1, POLLOUT, 0}, {listening ? 0 : -1, POLLIN, 0}};
+            int const ready = ::poll(both, 2, -1);
+            if (ready < 0 && errno != EINTR && errno != EAGAIN) deaf_ = true;
+            if (deaf_) return;
+            if (ready < 0) continue;
+            if (both[1].revents != 0) listening = took_in(contestant.inside().absorb(heard_limit));
+            if (both[0].revents == 0) continue;
+            std::size_t const step = std::min<std::size_t>(pending_.size() - sent, PIPE_BUF);
+            ssize_t const wrote = ::write(1, pending_.data() + sent, step);
+            if (wrote > 0) sent += static_cast<std::size_t>(wrote);
+            if (wrote < 0 && errno != EINTR && !detail::would_block()) {
+                deaf_ = true;
+                return;
+            }
+        }
+    }
+
+    static std::size_t constexpr heard_limit = std::size_t{1} << 24;
+
+    static bool took_in(detail::absorbed what) {
+        if (what == detail::absorbed::full)
+            detail::warn_at_once(
+                "EO409",
+                fmt("the solution sent more than {} MB while the interactor was still writing to it, and the rest "
+                    "of it waits in the pipe",
+                    heard_limit >> 20),
+                "read the solution's answers between sends instead of sending everything first", detail::site::here());
+        return what == detail::absorbed::some;
     }
 
     void waiting_and_flush() {

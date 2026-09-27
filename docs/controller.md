@@ -138,7 +138,10 @@ wrong answer: instance 1, line 1, message: instance 1 ended the dialogue early
 a line that is still in the controller's buffer. A write to an instance that stopped reading
 is not a verdict: what could not be written is dropped, nothing more is written to that
 instance, and the next read from it decides, so sending a last line and closing a channel
-is safe. `SIGPIPE` is ignored.
+is safe. `SIGPIPE` is ignored. Unlike an interactor, a controller does not take in an
+instance's answers while it waits to write: sending one instance more than a pipe holds,
+about 64 KB, before reading its answers, while that instance answers each line as it reads
+it, leaves both waiting. Read the answers in between, or send less at a time.
 
 **Read the channels in an order your code fixes**, such as instance 1, then 2, then 3. Never
 let the dialogue depend on which instance happens to answer first: that depends on the

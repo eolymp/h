@@ -153,6 +153,13 @@ it.send(values);
   the solution, and at exit. Several replies between two reads cost one system call, and a
   reply can never sit in a buffer while both programs wait for each other. `it.flush()`
   exists but is rarely needed.
+- **A large batch cannot deadlock either.** When the interactor sends more than the pipe
+  holds, about 64 KB, to a solution that answers each line as it reads it, the solution's
+  answers fill the other pipe while the interactor is still writing. The library keeps
+  taking them in while it waits for room, up to 16 MB, and they are read from there as
+  usual; past that it stops, says so with warning EO409, and the two can wait for each
+  other until the time limit. EO409 goes to stderr the moment it is raised, since a run
+  killed at the limit never writes its report.
 - **The solution may have stopped reading.** A correct solution often exits right after its
   last answer, before the interactor's last line reaches it. A write to a closed pipe is
   therefore not a verdict: the library drops what could not be written, stops writing to the
@@ -351,6 +358,7 @@ in a scope, with a reason the report prints. They appear on stderr, which on the
 | EO405 | the interactor accepted without reading anything from the solution |
 | EO406 | an answer file was passed and never read (a note) |
 | EO407 | a phase handoff exceeded 64 MB |
+| EO409 | the solution sent more than 16 MB while the interactor was still writing to it |
 
 ## Testing an interactor locally
 

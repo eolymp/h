@@ -589,6 +589,136 @@ EO_TEST(a_solution_that_stopped_reading_is_judged_by_what_it_said) {
     EO_CHECK_EQ(verdict.text, std::string("wrong answer a verdict with output still waiting"));
 }
 
+namespace {
+
+template <class Body>
+chat against_a_forked_solution(std::string const& test, void (*solve)(std::FILE*, std::FILE*), Body&& body) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    scratch_file input(test);
+    std::string const out_path = temporary_path();
+    std::string const log_path = temporary_path();
+    int towards[2] = {-1, -1};
+    int back[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(towards), 0);
+    EO_CHECK_EQ(::pipe(back), 0);
+    pid_t const solution = ::fork();
+    if (solution == 0) {
+        ::close(towards[1]);
+        ::close(back[0]);
+        solve(::fdopen(towards[0], "r"), ::fdopen(back[1], "w"));
+        ::_exit(0);
+    }
+    ::close(towards[0]);
+    ::close(back[1]);
+    chat result;
+    {
+        swapped_descriptors kept;
+        int const quiet = ::open(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        ::dup2(back[0], 0);
+        ::dup2(towards[1], 1);
+        ::dup2(quiet, 2);
+        ::close(back[0]);
+        ::close(towards[1]);
+        std::string program = "interactor.cpp";
+        std::vector<char*> arguments{program.data(), const_cast<char*>(input.path.c_str()),
+                                     const_cast<char*>(out_path.c_str())};
+        ::alarm(20);
+        try {
+            eo::interactor it(static_cast<int>(arguments.size()), arguments.data());
+            body(it);
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+            result.code = reached.code;
+            result.text = reached.text;
+        }
+        ::alarm(0);
+        std::fflush(stdout);
+        ::close(quiet);
+        ::close(0);
+        ::close(1);
+    }
+    int status = 0;
+    ::waitpid(solution, &status, 0);
+    ::unlink(out_path.c_str());
+    result.log = slurp(log_path);
+    ::unlink(log_path.c_str());
+    forget_the_environment();
+    return result;
+}
+
+void answer_each_line(std::FILE* questions, std::FILE* answers) {
+    long long x = 0;
+    while (std::fscanf(questions, "%lld", &x) == 1) {
+        std::fprintf(answers, "%lld\n", x + 1);
+        std::fflush(answers);
+    }
+}
+
+void add_slowly(std::FILE* numbers, std::FILE* answers) {
+    long long count = 0;
+    long long sum = 0;
+    long long x = 0;
+    if (std::fscanf(numbers, "%lld", &count) != 1) return;
+    for (long long at = 0; at < count && std::fscanf(numbers, "%lld", &x) == 1; at++) {
+        sum += x;
+        if (at % 20000 == 0) ::usleep(20000);
+    }
+    std::fprintf(answers, "%lld\n", sum);
+    std::fflush(answers);
+}
+
+void flood_without_reading(std::FILE*, std::FILE* answers) {
+    ::alarm(3);
+    std::string const block(1 << 16, '7');
+    for (int at = 0; at < 17 * 16; at++) std::fwrite(block.data(), 1, block.size(), answers);
+    std::fflush(answers);
+    ::pause();
+}
+
+}  // namespace
+
+EO_TEST(an_interactor_stops_taking_in_answers_at_16_mb) {
+    chat const result = against_a_forked_solution("1\n", &flood_without_reading, [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        for (int at = 0; at < 100000; at++) it.send(at);
+        it.flush();
+        eo::wrong("the solution never read");
+    });
+    EO_CHECK_EQ(result.code, 1);
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(),
+                "warning EO409: the solution sent more than 16 MB while the interactor was still writing to it");
+    EO_CHECK_IN(result.log, " the solution sent more than 16 MB while the interactor was still writing to it");
+    EO_CHECK_EQ(result.log.rfind("warning EO409 ", 0), std::size_t{0});
+}
+
+EO_TEST(an_interactor_that_sends_a_lot_hears_the_answers_meanwhile) {
+    chat const result = against_a_forked_solution("100000\n", &answer_each_line, [](eo::interactor& it) {
+        int const n = it.input.read_int(1, 100000, "n");
+        for (int at = 1; at <= n; at++) it.send(at);
+        it.flush();
+        for (int at = 1; at <= n; at++)
+            if (it.contestant.read_long(eo::any, "y") != at + 1) eo::wrong("answer {} is off", at);
+        eo::accept("{} answers", n);
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_EQ(result.text, std::string("ok 100000 answers"));
+}
+
+EO_TEST(an_interactor_that_prints_on_its_own_still_reaches_a_slow_reader) {
+    chat const result = against_a_forked_solution("100000\n", &add_slowly, [](eo::interactor& it) {
+        int const n = it.input.read_int(1, 100000, "n");
+        std::printf("%d\n", n);
+        for (int at = 1; at <= n; at++) std::printf("%d\n", at);
+        std::fflush(stdout);
+        long long const sum = it.contestant.read_long(eo::any, "sum");
+        if (sum != 5000050000LL) eo::wrong("the sum is {}", sum);
+        eo::accept("the sum is right");
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_EQ(result.text, std::string("ok the sum is right"));
+}
+
 EO_TEST(a_write_cut_short_by_a_signal_is_resumed) {
     eo::detail::diagnostics::shared().forget_everything();
     forget_the_environment();

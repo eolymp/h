@@ -320,6 +320,25 @@ EO_TEST(a_channel_is_read_through_a_64_kb_buffer) {
     ::unlink(path.c_str());
 }
 
+EO_TEST(a_source_absorbs_what_is_waiting_up_to_a_limit) {
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    eo::detail::source over = eo::detail::source::over_descriptor(ends[0], true, false, 4);
+    EO_CHECK(over.absorb(100) == eo::detail::absorbed::nothing);
+    EO_CHECK_EQ(::write(ends[1], "0123456789", 10), static_cast<ssize_t>(10));
+    EO_CHECK(over.absorb(5) == eo::detail::absorbed::full);
+    EO_CHECK(over.absorb(100) == eo::detail::absorbed::some);
+    EO_CHECK_EQ(over.held(), static_cast<std::size_t>(10));
+    EO_CHECK_EQ(over.take(), static_cast<int>('0'));
+    EO_CHECK_EQ(::write(ends[1], "ab", 2), static_cast<ssize_t>(2));
+    EO_CHECK(over.absorb(100) == eo::detail::absorbed::some);
+    ::close(ends[1]);
+    EO_CHECK_EQ(drain(over), std::string("123456789ab"));
+    EO_CHECK(over.absorb(100) == eo::detail::absorbed::nothing);
+    eo::detail::source text = eo::detail::source::over_text("abc", false);
+    EO_CHECK(text.absorb(100) == eo::detail::absorbed::nothing);
+}
+
 EO_TEST(a_descriptor_that_cannot_be_read_is_a_library_error) {
     int ends[2] = {-1, -1};
     EO_CHECK_EQ(::pipe(ends), 0);

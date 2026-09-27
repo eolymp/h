@@ -120,6 +120,8 @@ public:
         return rest.substr(0, at);
     }
 
+    absorbed absorb(std::size_t most) { return from_.absorb(most); }
+
     bool content_waiting() {
         for (;;) {
             std::string const held = from_.ahead(from_.held());
