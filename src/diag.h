@@ -192,10 +192,10 @@ private:
     static std::string times(long long count) { return count > 1 ? fmt(" ({} times)", count) : std::string(); }
 
     std::vector<raised> ordered() const {
-        std::vector<raised> sorted = entries_;
-        std::stable_sort(sorted.begin(), sorted.end(),
-                         [](raised const& left, raised const& right) { return left.level > right.level; });
-        if (sorted.size() > report_limit) sorted.resize(report_limit);
+        std::vector<raised> sorted;
+        for (severity const level : {severity::warning, severity::note})
+            for (raised const& one : entries_)
+                if (one.level == level && sorted.size() < report_limit) sorted.push_back(one);
         return sorted;
     }
 

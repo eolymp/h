@@ -66,6 +66,19 @@ EO_TEST(a_long_report_is_capped_and_says_how_many_are_left) {
     EO_CHECK(!eot::contains(block, "validator.cpp:31:"));
 }
 
+EO_TEST(a_long_report_lists_warnings_before_notes_in_the_order_raised) {
+    clean_slate fresh;
+    for (int line = 1; line <= 40; line++) {
+        eo::detail::site const where{"validator.cpp", line};
+        if (line % 2 == 1) eo::detail::note("EO106", eo::fmt("n{}", line), "fix", where);
+        else eo::detail::warn("EO101", eo::fmt("w{}", line), "fix", where);
+    }
+    std::string wanted;
+    for (int line = 2; line <= 40; line += 2) wanted += eo::fmt("warning EO101 validator.cpp:{} w{}\n", line, line);
+    for (int line = 1; line <= 19; line += 2) wanted += eo::fmt("note EO106 validator.cpp:{} n{}\n", line, line);
+    EO_CHECK_EQ(diagnostics().judge_lines(), wanted + "... and 10 more\n");
+}
+
 EO_TEST(a_silenced_code_is_counted_and_listed_with_its_reason) {
     clean_slate fresh;
     {
