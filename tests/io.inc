@@ -180,22 +180,79 @@ EO_TEST(topping_up_a_text_source_never_waits) {
     EO_CHECK(!over.top_up());
 }
 
-EO_TEST(a_last_word_is_written_without_waiting_for_room) {
+EO_TEST(a_last_word_is_written_while_it_is_read) {
     ::signal(SIGPIPE, SIG_IGN);
     int ends[2] = {-1, -1};
     EO_CHECK_EQ(::pipe(ends), 0);
-    eo::detail::write_without_waiting(ends[1], "done\n");
+    eo::detail::write_while_read(ends[1], "done\n", 50, 1000);
     char got[8] = {};
     EO_CHECK_EQ(::read(ends[0], got, sizeof(got)), static_cast<ssize_t>(5));
     EO_CHECK_EQ(std::string(got, 5), std::string("done\n"));
 
-    std::string const block(1 << 16, 'x');
-    for (int at = 0; at < 64; at++) eo::detail::write_without_waiting(ends[1], block);
-    eo::detail::write_without_waiting(ends[1], "never waits\n");
-
+    std::string const whole(1 << 20, 'x');
+    int counted[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(counted), 0);
+    pid_t const reader = ::fork();
+    if (reader == 0) {
+        ::close(ends[1]);
+        long long total = 0;
+        char chunk[4096];
+        for (int round = 1;; round++) {
+            ssize_t const one = ::read(ends[0], chunk, sizeof(chunk));
+            if (one <= 0) break;
+            total += one;
+            if (round % 32 == 0) ::usleep(2000);
+        }
+        ssize_t const told = ::write(counted[1], &total, sizeof(total));
+        ::_exit(told == static_cast<ssize_t>(sizeof(total)) ? 0 : 1);
+    }
     ::close(ends[0]);
-    eo::detail::write_without_waiting(ends[1], "nobody reads this\n");
+    eo::detail::write_while_read(ends[1], whole, 1000, 20000);
     ::close(ends[1]);
+    long long total = 0;
+    EO_CHECK_EQ(::read(counted[0], &total, sizeof(total)), static_cast<ssize_t>(sizeof(total)));
+    EO_CHECK_EQ(total, static_cast<long long>(whole.size()));
+    int status = 0;
+    ::waitpid(reader, &status, 0);
+    ::close(counted[0]);
+    ::close(counted[1]);
+
+    EO_CHECK_EQ(::pipe(ends), 0);
+    auto const started = std::chrono::steady_clock::now();
+    eo::detail::write_while_read(ends[1], whole, 50, 1000);
+    auto const waited = std::chrono::steady_clock::now() - started;
+    EO_CHECK(waited >= std::chrono::milliseconds(50));
+    EO_CHECK(waited < std::chrono::seconds(5));
+    ::close(ends[0]);
+    eo::detail::write_while_read(ends[1], "nobody reads this\n", 5000, 5000);
+    EO_CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(5));
+    ::close(ends[1]);
+}
+
+EO_TEST(a_last_word_gives_up_on_a_reader_that_trickles) {
+    ::signal(SIGPIPE, SIG_IGN);
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    pid_t const reader = ::fork();
+    if (reader == 0) {
+        ::close(ends[1]);
+        char chunk[4096];
+        for (int round = 0; round < 400; round++) {
+            if (::read(ends[0], chunk, sizeof(chunk)) <= 0) break;
+            ::usleep(20000);
+        }
+        ::_exit(0);
+    }
+    ::close(ends[0]);
+    std::string const whole(1 << 22, 'x');
+    auto const started = std::chrono::steady_clock::now();
+    eo::detail::write_while_read(ends[1], whole, 500, 300);
+    auto const waited = std::chrono::steady_clock::now() - started;
+    EO_CHECK(waited >= std::chrono::milliseconds(300));
+    EO_CHECK(waited < std::chrono::milliseconds(2000));
+    ::close(ends[1]);
+    int status = 0;
+    ::waitpid(reader, &status, 0);
 }
 
 EO_TEST(a_descriptor_that_cannot_be_read_is_a_library_error) {

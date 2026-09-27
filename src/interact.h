@@ -225,7 +225,8 @@ private:
 
     [[noreturn]] void deliver(int code, std::string text) {
         delivered_ = true;
-        if (!deaf_) detail::write_without_waiting(1, pending_);
+        if (!deaf_) detail::write_while_read(1, pending_, detail::last_words_patience_ms,
+                                                detail::last_words_deadline_ms);
         pending_.clear();
         detail::finish(code, text);
     }

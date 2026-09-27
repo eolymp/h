@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -10,6 +11,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -19,15 +21,29 @@
 namespace eo {
 namespace detail {
 
-inline void write_without_waiting(int descriptor, std::string const& bytes) {
+inline int constexpr last_words_patience_ms = 500;
+inline int constexpr last_words_deadline_ms = 2000;
+
+inline void write_while_read(int descriptor, std::string const& bytes, int patience_ms, int deadline_ms) {
     int const flags = ::fcntl(descriptor, F_GETFL);
     if (flags >= 0) ::fcntl(descriptor, F_SETFL, flags | O_NONBLOCK);
+    auto const started = std::chrono::steady_clock::now();
     std::size_t sent = 0;
     while (sent < bytes.size()) {
         ssize_t const wrote = ::write(descriptor, bytes.data() + sent, bytes.size() - sent);
+        if (wrote > 0) {
+            sent += static_cast<std::size_t>(wrote);
+            continue;
+        }
         if (wrote < 0 && errno == EINTR) continue;
-        if (wrote <= 0) return;
-        sent += static_cast<std::size_t>(wrote);
+        if (wrote == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) return;
+        long long const spent = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - started)
+                                    .count();
+        if (spent >= deadline_ms) return;
+        pollfd room{descriptor, POLLOUT, 0};
+        int const ready = ::poll(&room, 1, static_cast<int>(std::min<long long>(patience_ms, deadline_ms - spent)));
+        if (ready == 0 || (ready < 0 && errno != EINTR)) return;
     }
 }
 

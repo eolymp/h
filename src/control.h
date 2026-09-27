@@ -349,7 +349,7 @@ inline void channel::flush() {
 
 inline void channel::hand_over() {
     if (pending_.empty() || shut_ || deaf_) return;
-    detail::write_without_waiting(writes_, pending_);
+    detail::write_while_read(writes_, pending_, detail::last_words_patience_ms, detail::last_words_deadline_ms);
     pending_.clear();
 }
 

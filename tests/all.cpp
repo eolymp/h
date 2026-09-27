@@ -1,6 +1,7 @@
 #include "../eolymp.h"
 #include "../eolymp-shapes.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -10,6 +11,7 @@
 #include <csignal>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
