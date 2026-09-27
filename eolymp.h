@@ -158,10 +158,19 @@ inline void append_unsigned(std::string& out, unsigned long long value) {
 
 inline void append_real(std::string& out, double value) {
     char buffer[48];
+#if defined(__cpp_lib_to_chars)
+    char* end = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::general, 15).ptr;
+    double back = 0;
+    std::from_chars(buffer, end, back);
+    if (back != value)
+        end = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::general, 17).ptr;
+    out.append(buffer, static_cast<std::size_t>(end - buffer));
+#else
     int written = std::snprintf(buffer, sizeof(buffer), "%.15g", value);
     if (std::strtod(buffer, nullptr) != value)
         written = std::snprintf(buffer, sizeof(buffer), "%.17g", value);
     out.append(buffer, static_cast<std::size_t>(written));
+#endif
 }
 
 template <class T>
