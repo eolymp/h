@@ -44,6 +44,8 @@ MUTANTS = [
      "            text.pop_back();\n            seen--;", "            text.pop_back();"),
     ("a token read past the cap it was given", "src/stream.h",
      "            if (cap > 0 && static_cast<long long>(token.size()) >= cap) break;", ""),
+    ("a channel read through the default 1 MB buffer", "src/io.h",
+     "return over_file(path, false, pipe_chunk);", "return over_file(path, false);"),
     ("a look ahead that reads", "src/io.h",
      "        while (held() < limit && top_up()) {\n        }\n",
      "        have(limit);\n"),

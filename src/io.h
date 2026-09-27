@@ -89,6 +89,7 @@ inline void write_file(std::string const& path, std::string const& bytes, char c
 class source {
 public:
     static std::size_t constexpr default_chunk = 1u << 20;
+    static std::size_t constexpr pipe_chunk = 1u << 16;
 
     source() = default;
     source(source const&) = delete;
@@ -121,6 +122,8 @@ public:
         made.drained_ = false;
         return made;
     }
+
+    static source over_channel(char const* path) { return over_file(path, false, pipe_chunk); }
 
     static source over_file(char const* path, bool normalize, std::size_t chunk = default_chunk) {
         int const descriptor = ::open(path, O_RDONLY);
@@ -236,7 +239,10 @@ private:
                 }
                 library_error(fmt("cannot read the input: {}", std::strerror(errno)));
             }
-            if (got == 0) drained_ = true;
+            if (got == 0) {
+                drained_ = true;
+                release();
+            }
             end_ += static_cast<std::size_t>(got);
         }
         return end_ - begin_ >= count;

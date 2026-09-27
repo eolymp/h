@@ -706,6 +706,7 @@ inline void write_file(std::string const& path, std::string const& bytes, char c
 class source {
 public:
     static std::size_t constexpr default_chunk = 1u << 20;
+    static std::size_t constexpr pipe_chunk = 1u << 16;
 
     source() = default;
     source(source const&) = delete;
@@ -738,6 +739,8 @@ public:
         made.drained_ = false;
         return made;
     }
+
+    static source over_channel(char const* path) { return over_file(path, false, pipe_chunk); }
 
     static source over_file(char const* path, bool normalize, std::size_t chunk = default_chunk) {
         int const descriptor = ::open(path, O_RDONLY);
@@ -853,7 +856,10 @@ private:
                 }
                 library_error(fmt("cannot read the input: {}", std::strerror(errno)));
             }
-            if (got == 0) drained_ = true;
+            if (got == 0) {
+                drained_ = true;
+                release();
+            }
             end_ += static_cast<std::size_t>(got);
         }
         return end_ - begin_ >= count;
@@ -3840,7 +3846,7 @@ public:
         made->writes_ = ::open(to_them.c_str(), O_WRONLY);
         if (made->writes_ < 0) fail_jury(fmt("cannot write to instance {}", made->index_));
         std::string const named = fmt("instance {}", made->index_);
-        detail::source listening = detail::source::over_file(from_them.c_str(), false);
+        detail::source listening = detail::source::over_channel(from_them.c_str());
         made->reads_ = std::make_unique<stream>(std::move(listening), detail::fault::wrong_answer, named);
         made->reads_->inside().before_blocking(&controller::flush_from, this);
         made->reads_->inside().on_end(fmt("instance {} ended the dialogue early", made->index_));

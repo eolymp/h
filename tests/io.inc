@@ -294,6 +294,32 @@ EO_TEST(a_non_blocking_pipe_is_waited_on_both_ways) {
     EO_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
+EO_TEST(a_source_lets_its_descriptor_go_once_it_has_read_everything) {
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    EO_CHECK_EQ(::write(ends[1], "last\n", 5), static_cast<ssize_t>(5));
+    ::close(ends[1]);
+    eo::detail::source owned = eo::detail::source::over_descriptor(ends[0], true, false,
+                                                                    eo::detail::source::pipe_chunk);
+    EO_CHECK(::fcntl(ends[0], F_GETFD) >= 0);
+    EO_CHECK_EQ(drain(owned), std::string("last\n"));
+    EO_CHECK(::fcntl(ends[0], F_GETFD) < 0);
+    EO_CHECK(owned.at_end());
+}
+
+EO_TEST(a_channel_is_read_through_a_64_kb_buffer) {
+    std::string const path = temporary_path();
+    std::FILE* const writing = std::fopen(path.c_str(), "wb");
+    std::string const heard(300000, '7');
+    std::fwrite(heard.data(), 1, heard.size(), writing);
+    std::fclose(writing);
+    eo::detail::source channel = eo::detail::source::over_channel(path.c_str());
+    EO_CHECK_EQ(channel.peek(), static_cast<int>('7'));
+    EO_CHECK_EQ(channel.held(), static_cast<std::size_t>(1) << 16);
+    EO_CHECK_EQ(drain(channel), heard);
+    ::unlink(path.c_str());
+}
+
 EO_TEST(a_descriptor_that_cannot_be_read_is_a_library_error) {
     int ends[2] = {-1, -1};
     EO_CHECK_EQ(::pipe(ends), 0);

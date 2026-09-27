@@ -193,7 +193,7 @@ public:
         made->writes_ = ::open(to_them.c_str(), O_WRONLY);
         if (made->writes_ < 0) fail_jury(fmt("cannot write to instance {}", made->index_));
         std::string const named = fmt("instance {}", made->index_);
-        detail::source listening = detail::source::over_file(from_them.c_str(), false);
+        detail::source listening = detail::source::over_channel(from_them.c_str());
         made->reads_ = std::make_unique<stream>(std::move(listening), detail::fault::wrong_answer, named);
         made->reads_->inside().before_blocking(&controller::flush_from, this);
         made->reads_->inside().on_end(fmt("instance {} ended the dialogue early", made->index_));
