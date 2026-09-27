@@ -75,7 +75,7 @@ func build(problem *Problem, name string, program *Program, work string) (*Built
 	}
 
 	exe := filepath.Join(dir, "program")
-	said, err := exec.Command(compiler(), "-std="+standard(program.Runtime), "-O2", "-o", exe,
+	said, err := exec.Command(compiler(), "-std="+standard(program.Runtime), "-O2", "-idirafter", dir, "-o", exe,
 		filepath.Join(dir, "source.cpp")).CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%s does not compile:\n%s", name, strings.TrimSpace(string(said)))

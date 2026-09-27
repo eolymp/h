@@ -102,7 +102,7 @@ Eolymp API, so a problem exported from the platform maps onto it one to one.
 | --- | --- |
 | `source` | the file, relative to the problem directory |
 | `runtime` | an Eolymp runtime name; only the C++ standard is read from it |
-| `files` | headers copied next to the source before compiling, exactly as the judge's `files[]` does |
+| `files` | headers copied next to the source before compiling, exactly as the judge's `files[]` does; that directory is searched after the system's headers, so `#include <eolymp.h>` finds an installed copy first, as the judge does, and an attached one when there is none |
 
 `eo-judge` compiles on your machine, not in the judge's runtime image, so a problem that uses
 `eolymp.h` still names it in `files` here even though it attaches nothing on the judge.
