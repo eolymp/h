@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <new>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -90,9 +89,22 @@ public:
                     values.push_back(low + static_cast<long long>(at));
             }
         } else {
-            std::set<long long> picked;
-            while (picked.size() < wanted) picked.insert(uniform(low, high));
-            values.assign(picked.begin(), picked.end());
+            int bits = 4;
+            while ((std::uint64_t{1} << bits) < 2 * wanted) bits++;
+            std::size_t const mask = (std::size_t{1} << bits) - 1;
+            std::vector<long long> slots(mask + 1);
+            std::vector<unsigned char> taken(mask + 1, 0);
+            while (values.size() < wanted) {
+                long long const drawn = uniform(low, high);
+                std::uint64_t const mixed = static_cast<std::uint64_t>(drawn) * 0x9e3779b97f4a7c15ull;
+                std::size_t at = static_cast<std::size_t>(mixed >> (64 - bits));
+                while (taken[at] != 0 && slots[at] != drawn) at = (at + 1) & mask;
+                if (taken[at] != 0) continue;
+                taken[at] = 1;
+                slots[at] = drawn;
+                values.push_back(drawn);
+            }
+            std::sort(values.begin(), values.end());
         }
         shuffle(values);
         return values;
