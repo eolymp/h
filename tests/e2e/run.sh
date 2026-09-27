@@ -3,7 +3,28 @@ set -e
 root=$(cd "$(dirname "$0")/../.." && pwd)
 build=$root/build/e2e
 mkdir -p "$build"
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/exit_codes" "$root/tests/e2e/exit_codes.cpp"
+pids=
+build_one() {
+    ${CXX:-c++} -std=${CXXSTD:-c++17} "$@" &
+    pids="$pids $!"
+}
+build_one -O2 -Wall -Wextra -Werror -o "$build/exit_codes" "$root/tests/e2e/exit_codes.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/validator" "$root/tests/e2e/validator.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/checker" "$root/tests/e2e/checker.cpp"
+build_one -O1 -Wall -Wextra -Werror -o "$build/play" "$root/tests/e2e/play.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/interactor" "$root/tests/e2e/interactor.cpp"
+build_one -O2 -o "$build/solution" "$root/tests/e2e/solution.cpp"
+build_one -O2 -o "$build/hostile" "$root/tests/e2e/hostile.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/stock_checker" "$root/tests/e2e/stock_checker.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/phased" "$root/tests/e2e/phased.cpp"
+build_one -O2 -o "$build/phased_solution" "$root/tests/e2e/phased_solution.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/generator" "$root/tests/e2e/generator.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/shaper" "$root/tests/e2e/shaper.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/shape_validator" "$root/tests/e2e/shape_validator.cpp"
+build_one -O1 -Wall -Wextra -Werror -o "$build/serve" "$root/tests/e2e/serve.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/relay" "$root/tests/e2e/relay.cpp"
+build_one -O2 -o "$build/relay_solution" "$root/tests/e2e/relay_solution.cpp"
+for pid in $pids; do wait "$pid"; done
 
 failures=0
 expect() {
@@ -27,8 +48,6 @@ expect invalid 3 "line 2: n is 7"
 expect library 3 "eolymp.h: two roles in one program"
 expect version 0 "0."
 expect anything 1 "unknown request"
-
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/validator" "$root/tests/e2e/validator.cpp"
 
 check_validator() {
     label=$1
@@ -61,8 +80,6 @@ printf '3\n1 2 3\n' > "$build/input.txt"
 check_validator "no group at all" 0 ""
 printf '3\n1 2 3\n7\n' > "$build/input.txt"
 check_validator "trailing content" 3 "expected the end of the input" --group 1
-
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/checker" "$root/tests/e2e/checker.cpp"
 
 check_checker() {
     label=$1
@@ -109,12 +126,6 @@ else
     echo "e2e: readpoints skipped, go is not installed"
 fi
 
-${CXX:-c++} -std=${CXXSTD:-c++17} -O1 -Wall -Wextra -Werror -o "$build/play" "$root/tests/e2e/play.cpp"
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/interactor" "$root/tests/e2e/interactor.cpp"
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -o "$build/solution" "$root/tests/e2e/solution.cpp"
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -o "$build/hostile" "$root/tests/e2e/hostile.cpp"
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/stock_checker" "$root/tests/e2e/stock_checker.cpp"
-
 printf '1000 723\n' > "$build/iin.txt"
 
 play_it() {
@@ -150,9 +161,6 @@ for mode in silent garbage outofrange wrongguess greedy deaf waiting; do
 done
 echo "e2e: seven badly behaved solutions all got a wrong answer, never an interaction failure"
 
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/phased" "$root/tests/e2e/phased.cpp"
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -o "$build/phased_solution" "$root/tests/e2e/phased_solution.cpp"
-
 printf '123456789\n' > "$build/pin.txt"
 TEST_COST=40 "$build/play" "$build/phased" "$build/pin.txt" "$build/phandoff.txt" -- "$build/phased_solution" \
     > /dev/null 2>"$build/phase1.log"
@@ -174,8 +182,6 @@ case "$short_code:$short" in
     *) echo "e2e: run_count too small gave $short_code saying \"$short\"" >&2
        failures=$((failures + 1)) ;;
 esac
-
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/generator" "$root/tests/e2e/generator.cpp"
 
 "$build/generator" -n=20 -max=1000 > "$build/generated.txt" 2>"$build/generator.log"
 "$build/generator" -n=20 -max=1000 > "$build/generated_again.txt" 2>/dev/null
@@ -206,9 +212,6 @@ else
            failures=$((failures + 1)) ;;
     esac
 fi
-
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/shaper" "$root/tests/e2e/shaper.cpp"
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/shape_validator" "$root/tests/e2e/shape_validator.cpp"
 
 for kind in random path star caterpillar; do
     "$build/shaper" -n=400 "-shape=$kind" -maxw=1000 > "$build/shaped_$kind.txt" 2>/dev/null
@@ -265,10 +268,6 @@ if [ -n "$gcc_says" ] && [ -n "$clang_says" ] && [ "$gcc_says" != "$clang_says" 
 else
     echo "e2e: the cross-compiler checks need two different compilers; here g++ and clang++ are one"
 fi
-
-${CXX:-c++} -std=${CXXSTD:-c++17} -O1 -Wall -Wextra -Werror -o "$build/serve" "$root/tests/e2e/serve.cpp"
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -Wall -Wextra -Werror -o "$build/relay" "$root/tests/e2e/relay.cpp"
-${CXX:-c++} -std=${CXXSTD:-c++17} -O2 -o "$build/relay_solution" "$root/tests/e2e/relay_solution.cpp"
 
 mkdir -p "$build/com"
 printf '3 12345\n' > "$build/com/in.txt"
