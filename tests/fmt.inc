@@ -34,6 +34,18 @@ EO_TEST(fmt_writes_reals_that_read_back_exactly) {
     EO_CHECK(written.size() > 1);
 }
 
+EO_TEST(fmt_writes_a_fixed_number_of_any_length) {
+    EO_CHECK_EQ(eo::fmt("[{}]", eo::fixed(2.5, 3)), std::string("[2.500]"));
+    std::string const huge = eo::fmt("[{}]", eo::fixed(1e300, 2));
+    EO_CHECK_EQ(huge.size(), static_cast<std::size_t>(306));
+    EO_CHECK_EQ(huge.substr(0, 3), std::string("[10"));
+    EO_CHECK_EQ(huge.substr(huge.size() - 4), std::string(".00]"));
+    std::string const digits = eo::fmt("{}", eo::fixed(0.5, 100));
+    EO_CHECK_EQ(digits, "0.5" + std::string(99, '0'));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(0.5, 61)), "0.5" + std::string(60, '0'));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(0.5, 62)), "0.5" + std::string(61, '0'));
+}
+
 EO_TEST(fmt_writes_text_of_every_kind) {
     char mutable_text[] = "mutable";
     char* pointer = mutable_text;

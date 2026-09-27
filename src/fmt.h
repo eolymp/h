@@ -47,8 +47,16 @@ struct is_fixed<fixed_number<T>> : std::true_type {};
 
 inline void append_fixed(std::string& out, double value, int digits) {
     char buffer[64];
-    int const written = std::snprintf(buffer, sizeof(buffer), "%.*f", digits, value);
-    out.append(buffer, static_cast<std::size_t>(written));
+    std::size_t const written =
+        static_cast<std::size_t>(std::snprintf(buffer, sizeof(buffer), "%.*f", digits, value));
+    if (written < sizeof(buffer)) {
+        out.append(buffer, written);
+        return;
+    }
+    std::size_t const at = out.size();
+    out.resize(at + written + 1);
+    std::snprintf(&out[at], written + 1, "%.*f", digits, value);
+    out.resize(at + written);
 }
 
 template <class T>
