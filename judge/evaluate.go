@@ -116,6 +116,9 @@ func (w *Workspace) judge(ctx context.Context, one *Planned, solution, checker, 
 	if err != nil {
 		return nil, err
 	}
+	if err := made.intact(solution.Name); err != nil {
+		return nil, err
+	}
 
 	result.Wall = status.Wall
 	result.Memory = status.Memory
@@ -166,7 +169,12 @@ func (w *Workspace) batch(ctx context.Context, made *Prepared, solution *Built, 
 	}
 	defer file.Close()
 
-	return run(ctx, solution.Exe, Invocation{Dir: work, Stdin: input, Stdout: file, LimitMS: limit})
+	alone, err := os.MkdirTemp("", "eo-judge-run-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(alone)
+	return run(ctx, solution.Exe, Invocation{Dir: alone, Stdin: input, Stdout: file, LimitMS: limit})
 }
 
 func (w *Workspace) check(ctx context.Context, one *Planned, made *Prepared, checker *Built,
@@ -284,6 +292,12 @@ func (w *Workspace) onePhase(ctx context.Context, input, summary string, solutio
 		arguments = append(arguments, answer)
 	}
 
+	alone, err := os.MkdirTemp("", "eo-judge-run-")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer os.RemoveAll(alone)
+
 	done := make(chan *Status, 1)
 	go func() {
 		status, _ := run(ctx, interactor.Exe, Invocation{
@@ -297,7 +311,7 @@ func (w *Workspace) onePhase(ctx context.Context, input, summary string, solutio
 	}()
 
 	status, err := run(ctx, solution.Exe, Invocation{
-		Dir: work, Stdin: toPlayer, Stdout: fromPlayer, Stderr: io.Discard, LimitMS: limit,
+		Dir: alone, Stdin: toPlayer, Stdout: fromPlayer, Stderr: io.Discard, LimitMS: limit,
 	})
 	toPlayer.Close()
 	fromPlayer.Close()

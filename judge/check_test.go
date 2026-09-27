@@ -279,3 +279,39 @@ func TestABrokenValidatorIsNotBlamedOnTheTests(t *testing.T) {
 		t.Errorf("%d tests were blamed for a broken validator", blamed)
 	}
 }
+
+func TestASolutionCannotWriteTheSummary(t *testing.T) {
+	needsACompiler(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	code, out, errs := invoke("run", "testdata/forged")
+	if code != 0 {
+		t.Fatalf("exit %d, said %q", code, errs)
+	}
+	if !strings.Contains(out, "forger: PARTIALLY_CORRECT, 1\n") {
+		t.Errorf("printed %q", out)
+	}
+}
+
+func TestASolutionCannotReachTheAnswersByRelativePath(t *testing.T) {
+	needsACompiler(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	code, out, errs := invoke("run", "testdata/poisoned", "--solution", "walker")
+	if code != 0 {
+		t.Fatalf("exit %d, said %q", code, errs)
+	}
+	if !strings.Contains(out, "walker: WRONG_ANSWER, 0\n") {
+		t.Errorf("printed %q", out)
+	}
+}
+
+func TestAnAnswerRewrittenDuringARunStopsTheRun(t *testing.T) {
+	needsACompiler(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	code, out, errs := invoke("run", "testdata/poisoned", "--solution", "poisoner")
+	if code != 3 || !strings.Contains(errs, "01-001.ans changed while solution.poisoner ran") {
+		t.Fatalf("exit %d, said %q", code, errs)
+	}
+	if strings.Contains(out, "poisoner: ACCEPTED") {
+		t.Errorf("printed %q", out)
+	}
+}

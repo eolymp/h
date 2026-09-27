@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -19,6 +20,35 @@ type Prepared struct {
 	Broken   bool
 	Why      string
 	Warnings []Warning
+
+	sums [2][sha256.Size]byte
+}
+
+func (p *Prepared) files() [2]string { return [2]string{p.Input, p.Answer} }
+
+func (p *Prepared) seal() error {
+	for at, path := range p.files() {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		p.sums[at] = sha256.Sum256(body)
+		if err := os.Chmod(path, 0o444); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Prepared) intact(during string) error {
+	for at, path := range p.files() {
+		body, err := os.ReadFile(path)
+		if err != nil || sha256.Sum256(body) != p.sums[at] {
+			return fmt.Errorf("%s changed while %s ran; a program that writes into eo-judge's workspace "+
+				"gets no score, and the run stops here", path, during)
+		}
+	}
+	return nil
 }
 
 type Workspace struct {
@@ -94,6 +124,9 @@ func (w *Workspace) script(name string) (*Built, error) {
 
 func (w *Workspace) Generate(ctx context.Context) error {
 	tests := filepath.Join(w.Dir, "tests")
+	if err := os.RemoveAll(tests); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(tests, 0o755); err != nil {
 		return err
 	}
@@ -109,6 +142,9 @@ func (w *Workspace) Generate(ctx context.Context) error {
 				return err
 			}
 			if err := w.makeAnswer(ctx, made); err != nil {
+				return err
+			}
+			if err := made.seal(); err != nil {
 				return err
 			}
 			w.Tests[reference(&Planned{Group: testset.Index, Test: test})] = made

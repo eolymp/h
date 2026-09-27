@@ -159,6 +159,16 @@ note EO821: the problem has 1 correct solution(s)
 `check` also replays the warnings the programs themselves raised while generating and
 validating, so one command covers both halves.
 
+**Each solution runs in a directory of its own**, a fresh temporary directory outside the
+workspace that is removed when the run ends, so no name or relative path from it reaches the
+files the interactor and the checker use: the summary in `output.txt`, a phase's handoff, the
+tests and their answers. The tests are also read-only once generated, and after every run
+eo-judge checks that its input and answer are byte for byte what was generated; if either
+changed, it stops with exit 3 and names the solution rather than score a run against an answer
+the solution rewrote. None of this stops a solution that looks for the workspace on purpose —
+it lives under `$TMPDIR`, and a process can find the directories of the processes around it —
+so run a problem you do not trust in a container.
+
 ## What it does not do
 
 - **It does not enforce memory.** It measures peak usage and reports it; the time limit is
