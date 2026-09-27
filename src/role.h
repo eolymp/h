@@ -85,6 +85,12 @@ private:
 
 inline double clamped(double fraction) {
     if (std::isnan(fraction)) refuse_a_score(fmt("a score of {}", fraction));
+    if (fraction >= 2 && std::isfinite(fraction)) {
+        warn("EO205", fmt("a score of {} was clamped to 1; it looks like a percentage or points, and eo::score "
+                          "takes a fraction of the test", fraction),
+             "use eo::ratio(a, b) for a out of b, or eo::points for points", site::here());
+        return 1.0;
+    }
     if (fraction < 0 || fraction > 1) {
         warn("EO205", fmt("a score of {} was clamped into 0..1", fraction), "keep the formula inside the test",
              site::here());

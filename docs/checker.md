@@ -89,7 +89,9 @@ Two consequences the library takes care of:
 - **A full score must exit 0, not 7.** An exit 7 is not an accept even at full points, and a
   testset that needs every test passed then awards nothing. `eo::score(1.0)` exits 0.
 - **Points are absolute, not a percentage.** A test worth 11 that receives `points 90.9` is
-  clamped to 11. `eo::score` takes a fraction of `TEST_COST`, so the two cannot be confused.
+  clamped to 11. `eo::score` takes a fraction of `TEST_COST` and multiplies; a percentage
+  given to it by mistake is clamped to full marks with warning EO205, which calls it a likely
+  percentage, and `EOLYMP_STRICT=1` or `eo-judge --strict` makes that fatal while you prepare.
 
 A run that earns a partial score is labelled **`PARTIALLY_CORRECT`**, so the verdict matches
 the score instead of reading as a plain wrong answer.
@@ -212,7 +214,8 @@ testset configuration, and the checker never hard-codes 100.
 
 **Use `eo::ratio(a, b)`** for "a out of b": it is exact, so `eo::ratio(n, n)` is exactly 1 and
 a perfect answer is an accept. A fraction outside [0, 1], an infinity included, is clamped
-with warning EO205, one that is NaN is a jury error, and one within 10⁻⁹ of 1 gets EO206.
+with warning EO205, which says that a finite one of 2 or more looks like a percentage; one
+that is NaN is a jury error, and one within 10⁻⁹ of 1 gets EO206.
 
 **Rounding.** Some tasks round the score, and a documented full score can be unreachable
 without it:

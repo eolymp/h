@@ -30,10 +30,12 @@ that is the page to look a code up in.
 
 ## What it gives you
 
-- **A score is a fraction of the test, so it cannot be a percentage by accident.** Points on
-  Eolymp are absolute and clamped to the test's cost, so a checker that reports a percentage
+- **A score is a fraction of the test, and a percentage is caught while you prepare.** Points
+  on Eolymp are absolute and clamped to the test's cost, so a checker that reports a percentage
   overpays a cheap test to full marks and underpays an expensive one. `eo::score` takes the
-  fraction and the library multiplies; a full score leaves through exit 0, not the exit 7
+  fraction and the library multiplies; a score of 2 or more is clamped to full marks with
+  warning EO205, which calls it a likely percentage, and `EOLYMP_STRICT=1` or
+  `eo-judge --strict` makes that fatal. A full score leaves through exit 0, not the exit 7
   that is not an accept.
 - **The verdict line is written before anything the checker printed.** The judge's parser
   gives up if any line before `points` ends in whitespace, so one debug `printf` with a

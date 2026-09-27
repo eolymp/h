@@ -249,6 +249,30 @@ EO_TEST(a_score_outside_the_test_is_clamped_and_reported) {
     });
     EO_CHECK_EQ(above.code, 0);
     EO_CHECK_IN(checker_warnings(), "warning EO205: a score of 1.5 was clamped into 0..1");
+    EO_CHECK(!eot::contains(checker_warnings(), "percentage"));
+    eot::outcome const percent = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(30, "a percentage");
+    });
+    EO_CHECK_EQ(percent.code, 0);
+    EO_CHECK_EQ(percent.text, std::string("ok a percentage"));
+    EO_CHECK_IN(checker_warnings(), "warning EO205: a score of 30 was clamped to 1; it looks like a percentage");
+    EO_CHECK_IN(checker_warnings(), "use eo::ratio(a, b) for a out of b, or eo::points for points");
+    eot::outcome const twice = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(2, eo::round_to(0), "double");
+    });
+    EO_CHECK_EQ(twice.code, 0);
+    EO_CHECK_IN(checker_warnings(), "a score of 2 was clamped to 1; it looks like a percentage");
+    eot::outcome const over = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(1 + 1e-12, "a hair over");
+    });
+    EO_CHECK_EQ(over.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO205: a score of 1.000000000001 was clamped into 0..1");
     eot::outcome const below = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
         c.input.read_int(1, 9, "n");
         c.output.read_int(1, 9, "a");
