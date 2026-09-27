@@ -1980,7 +1980,10 @@ public:
     }
 
     sum_limit& operator+=(long long value) {
-        total_ += value;
+        long long sum = 0;
+        if (__builtin_add_overflow(total_, value, &sum))
+            detail::finish(3, fmt("{} does not fit a long long: {} was added to {}", name_, value, total_));
+        total_ = sum;
         return *this;
     }
 
