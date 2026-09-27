@@ -187,8 +187,8 @@ public:
             if (parsed.value > high) refuse(name, fmt("{} is above {}", parsed.value, high));
         }
         if (decimals_stated && (parsed.decimals < least_decimals || parsed.decimals > most_decimals)) {
-            std::string const said = fmt("{} has {} digits after the point, not {}..{}", token, parsed.decimals,
-                                         least_decimals, most_decimals);
+            std::string const said = fmt("{} has {} digits after the point, not {}..{}", shorten(token),
+                                         parsed.decimals, least_decimals, most_decimals);
             refuse(name, said);
         }
         if (bounds == stated::yes)
@@ -223,8 +223,8 @@ public:
             if (allowed != nullptr)
                 for (char const one : token)
                     if (!allowed->has(one))
-                        refuse(name, fmt("\"{}\" holds \"{}\", which is not in \"{}\"", shorten(token), one,
-                                         allowed->text()));
+                        refuse(name, fmt("\"{}\" holds \"{}\", which is not in \"{}\"", shorten(token),
+                                         escaped(std::string(1, one)), allowed->text()));
             remember(name, "length", least, most, length == least, length == most,
                      where);
         }
@@ -260,7 +260,8 @@ public:
         if (allowed != nullptr)
             for (char const one : text)
                 if (!allowed->has(one))
-                    refuse(name, fmt("the line holds \"{}\", which is not in \"{}\"", one, allowed->text()));
+                    refuse(name, fmt("the line holds \"{}\", which is not in \"{}\"", escaped(std::string(1, one)),
+                                     allowed->text()));
         if (bounds == stated::yes)
             remember(name, "length", least, most, length == least, length == most,
                      where);

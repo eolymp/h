@@ -858,9 +858,57 @@ inline bool nearly_round(long long value) {
     return !is_round(value) && (is_round(value - 1) || is_round(value + 1));
 }
 
+inline unsigned char byte_at(std::string const& text, std::size_t at) { return static_cast<unsigned char>(text[at]); }
+
+inline std::size_t utf8_length(std::string const& text, std::size_t at) {
+    unsigned char const lead = byte_at(text, at);
+    std::size_t length = 4;
+    unsigned char low = 0x80;
+    unsigned char high = 0xBF;
+    if (lead < 0xC2 || lead > 0xF4) return 0;
+    if (lead < 0xE0) length = 2;
+    else if (lead < 0xF0) length = 3;
+    if (lead == 0xE0) low = 0xA0;
+    if (lead == 0xED) high = 0x9F;
+    if (lead == 0xF0) low = 0x90;
+    if (lead == 0xF4) high = 0x8F;
+    if (text.size() - at < length) return 0;
+    for (std::size_t next = 1; next < length; next++) {
+        unsigned char const byte = byte_at(text, at + next);
+        if (byte < low || byte > high) return 0;
+        low = 0x80;
+        high = 0xBF;
+    }
+    return length;
+}
+
+inline std::string escaped(std::string const& text) {
+    std::string out;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        unsigned char const byte = byte_at(text, at);
+        std::size_t length = 1;
+        if (byte >= 0x80) length = utf8_length(text, at);
+        else if (byte < 0x20 || byte == 0x7F) length = 0;
+        if (length > 0) {
+            out.append(text, at, length);
+            at += length;
+            continue;
+        }
+        out += "\\x";
+        out += "0123456789abcdef"[byte >> 4];
+        out += "0123456789abcdef"[byte & 15];
+        at++;
+    }
+    return out;
+}
+
 inline std::string shorten(std::string const& text, std::size_t limit = 40) {
-    if (text.size() <= limit) return text;
-    return text.substr(0, limit) + "...";
+    if (text.size() <= limit) return escaped(text);
+    std::size_t lead = limit;
+    while (lead > 0 && limit - lead < 3 && (byte_at(text, lead) & 0xC0) == 0x80) lead--;
+    std::size_t const cut = lead + utf8_length(text, lead) > limit ? lead : limit;
+    return escaped(text.substr(0, cut)) + "...";
 }
 
 inline char const* name_of(int character) {
@@ -1070,8 +1118,8 @@ public:
             if (parsed.value > high) refuse(name, fmt("{} is above {}", parsed.value, high));
         }
         if (decimals_stated && (parsed.decimals < least_decimals || parsed.decimals > most_decimals)) {
-            std::string const said = fmt("{} has {} digits after the point, not {}..{}", token, parsed.decimals,
-                                         least_decimals, most_decimals);
+            std::string const said = fmt("{} has {} digits after the point, not {}..{}", shorten(token),
+                                         parsed.decimals, least_decimals, most_decimals);
             refuse(name, said);
         }
         if (bounds == stated::yes)
@@ -1106,8 +1154,8 @@ public:
             if (allowed != nullptr)
                 for (char const one : token)
                     if (!allowed->has(one))
-                        refuse(name, fmt("\"{}\" holds \"{}\", which is not in \"{}\"", shorten(token), one,
-                                         allowed->text()));
+                        refuse(name, fmt("\"{}\" holds \"{}\", which is not in \"{}\"", shorten(token),
+                                         escaped(std::string(1, one)), allowed->text()));
             remember(name, "length", least, most, length == least, length == most,
                      where);
         }
@@ -1143,7 +1191,8 @@ public:
         if (allowed != nullptr)
             for (char const one : text)
                 if (!allowed->has(one))
-                    refuse(name, fmt("the line holds \"{}\", which is not in \"{}\"", one, allowed->text()));
+                    refuse(name, fmt("the line holds \"{}\", which is not in \"{}\"", escaped(std::string(1, one)),
+                                     allowed->text()));
         if (bounds == stated::yes)
             remember(name, "length", least, most, length == least, length == most,
                      where);
@@ -2279,7 +2328,7 @@ private:
     std::string found_name(int character) {
         char const* const known = detail::name_of(character);
         if (known[0] != '\0') return known;
-        return fmt("\"{}\"", static_cast<char>(character));
+        return fmt("\"{}\"", detail::escaped(std::string(1, static_cast<char>(character))));
     }
 
     int whole_int(long long low, long long high, detail::stated bounds, detail::value_name name,
@@ -2761,7 +2810,9 @@ public:
             std::string const want = jury.read_token(any, fmt("token {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
             std::string const got = output.read_token(any, fmt("token {}", seen));
-            if (want != got) fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, got, want));
+            if (want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                             detail::shorten(want)));
         }
     }
 
@@ -2785,7 +2836,9 @@ public:
                     fail_run(fmt("value {} is {}, expected {}", seen, found.value, wanted.value));
                 continue;
             }
-            if (want != got) fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, got, want));
+            if (want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                             detail::shorten(want)));
         }
     }
 

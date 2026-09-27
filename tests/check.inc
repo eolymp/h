@@ -530,6 +530,25 @@ EO_TEST(the_ready_made_comparisons_compare) {
                 "the answer has 1 tokens, the output has more");
 }
 
+EO_TEST(the_ready_made_comparisons_shorten_and_escape_what_they_echo) {
+    std::string const huge = std::string(100000, 'z') + "\n";
+    eot::outcome const tokens = check_run("1\n", huge, "a\n", [](eo::checker& c) { c.tokens(); });
+    EO_CHECK_EQ(tokens.text, "wrong answer token 1 is \"" + std::string(40, 'z') + "...\", expected \"a\"");
+    eot::outcome const reals = check_run("1\n", huge, "1.0\n", [](eo::checker& c) { c.reals(1e-6); });
+    EO_CHECK_EQ(reals.text, "wrong answer token 1 is \"" + std::string(40, 'z') + "...\", expected \"1.0\"");
+    std::string const bytes = std::string("a\x01\x7f\xd0\xbf\xbf") + "\n";
+    eot::outcome const binary = check_run("1\n", bytes, "a\n", [](eo::checker& c) { c.tokens(); });
+    EO_CHECK_EQ(binary.text,
+                std::string("wrong answer token 1 is \"a\\x01\\x7fп\\xbf\", expected \"a\""));
+    eot::outcome const cyrillic = check_run("1\n", "привіт\n", "вітаю\n", [](eo::checker& c) { c.tokens(); });
+    EO_CHECK_EQ(cyrillic.text, std::string("wrong answer token 1 is \"привіт\", expected \"вітаю\""));
+    std::string const split = std::string(39, 'a') + "їїї\n";
+    eot::outcome const cut = check_run("1\n", split, "b\n", [](eo::checker& c) { c.tokens(); });
+    EO_CHECK_EQ(cut.text, "wrong answer token 1 is \"" + std::string(39, 'a') + "...\", expected \"b\"");
+    eot::outcome const line = check_run("1\n", "a\tb\n", "a b\n", [](eo::checker& c) { c.lines(); });
+    EO_CHECK_IN(line.text, "line 1 is \"a\\x09b\", expected \"a b\"");
+}
+
 EO_TEST(yes_and_no_with_a_certificate) {
     auto const certificate = [](eo::answer_stream& a) {
         int const k = a.read_int(1, 9, "k");

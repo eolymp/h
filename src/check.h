@@ -366,7 +366,9 @@ public:
             std::string const want = jury.read_token(any, fmt("token {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
             std::string const got = output.read_token(any, fmt("token {}", seen));
-            if (want != got) fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, got, want));
+            if (want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                             detail::shorten(want)));
         }
     }
 
@@ -390,7 +392,9 @@ public:
                     fail_run(fmt("value {} is {}, expected {}", seen, found.value, wanted.value));
                 continue;
             }
-            if (want != got) fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, got, want));
+            if (want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                             detail::shorten(want)));
         }
     }
 

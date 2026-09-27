@@ -424,7 +424,7 @@ private:
     std::string found_name(int character) {
         char const* const known = detail::name_of(character);
         if (known[0] != '\0') return known;
-        return fmt("\"{}\"", static_cast<char>(character));
+        return fmt("\"{}\"", detail::escaped(std::string(1, static_cast<char>(character))));
     }
 
     int whole_int(long long low, long long high, detail::stated bounds, detail::value_name name,
