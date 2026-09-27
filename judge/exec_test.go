@@ -91,3 +91,32 @@ func TestAChildLeftBehindIsStoppedWhenTheProgramEnds(t *testing.T) {
 		t.Error("the child outlived the run")
 	}
 }
+
+func TestTheSameProgramIsBuiltOnceUnderEveryName(t *testing.T) {
+	needsACompiler(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gen.cpp"), []byte("int main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	same := &Program{Source: "gen.cpp", Runtime: "cpp:17"}
+	problem := &Problem{dir: dir, Scripts: map[string]*Program{"a": same, "b": {Source: "gen.cpp"}},
+		Solutions: []*Solution{{Name: "full", Source: "gen.cpp"}}}
+	shop := NewWorkspace(problem, t.TempDir())
+	if err := shop.BuildAll(problem.Solutions); err != nil {
+		t.Fatal(err)
+	}
+	a, b, full := shop.Programs["script.a"], shop.Programs["script.b"], shop.Programs["solution.full"]
+	if a == nil || b == nil || full == nil {
+		t.Fatalf("built %v", shop.Programs)
+	}
+	if a.Exe != b.Exe || a.Exe != full.Exe {
+		t.Errorf("one program was built more than once: %s, %s, %s", a.Exe, b.Exe, full.Exe)
+	}
+	if a.Name != "script.a" || b.Name != "script.b" || full.Name != "solution.full" {
+		t.Errorf("names %s, %s, %s", a.Name, b.Name, full.Name)
+	}
+	problem.Checker = &Program{Source: "missing.cpp"}
+	if err := NewWorkspace(problem, t.TempDir()).BuildAll(nil); err == nil {
+		t.Error("a program that cannot be built was not reported")
+	}
+}

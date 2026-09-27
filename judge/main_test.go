@@ -141,3 +141,23 @@ func TestOnlyTheSolutionNamedAfterTheProblemIsJudged(t *testing.T) {
 		t.Errorf("printed %q", out)
 	}
 }
+
+func TestADontRunSolutionIsNotEvenBuilt(t *testing.T) {
+	needsACompiler(t)
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("problem.json", `{"type": "PROGRAM", "solutions": [{"name": "parked", "source": "parked.cpp", "type": "DONT_RUN"}]}`)
+	write("parked.cpp", "this is not C++\n")
+	for _, command := range []string{"run", "check"} {
+		if code, _, errs := invoke(command, dir); code != 0 {
+			t.Errorf("%s exited %d, said %q", command, code, errs)
+		}
+	}
+	if code, _, errs := invoke("run", dir, "--solution", "parked"); code != 3 || !strings.Contains(errs, "does not compile") {
+		t.Errorf("naming it exited %d, said %q", code, errs)
+	}
+}

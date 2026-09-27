@@ -171,7 +171,7 @@ func (w *Workspace) headroom(found *Findings, solution *Solution, attempt *Attem
 func (w *Workspace) Check(ctx context.Context, deep bool) (Findings, error) {
 	found := Configuration(w.Problem)
 
-	if err := w.BuildAll(); err != nil {
+	if err := w.BuildAll(w.Problem.Judged("")); err != nil {
 		return found, err
 	}
 	if err := w.Generate(ctx); err != nil {

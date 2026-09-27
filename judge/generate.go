@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
+	"sync"
 )
 
 type Prepared struct {
@@ -89,27 +92,80 @@ func (w *Workspace) Build(name string, program *Program) (*Built, error) {
 	return made, nil
 }
 
-func (w *Workspace) BuildAll() error {
+type wanted struct {
+	name    string
+	program *Program
+}
+
+func (w *Workspace) recipe(program *Program) string {
+	parts := []string{w.Problem.Path(program.Source), standard(program.Runtime)}
+	for _, one := range program.Files {
+		parts = append(parts, w.Problem.Path(one))
+	}
+	return keyOf(parts...)
+}
+
+func (w *Workspace) BuildAll(solutions []*Solution) error {
 	problem := w.Problem
+	var jobs []wanted
 	if problem.Checker != nil {
-		if _, err := w.Build("checker", problem.Checker); err != nil {
-			return err
-		}
+		jobs = append(jobs, wanted{"checker", problem.Checker})
 	}
 	if problem.Validator != nil {
-		if _, err := w.Build("validator", problem.Validator); err != nil {
-			return err
-		}
+		jobs = append(jobs, wanted{"validator", problem.Validator})
 	}
 	if problem.Interactor != nil {
-		if _, err := w.Build("interactor", problem.Interactor); err != nil {
-			return err
+		jobs = append(jobs, wanted{"interactor", problem.Interactor})
+	}
+	names := make([]string, 0, len(problem.Scripts))
+	for name := range problem.Scripts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		jobs = append(jobs, wanted{"script." + name, problem.Scripts[name]})
+	}
+	for _, one := range solutions {
+		jobs = append(jobs, wanted{"solution." + one.Name, &Program{Source: one.Source}})
+	}
+
+	var first []wanted
+	shared := map[string]int{}
+	for _, job := range jobs {
+		if _, known := w.Programs[job.name]; known {
+			continue
+		}
+		key := w.recipe(job.program)
+		if _, seen := shared[key]; !seen {
+			shared[key] = len(first)
+			first = append(first, job)
 		}
 	}
-	for name, script := range problem.Scripts {
-		if _, err := w.Build("script."+name, script); err != nil {
-			return err
+
+	built := make([]*Built, len(first))
+	failed := make([]error, len(first))
+	slots := make(chan struct{}, runtime.NumCPU())
+	var waiting sync.WaitGroup
+	for at, job := range first {
+		waiting.Add(1)
+		go func(at int, job wanted) {
+			defer waiting.Done()
+			slots <- struct{}{}
+			built[at], failed[at] = build(problem, job.name, job.program, w.Dir)
+			<-slots
+		}(at, job)
+	}
+	waiting.Wait()
+
+	for _, job := range jobs {
+		if _, known := w.Programs[job.name]; known {
+			continue
 		}
+		at := shared[w.recipe(job.program)]
+		if failed[at] != nil {
+			return failed[at]
+		}
+		w.Programs[job.name] = &Built{Name: job.name, Exe: built[at].Exe, Dir: built[at].Dir}
 	}
 	return nil
 }
