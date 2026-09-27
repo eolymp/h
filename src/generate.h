@@ -143,7 +143,7 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, std::string_view pattern, Args const&... args) {
+    void require(bool condition, detail::pattern pattern, Args const&... args) {
         if (!condition) refuse(fmt(pattern, args...));
     }
 

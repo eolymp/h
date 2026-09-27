@@ -170,13 +170,13 @@ private:
 };
 
 template <class... Args>
-[[noreturn]] inline void accept(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void accept(detail::pattern pattern = "", Args const&... args) {
     detail::judging().pass(1, fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void wrong(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void wrong(detail::pattern pattern = "", Args const&... args) {
     std::string const message = fmt(pattern, args...);
     if (detail::blaming() != nullptr) detail::blaming()->refuse(detail::value_name(unnamed), message);
     detail::judging().fail_run(message);
@@ -184,19 +184,19 @@ template <class... Args>
 }
 
 template <class... Args>
-[[noreturn]] inline void jury_error(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void jury_error(detail::pattern pattern = "", Args const&... args) {
     detail::judging().fail_jury(fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(detail::scored fraction, std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void score(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
     detail::judging().pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(detail::scored fraction, rounding how, std::string_view pattern = "",
+[[noreturn]] inline void score(detail::scored fraction, rounding how, detail::pattern pattern = "",
                                Args const&... args) {
     detail::scorer& one = detail::judging();
     double const paid = detail::rounded(detail::clamped(fraction.value, fraction.where) * one.cost(), how.digits);
@@ -205,7 +205,7 @@ template <class... Args>
 }
 
 template <class... Args>
-[[noreturn]] inline void points(detail::scored given, std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void points(detail::scored given, detail::pattern pattern = "", Args const&... args) {
     detail::scorer& one = detail::judging();
     double paid = given.value;
     if (std::isnan(paid)) detail::refuse_a_score(fmt("{} points", paid));
@@ -222,7 +222,7 @@ template <class... Args>
 }
 
 template <class... Args>
-inline void log(std::string_view pattern, Args const&... args) {
+inline void log(detail::pattern pattern, Args const&... args) {
     detail::log_line(fmt(pattern, args...));
 }
 

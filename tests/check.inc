@@ -181,6 +181,28 @@ EO_TEST(points_and_rounding_go_through_the_cost) {
     EO_CHECK_IN(checker_warnings(), "warning EO205: -inf points was clamped to 0");
 }
 
+EO_TEST(a_message_that_does_not_match_its_values_keeps_the_verdict) {
+    int line = 0;
+    eot::outcome const refused = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        long long const a = c.output.read_long(eo::any, "a");
+        line = __LINE__ + 1;
+        eo::wrong("expected %lld, found %lld", 2LL, a);
+    });
+    EO_CHECK_EQ(refused.code, 1);
+    EO_CHECK_EQ(refused.text, std::string("wrong answer expected %lld, found %lld 2 1"));
+    EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO112: the message \"expected %lld, found %lld\" "
+                                            "has 0 {{}} for 2 values", line).c_str());
+    eot::outcome const accepted = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_long(eo::any, "a");
+        c.jury.read_long(eo::any, "a");
+        eo::accept("{} of {}", 1);
+    });
+    EO_CHECK_EQ(accepted.code, 0);
+    EO_CHECK_EQ(accepted.text, std::string("ok 1 of {}"));
+}
+
 EO_TEST(a_scored_zero_is_not_the_same_run_as_a_wrong_answer) {
     eot::outcome const scored = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
         c.input.read_int(1, 9, "n");

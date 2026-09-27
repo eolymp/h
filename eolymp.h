@@ -228,42 +228,70 @@ inline void add_to_line(std::string& line, T const& value, bool& first) {
 
 using appender = void (*)(std::string&, void const*);
 
+class pattern {
+public:
+    template <class T, class = std::enable_if_t<std::is_convertible_v<T const&, std::string_view>>>
+    pattern(T const& text, char const* file = __builtin_FILE(), int line = __builtin_LINE())
+        : text_(text), file_(file), line_(line) {}
+
+    std::string_view text() const { return text_; }
+    char const* file() const { return file_; }
+    int line() const { return line_; }
+
+private:
+    std::string_view text_;
+    char const* file_;
+    int line_;
+};
+
+inline void (*&bad_pattern_hook())(std::string const&, char const*, int) {
+    static void (*hook)(std::string const&, char const*, int) = nullptr;
+    return hook;
+}
+
 template <class T>
 inline void append_erased(std::string& out, void const* value) {
     append_value(out, *static_cast<T const*>(value));
 }
 
-inline std::string assemble(std::string_view pattern, void const* const* values, appender const* appenders,
+inline std::string assemble(pattern const& told, void const* const* values, appender const* appenders,
                             std::size_t count) {
+    std::string_view const pattern = told.text();
     std::string out;
     out.reserve(pattern.size() + 16 * count);
     std::size_t used = 0;
+    std::size_t slots = 0;
+    char lone = '\0';
     for (std::size_t at = 0; at < pattern.size(); at++) {
         char const here = pattern[at];
         char const next = at + 1 < pattern.size() ? pattern[at + 1] : '\0';
-        if (here == '{' && next == '{') {
-            out.push_back('{');
-            at++;
-        } else if (here == '}' && next == '}') {
-            out.push_back('}');
+        if ((here == '{' || here == '}') && next == here) {
+            out.push_back(here);
             at++;
         } else if (here == '{' && next == '}') {
-            if (used == count)
-                library_error("the message \"" + std::string(pattern) + "\" has more {} than the " +
-                              std::to_string(count) + " values given");
-            appenders[used](out, values[used]);
-            used++;
+            slots++;
+            if (used < count) {
+                appenders[used](out, values[used]);
+                used++;
+            } else {
+                out += "{}";
+            }
             at++;
-        } else if (here == '{' || here == '}') {
-            library_error("the message \"" + std::string(pattern) + "\" has a lone '" + here +
-                          "'; write \"{}\" for a value, \"" + here + here + "\" for the character");
         } else {
+            if ((here == '{' || here == '}') && lone == '\0') lone = here;
             out.push_back(here);
         }
     }
-    if (used != count)
-        library_error("the message \"" + std::string(pattern) + "\" has " + std::to_string(used) +
-                      " {} but " + std::to_string(count) + " values were given");
+    for (; used < count; used++) {
+        out.push_back(' ');
+        appenders[used](out, values[used]);
+    }
+    if ((lone != '\0' || slots != count) && bad_pattern_hook() != nullptr) {
+        std::string problem = "the message \"" + std::string(pattern) + "\" has " + std::to_string(slots) +
+                              " {} for " + std::to_string(count) + " values";
+        if (lone != '\0') problem += std::string(" and a lone '") + lone + "'";
+        bad_pattern_hook()(problem, told.file(), told.line());
+    }
     return out;
 }
 
@@ -275,7 +303,7 @@ inline detail::fixed_number<T> fixed(T value, int digits) {
 }
 
 template <class... Args>
-inline std::string fmt(std::string_view pattern, Args const&... args) {
+inline std::string fmt(detail::pattern pattern, Args const&... args) {
     if constexpr (sizeof...(Args) == 0) {
         return detail::assemble(pattern, nullptr, nullptr, 0);
     } else {
@@ -571,6 +599,13 @@ inline void warn(char const* code, std::string message, std::string fix, site wh
 inline void note(char const* code, std::string message, std::string fix, site where) {
     diagnostics::shared().raise(code, severity::note, std::move(message), std::move(fix), where);
 }
+
+inline void report_a_bad_pattern(std::string const& problem, char const* file, int line) {
+    warn("EO112", problem, "write one {} for each value and {{ or }} for a brace; the verdict stands",
+         site{file, line});
+}
+
+inline bool const bad_patterns_are_reported = (bad_pattern_hook() = &report_a_bad_pattern, true);
 
 }  // namespace detail
 
@@ -1900,13 +1935,13 @@ private:
 };
 
 template <class... Args>
-[[noreturn]] inline void accept(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void accept(detail::pattern pattern = "", Args const&... args) {
     detail::judging().pass(1, fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void wrong(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void wrong(detail::pattern pattern = "", Args const&... args) {
     std::string const message = fmt(pattern, args...);
     if (detail::blaming() != nullptr) detail::blaming()->refuse(detail::value_name(unnamed), message);
     detail::judging().fail_run(message);
@@ -1914,19 +1949,19 @@ template <class... Args>
 }
 
 template <class... Args>
-[[noreturn]] inline void jury_error(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void jury_error(detail::pattern pattern = "", Args const&... args) {
     detail::judging().fail_jury(fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(detail::scored fraction, std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void score(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
     detail::judging().pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(detail::scored fraction, rounding how, std::string_view pattern = "",
+[[noreturn]] inline void score(detail::scored fraction, rounding how, detail::pattern pattern = "",
                                Args const&... args) {
     detail::scorer& one = detail::judging();
     double const paid = detail::rounded(detail::clamped(fraction.value, fraction.where) * one.cost(), how.digits);
@@ -1935,7 +1970,7 @@ template <class... Args>
 }
 
 template <class... Args>
-[[noreturn]] inline void points(detail::scored given, std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void points(detail::scored given, detail::pattern pattern = "", Args const&... args) {
     detail::scorer& one = detail::judging();
     double paid = given.value;
     if (std::isnan(paid)) detail::refuse_a_score(fmt("{} points", paid));
@@ -1952,7 +1987,7 @@ template <class... Args>
 }
 
 template <class... Args>
-inline void log(std::string_view pattern, Args const&... args) {
+inline void log(detail::pattern pattern, Args const&... args) {
     detail::log_line(fmt(pattern, args...));
 }
 
@@ -2304,7 +2339,7 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, std::string_view message, Args const&... args) {
+    void require(bool condition, detail::pattern message, Args const&... args) {
         if (!condition) invalid(detail::value_name(unnamed), fmt(message, args...));
     }
 
@@ -2685,7 +2720,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void wrong(std::string_view pattern, Args const&... args) const {
+    [[noreturn]] void wrong(detail::pattern pattern, Args const&... args) const {
         reader_.refuse(detail::value_name(unnamed), fmt(pattern, args...));
     }
 
@@ -3402,7 +3437,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void finish(detail::scored fraction, std::string_view pattern = "", Args const&... args) {
+    [[noreturn]] void finish(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
         if (number_ >= count_) owner_->pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
         finished_ = true;
         share_ = detail::clamped(fraction.value, fraction.where);
@@ -3980,7 +4015,7 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, std::string_view pattern, Args const&... args) {
+    void require(bool condition, detail::pattern pattern, Args const&... args) {
         if (!condition) refuse(fmt(pattern, args...));
     }
 

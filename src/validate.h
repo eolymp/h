@@ -364,7 +364,7 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, std::string_view message, Args const&... args) {
+    void require(bool condition, detail::pattern message, Args const&... args) {
         if (!condition) invalid(detail::value_name(unnamed), fmt(message, args...));
     }
 

@@ -204,7 +204,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void wrong(std::string_view pattern, Args const&... args) const {
+    [[noreturn]] void wrong(detail::pattern pattern, Args const&... args) const {
         reader_.refuse(detail::value_name(unnamed), fmt(pattern, args...));
     }
 

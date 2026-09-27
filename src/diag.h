@@ -197,6 +197,13 @@ inline void note(char const* code, std::string message, std::string fix, site wh
     diagnostics::shared().raise(code, severity::note, std::move(message), std::move(fix), where);
 }
 
+inline void report_a_bad_pattern(std::string const& problem, char const* file, int line) {
+    warn("EO112", problem, "write one {} for each value and {{ or }} for a brace; the verdict stands",
+         site{file, line});
+}
+
+inline bool const bad_patterns_are_reported = (bad_pattern_hook() = &report_a_bad_pattern, true);
+
 }  // namespace detail
 
 class allow {

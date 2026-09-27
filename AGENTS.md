@@ -86,7 +86,7 @@ Every code has one self-contained row in [docs/warnings.md](docs/warnings.md):
 grep EO807 docs/warnings.md
 ```
 
-The row says what fired it, who reported it, and what to do. All 74 codes are built.
+The row says what fired it, who reported it, and what to do. All 75 codes are built.
 
 ## Using the library on a problem
 

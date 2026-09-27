@@ -102,42 +102,70 @@ inline void add_to_line(std::string& line, T const& value, bool& first) {
 
 using appender = void (*)(std::string&, void const*);
 
+class pattern {
+public:
+    template <class T, class = std::enable_if_t<std::is_convertible_v<T const&, std::string_view>>>
+    pattern(T const& text, char const* file = __builtin_FILE(), int line = __builtin_LINE())
+        : text_(text), file_(file), line_(line) {}
+
+    std::string_view text() const { return text_; }
+    char const* file() const { return file_; }
+    int line() const { return line_; }
+
+private:
+    std::string_view text_;
+    char const* file_;
+    int line_;
+};
+
+inline void (*&bad_pattern_hook())(std::string const&, char const*, int) {
+    static void (*hook)(std::string const&, char const*, int) = nullptr;
+    return hook;
+}
+
 template <class T>
 inline void append_erased(std::string& out, void const* value) {
     append_value(out, *static_cast<T const*>(value));
 }
 
-inline std::string assemble(std::string_view pattern, void const* const* values, appender const* appenders,
+inline std::string assemble(pattern const& told, void const* const* values, appender const* appenders,
                             std::size_t count) {
+    std::string_view const pattern = told.text();
     std::string out;
     out.reserve(pattern.size() + 16 * count);
     std::size_t used = 0;
+    std::size_t slots = 0;
+    char lone = '\0';
     for (std::size_t at = 0; at < pattern.size(); at++) {
         char const here = pattern[at];
         char const next = at + 1 < pattern.size() ? pattern[at + 1] : '\0';
-        if (here == '{' && next == '{') {
-            out.push_back('{');
-            at++;
-        } else if (here == '}' && next == '}') {
-            out.push_back('}');
+        if ((here == '{' || here == '}') && next == here) {
+            out.push_back(here);
             at++;
         } else if (here == '{' && next == '}') {
-            if (used == count)
-                library_error("the message \"" + std::string(pattern) + "\" has more {} than the " +
-                              std::to_string(count) + " values given");
-            appenders[used](out, values[used]);
-            used++;
+            slots++;
+            if (used < count) {
+                appenders[used](out, values[used]);
+                used++;
+            } else {
+                out += "{}";
+            }
             at++;
-        } else if (here == '{' || here == '}') {
-            library_error("the message \"" + std::string(pattern) + "\" has a lone '" + here +
-                          "'; write \"{}\" for a value, \"" + here + here + "\" for the character");
         } else {
+            if ((here == '{' || here == '}') && lone == '\0') lone = here;
             out.push_back(here);
         }
     }
-    if (used != count)
-        library_error("the message \"" + std::string(pattern) + "\" has " + std::to_string(used) +
-                      " {} but " + std::to_string(count) + " values were given");
+    for (; used < count; used++) {
+        out.push_back(' ');
+        appenders[used](out, values[used]);
+    }
+    if ((lone != '\0' || slots != count) && bad_pattern_hook() != nullptr) {
+        std::string problem = "the message \"" + std::string(pattern) + "\" has " + std::to_string(slots) +
+                              " {} for " + std::to_string(count) + " values";
+        if (lone != '\0') problem += std::string(" and a lone '") + lone + "'";
+        bad_pattern_hook()(problem, told.file(), told.line());
+    }
     return out;
 }
 
@@ -149,7 +177,7 @@ inline detail::fixed_number<T> fixed(T value, int digits) {
 }
 
 template <class... Args>
-inline std::string fmt(std::string_view pattern, Args const&... args) {
+inline std::string fmt(detail::pattern pattern, Args const&... args) {
     if constexpr (sizeof...(Args) == 0) {
         return detail::assemble(pattern, nullptr, nullptr, 0);
     } else {
