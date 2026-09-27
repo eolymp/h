@@ -158,6 +158,27 @@ EO_TEST(points_and_rounding_go_through_the_cost) {
     });
     EO_CHECK_EQ(over.code, 0);
     EO_CHECK_IN(checker_warnings(), "warning EO207: 99 points is more than the test's 40");
+    eot::outcome const negative = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::points(-5, "a penalty");
+    });
+    EO_CHECK_EQ(negative.code, 7);
+    EO_CHECK_EQ(negative.text, std::string("points 0 a penalty"));
+    EO_CHECK_IN(checker_warnings(), "warning EO205: -5 points was clamped to 0");
+    eot::outcome const slight = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::points(-0.5, "half a penalty");
+    });
+    EO_CHECK_EQ(slight.text, std::string("points 0 half a penalty"));
+    eot::outcome const endless = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::points(-std::numeric_limits<double>::infinity(), "an endless penalty");
+    });
+    EO_CHECK_EQ(endless.text, std::string("points 0 an endless penalty"));
+    EO_CHECK_IN(checker_warnings(), "warning EO205: -inf points was clamped to 0");
 }
 
 EO_TEST(a_scored_zero_is_not_the_same_run_as_a_wrong_answer) {

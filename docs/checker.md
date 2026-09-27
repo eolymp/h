@@ -388,7 +388,7 @@ machine-readable `eo-report` line.
 | EO202 | the checker read neither the input nor the answer |
 | EO203 | the answer file still holds something when the checker finished |
 | EO204 | `eo::wrong` or `eo::jury_error` carries no message |
-| EO205 | a fraction outside [0, 1] was clamped |
+| EO205 | a fraction outside [0, 1], or negative points, was clamped |
 | EO206 | a fraction is a hair below full marks; use `eo::ratio` |
 | EO207 | `eo::points` exceeded the test's cost |
 | EO208 | a partial score on a test that carries no points (a note) |

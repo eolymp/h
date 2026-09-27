@@ -51,7 +51,7 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO202` | warning | the program | the checker read neither the input nor the answer | a verdict that cannot depend on the test is not a checker |
 | `EO203` | warning | the program | the answer file still holds unread content when the checker finished | read it, or say why not: `c.jury.skip_rest("...")` |
 | `EO204` | warning | the program | a wrong answer carries no message | say what was wrong with it; the message is what the author sees in the log |
-| `EO205` | warning | the program | a score outside 0..1 was clamped; one of 2 or more is called a likely percentage or points | keep the formula inside the test; Eolymp reads a fraction of the test cost, not a percentage: use `eo::ratio(a, b)`, or `eo::points` for points |
+| `EO205` | warning | the program | a score outside 0..1, or negative `eo::points`, was clamped; a score of 2 or more is called a likely percentage or points | keep the formula inside the test; Eolymp reads a fraction of the test cost, not a percentage: use `eo::ratio(a, b)`, or `eo::points` for points |
 | `EO206` | warning | the program | a score is a hair below full marks, from floating-point division | use `eo::ratio(a, b)`, which is exact |
 | `EO207` | warning | the program | more points were given than the test is worth | the judge clamps it to the cost; scale the formula instead |
 | `EO208` | note | the program | a partial score on a test with no cost | samples and stress runs carry no points, so the fraction is discarded |

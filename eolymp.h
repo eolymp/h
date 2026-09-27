@@ -1849,8 +1849,13 @@ template <class... Args>
 template <class... Args>
 [[noreturn]] inline void points(detail::scored given, std::string_view pattern = "", Args const&... args) {
     detail::scorer& one = detail::judging();
-    double const paid = given.value;
+    double paid = given.value;
     if (std::isnan(paid)) detail::refuse_a_score(fmt("{} points", paid));
+    if (paid < 0) {
+        detail::warn("EO205", fmt("{} points was clamped to 0", paid), "keep the formula inside the test",
+                     given.where);
+        paid = 0;
+    }
     if (paid > one.cost())
         detail::warn("EO207", fmt("{} points is more than the test's {}", paid, one.cost()),
                      "the judge clamps it", given.where);

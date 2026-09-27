@@ -17,6 +17,8 @@ import tempfile
 MUTANTS = [
     ("a sum limit that allows one more", "src/validate.h",
      "if (total_ > limit_)", "if (total_ > limit_ + 1)"),
+    ("negative points let through down to -1", "src/role.h",
+     "    if (paid < 0) {", "    if (paid < -1) {"),
     ("a token one character too long", "src/stream.h",
      "if (length > most)\n                refuse(name,",
      "if (length > most + 1)\n                refuse(name,"),

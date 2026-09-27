@@ -339,7 +339,7 @@ in a scope, with a reason the report prints. They appear on stderr, which on the
 | EO104, EO105, EO106, EO107 | bounds that look wrong, as in a checker |
 | EO111 | a token over 1 MB from the solution was held in memory (a note) |
 | EO204 | `eo::wrong` carries no message |
-| EO205 | a fraction outside [0, 1] was clamped |
+| EO205 | a fraction outside [0, 1], or negative points, was clamped |
 | EO401 | more than 100,000 round trips (a note), or more than 500,000 (a warning) |
 | EO402 | more than 10,000 round trips with no `eo::budget` declared |
 | EO403 | a budget was declared and never spent |
