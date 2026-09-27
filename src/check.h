@@ -6,6 +6,7 @@
 #include <cstring>
 #include <exception>
 #include <initializer_list>
+#include <set>
 #include <string_view>
 #include <string>
 #include <utility>
@@ -516,12 +517,16 @@ private:
             said.wrong("this is not an interactor's summary: it starts with \"{}\"",
                        detail::shorten(marker));
         said.read_long(1, 1, "version");
+        std::set<std::string> seen;
         while (!said.at_eof()) {
             std::string const field = said.read_token(any, "field");
+            if (field != "value" && !seen.insert(field).second)
+                said.wrong("the summary has a second {} field", detail::shorten(field));
             if (field == "fraction") {
                 out.set_fraction(said.read_real(0.0, 1.0, "fraction"));
             } else if (field == "value") {
                 std::string const name = said.read_token(any, "name");
+                if (out.has(name)) said.wrong("the summary has a second value called \"{}\"", detail::shorten(name));
                 out.record(name, said.read_real(any, "value"));
             } else if (field == "message") {
                 std::string text = said.read_line(any, "message");

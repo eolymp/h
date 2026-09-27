@@ -569,6 +569,46 @@ EO_TEST(the_ready_made_comparisons_read_no_more_of_a_token_than_they_need) {
     EO_CHECK_EQ(check_run("1\n", long_answer, long_answer, [](eo::checker& c) { c.reals(1e-6); }).code, 0);
 }
 
+EO_TEST(a_checker_reads_the_interactors_summary) {
+    std::string const summary = "eolymp-summary 1\nfraction 0.5\nvalue moves 12\nmessage half of it\n";
+    eot::outcome const plain = check_run("1\n", summary, "", [](eo::checker& c) { c.from_interactor(); });
+    EO_CHECK_EQ(plain.code, 7);
+    EO_CHECK_EQ(plain.text, std::string("points 20 half of it"));
+    eot::outcome const mapped = check_run("1\n", summary, "", [](eo::checker& c) {
+        c.from_interactor([](eo::summary const& said) { return said.value("moves") / 16; });
+    });
+    EO_CHECK_EQ(mapped.text, std::string("points 30 half of it"));
+    eot::outcome const unknown = check_run("1\n", summary, "", [](eo::checker& c) {
+        c.from_interactor([](eo::summary const& said) { return said.value("turns"); });
+    });
+    EO_CHECK_EQ(unknown.code, 3);
+    EO_CHECK_IN(unknown.text, "eolymp.h: the interactor recorded no value called \"turns\"");
+    eot::outcome const phase =
+        check_run("1\n", "eolymp-phase 2 3\n", "", [](eo::checker& c) { c.from_interactor(); });
+    EO_CHECK_EQ(phase.code, 3);
+    EO_CHECK_IN(phase.text, "the interactor stopped at phase 1 of 3; set run_count to 3");
+    eot::outcome const other = check_run("1\n", "42\n", "", [](eo::checker& c) { c.from_interactor(); });
+    EO_CHECK_IN(other.text, "this is not an interactor's summary: it starts with \"42\"");
+    eot::outcome const odd = check_run("1\n", "eolymp-summary 1\nbonus 1\n", "", [](eo::checker& c) {
+        c.from_interactor();
+    });
+    EO_CHECK_IN(odd.text, "the summary has a field called \"bonus\"");
+}
+
+EO_TEST(a_summary_with_a_field_twice_is_a_jury_error) {
+    eot::outcome const fraction = check_run("1\n", "eolymp-summary 1\nfraction 0.00001\nfraction 1\n", "",
+                                            [](eo::checker& c) { c.from_interactor(); });
+    EO_CHECK_EQ(fraction.code, 3);
+    EO_CHECK_IN(fraction.text, "line 3: the summary has a second fraction field");
+    eot::outcome const message = check_run("1\n", "eolymp-summary 1\nmessage a\nmessage b\n", "",
+                                           [](eo::checker& c) { c.from_interactor(); });
+    EO_CHECK_IN(message.text, "the summary has a second message field");
+    eot::outcome const value = check_run("1\n", "eolymp-summary 1\nvalue x 1\nvalue y 2\nvalue x 3\n", "",
+                                         [](eo::checker& c) { c.from_interactor(); });
+    EO_CHECK_EQ(value.code, 3);
+    EO_CHECK_IN(value.text, "the summary has a second value called \"x\"");
+}
+
 EO_TEST(yes_and_no_with_a_certificate) {
     auto const certificate = [](eo::answer_stream& a) {
         int const k = a.read_int(1, 9, "k");
