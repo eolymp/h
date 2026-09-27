@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 )
@@ -19,49 +20,54 @@ const usage = `eo-judge runs an Eolymp problem the way the judge does.
 `
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+	os.Exit(realMain(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func realMain(args []string, out, errs io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprint(errs, usage)
+		return 2
 	}
 
-	command := os.Args[1]
-	flags := flag.NewFlagSet(command, flag.ExitOnError)
+	command := args[0]
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
+	flags.SetOutput(errs)
 	strict := flags.Bool("strict", false, "make every warning fatal")
 	deep := flags.Bool("deep", false, "run the slow hostile outputs")
 	only := flags.String("solution", "", "judge one solution by name")
 	work := flags.String("work", "", "keep the workspace here")
-	flags.Usage = func() { fmt.Fprint(os.Stderr, usage) }
-	if err := flags.Parse(os.Args[2:]); err != nil {
-		os.Exit(2)
+	flags.Usage = func() { fmt.Fprint(errs, usage) }
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
 	}
 
 	dir := flags.Arg(0)
 	if dir == "" {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+		fmt.Fprint(errs, usage)
+		return 2
 	}
 
 	problem, err := LoadProblem(dir)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "eo-judge:", err)
-		os.Exit(3)
+		fmt.Fprintln(errs, "eo-judge:", err)
+		return 3
 	}
 
 	if command == "lint" {
-		os.Exit(report(Lint(problem), *strict))
+		return report(out, Lint(problem), *strict)
 	}
 
 	space := *work
 	if space == "" {
 		space, err = os.MkdirTemp("", "eo-judge-")
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "eo-judge:", err)
-			os.Exit(3)
+			fmt.Fprintln(errs, "eo-judge:", err)
+			return 3
 		}
 		defer os.RemoveAll(space)
 	} else if err := os.MkdirAll(space, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "eo-judge:", err)
-		os.Exit(3)
+		fmt.Fprintln(errs, "eo-judge:", err)
+		return 3
 	}
 
 	ctx := context.Background()
@@ -71,29 +77,29 @@ func main() {
 	case "check":
 		found, err := shop.Check(ctx, *deep)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "eo-judge:", err)
-			os.Exit(3)
+			fmt.Fprintln(errs, "eo-judge:", err)
+			return 3
 		}
-		os.Exit(report(append(found, Lint(problem)...), *strict))
+		return report(out, append(found, Lint(problem)...), *strict)
 	case "run":
-		os.Exit(runProblem(ctx, shop, *only, *strict))
+		return runProblem(ctx, shop, *only, *strict, out, errs)
 	default:
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+		fmt.Fprint(errs, usage)
+		return 2
 	}
 }
 
-func runProblem(ctx context.Context, shop *Workspace, only string, strict bool) int {
+func runProblem(ctx context.Context, shop *Workspace, only string, strict bool, out, errs io.Writer) int {
 	if err := shop.BuildAll(); err != nil {
-		fmt.Fprintln(os.Stderr, "eo-judge:", err)
+		fmt.Fprintln(errs, "eo-judge:", err)
 		return 3
 	}
 	if err := shop.Generate(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "eo-judge:", err)
+		fmt.Fprintln(errs, "eo-judge:", err)
 		return 3
 	}
 	if err := shop.Validate(ctx, true); err != nil {
-		fmt.Fprintln(os.Stderr, "eo-judge:", err)
+		fmt.Fprintln(errs, "eo-judge:", err)
 		return 3
 	}
 
@@ -102,12 +108,12 @@ func runProblem(ctx context.Context, shop *Workspace, only string, strict bool) 
 	for _, made := range shop.sorted() {
 		if shop.Problem.Validator != nil && !made.Valid {
 			invalid++
-			fmt.Printf("test %d:%d is invalid: %s\n", made.Group, made.Test.Index, made.Why)
+			fmt.Fprintf(out, "test %d:%d is invalid: %s\n", made.Group, made.Test.Index, made.Why)
 		}
 		found = append(found, shop.findingsOf(made.Warnings)...)
 	}
 	if invalid > 0 {
-		fmt.Printf("\n%d test(s) the validator refuses\n", invalid)
+		fmt.Fprintf(out, "\n%d test(s) the validator refuses\n", invalid)
 	}
 
 	for _, solution := range shop.Problem.Solutions {
@@ -116,13 +122,13 @@ func runProblem(ctx context.Context, shop *Workspace, only string, strict bool) 
 		}
 		attempt, err := shop.Evaluate(ctx, solution.Name, &Program{Source: solution.Source})
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "eo-judge:", err)
+			fmt.Fprintln(errs, "eo-judge:", err)
 			return 3
 		}
-		fmt.Printf("\n%s: %s, %g\n", solution.Name, attempt.Verdict, attempt.Score)
+		fmt.Fprintf(out, "\n%s: %s, %g\n", solution.Name, attempt.Verdict, attempt.Score)
 		for _, group := range attempt.Groups {
-			fmt.Printf("  testset %-2d %-20s %7.4g of %-7.4g", group.Index, group.Verdict, group.Score, group.Cost)
-			fmt.Printf("  %s\n", tally(group))
+			fmt.Fprintf(out, "  testset %-2d %-20s %7.4g of %-7.4g", group.Index, group.Verdict, group.Score, group.Cost)
+			fmt.Fprintf(out, "  %s\n", tally(group))
 		}
 		for _, group := range attempt.Groups {
 			for _, one := range group.Runs {
@@ -131,8 +137,8 @@ func runProblem(ctx context.Context, shop *Workspace, only string, strict bool) 
 		}
 	}
 
-	fmt.Println()
-	return report(found, strict)
+	fmt.Fprintln(out)
+	return report(out, found, strict)
 }
 
 func tally(group *GroupResult) string {
@@ -155,7 +161,7 @@ func tally(group *GroupResult) string {
 	return out
 }
 
-func report(found Findings, strict bool) int {
+func report(out io.Writer, found Findings, strict bool) int {
 	seen := map[string]bool{}
 	var kept Findings
 	for _, one := range found {
@@ -176,13 +182,13 @@ func report(found Findings, strict bool) int {
 
 	warnings := 0
 	for _, one := range kept {
-		fmt.Println(one)
+		fmt.Fprintln(out, one)
 		if one.Severity == "warning" {
 			warnings++
 		}
 	}
 
-	fmt.Printf("\neo-judge: %d warning(s), %d note(s)\n", warnings, len(kept)-warnings)
+	fmt.Fprintf(out, "\neo-judge: %d warning(s), %d note(s)\n", warnings, len(kept)-warnings)
 	if strict && warnings > 0 {
 		return 1
 	}
