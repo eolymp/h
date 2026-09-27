@@ -309,7 +309,7 @@ Each of these gives the verdict and ends the program.
 | Call | Accepts when |
 | --- | --- |
 | `c.tokens()` | the output has exactly the answer's tokens, in order; whitespace does not matter, letter case does |
-| `c.lines()` | the output has the answer's lines, ignoring trailing spaces and tabs |
+| `c.lines()` | the output has the answer's lines, ignoring trailing spaces, tabs and carriage returns |
 | `c.reals(eps)` | token by token: numbers agree within an absolute or relative error of `eps`, other tokens are equal; a token longer than 4096 characters and than the answer's is wrong |
 | `c.yes_no(certificate)` | a `YES`/`NO` answer, with a certificate after `YES` |
 | `c.yes_no(certificate, "POSSIBLE", "IMPOSSIBLE")` | the same with other words |

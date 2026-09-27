@@ -418,8 +418,8 @@ public:
             std::string want = jury.read_line(any, fmt("line {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} lines, the answer has more", seen - 1));
             std::string got = output.read_line(any, fmt("line {}", seen));
-            while (!want.empty() && (want.back() == ' ' || want.back() == '\t')) want.pop_back();
-            while (!got.empty() && (got.back() == ' ' || got.back() == '\t')) got.pop_back();
+            while (!want.empty() && trailing_blank(want.back())) want.pop_back();
+            while (!got.empty() && trailing_blank(got.back())) got.pop_back();
             if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
                                           detail::shorten(want)));
         }
@@ -488,6 +488,8 @@ public:
     }
 
 private:
+    static bool trailing_blank(char one) { return one == ' ' || one == '\t' || one == '\r'; }
+
     std::string contestant_token(long long seen, std::size_t longest) {
         return output.inside().take_word(fmt("token {}", seen), detail::site::here(), "a token",
                                          static_cast<long long>(longest) + 1);

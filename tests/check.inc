@@ -511,6 +511,13 @@ EO_TEST(the_ready_made_comparisons_compare) {
     EO_CHECK_IN(longer.text, "the answer has 1 tokens, the output has more");
 
     EO_CHECK_EQ(check_run("1\n", "one  \ntwo\n", "one\ntwo\n", [](eo::checker& c) { c.lines(); }).code, 0);
+    std::string const carriage = "one\r\r\ntwo\r\n";
+    EO_CHECK_EQ(check_run("1\n", carriage, carriage, [](eo::checker& c) { c.lines(); }).code, 0);
+    EO_CHECK_EQ(check_run("1\n", "one\r\t\r\n", "one\n", [](eo::checker& c) { c.lines(); }).code, 0);
+    eot::outcome const inside = check_run("1\n", "o\rne\n", "one\n", [](eo::checker& c) { c.lines(); });
+    EO_CHECK_IN(inside.text, "line 1 is \"o\\x0dne\", expected \"one\"");
+    eot::outcome const nul = check_run("1\n", std::string("one\0\n", 5), "one\n", [](eo::checker& c) { c.lines(); });
+    EO_CHECK_EQ(nul.code, 1);
     eot::outcome const line_differs =
         check_run("1\n", "one\nxxx\n", "one\ntwo\n", [](eo::checker& c) { c.lines(); });
     EO_CHECK_IN(line_differs.text, "line 2 is \"xxx\", expected \"two\"");

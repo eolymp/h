@@ -36,7 +36,7 @@ MUTANTS = [
     ("a score that floors instead of rounding", "src/role.h",
      "return std::round(value * scale) / scale;", "return std::floor(value * scale) / scale;"),
     ("an answer whose trailing spaces count", "src/check.h",
-     "while (!want.empty() && (want.back() == ' ' || want.back() == '\\t')) want.pop_back();", ""),
+     "while (!want.empty() && trailing_blank(want.back())) want.pop_back();", ""),
     ("every random stream the same", "src/generate.h",
      "return dice_.emplace(label, eo::rng(from)).first->second;",
      "return dice_.emplace(label, eo::rng(base_)).first->second;"),
