@@ -55,6 +55,7 @@ public:
     }
 
     [[nodiscard]] std::vector<int> perm(int count, int first = 0) {
+        if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
         std::vector<int> values(static_cast<std::size_t>(count));
         for (int at = 0; at < count; at++) values[static_cast<std::size_t>(at)] = first + at;
         shuffle(values);
@@ -62,6 +63,7 @@ public:
     }
 
     [[nodiscard]] std::vector<long long> ints(long long count, long long low, long long high) {
+        if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
         std::vector<long long> values;
         values.reserve(static_cast<std::size_t>(count));
         for (long long at = 0; at < count; at++) values.push_back(uniform(low, high));
@@ -129,6 +131,7 @@ public:
     }
 
     [[nodiscard]] std::string letters(long long length, charset const& allowed) {
+        if (length < 0) detail::library_error(fmt("cannot draw {} letters", length));
         std::vector<char> choices;
         for (int one = 0; one < 256; one++)
             if (allowed.has(static_cast<char>(one))) choices.push_back(static_cast<char>(one));

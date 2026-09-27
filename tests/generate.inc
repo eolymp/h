@@ -378,6 +378,13 @@ EO_TEST(the_random_stream_refuses_what_it_cannot_draw) {
     EO_CHECK_IN(none.text, "a partition has at least one part, not 0");
     eot::outcome const tight = eot::run_until_stop([&] { (void)r.partition(5, 10, 3); });
     EO_CHECK_IN(tight.text, "5 parts of at least 3 cannot add up to 10");
+    eot::outcome const negative = eot::run_until_stop([&] { (void)r.perm(-1); });
+    EO_CHECK_EQ(negative.text, std::string("eolymp.h: cannot draw -1 values"));
+    eot::outcome const fewer = eot::run_until_stop([&] { (void)r.ints(-2, 1, 9); });
+    EO_CHECK_EQ(fewer.text, std::string("eolymp.h: cannot draw -2 values"));
+    eot::outcome const unwritten = eot::run_until_stop([&] { (void)r.letters(-3, eo::charset("a")); });
+    EO_CHECK_EQ(unwritten.text, std::string("eolymp.h: cannot draw -3 letters"));
+    EO_CHECK(r.perm(0).empty() && r.ints(0, 1, 9).empty() && r.letters(0, eo::charset("a")).empty());
     eot::outcome const blank = eot::run_until_stop([&] { (void)r.letters(3, eo::charset("")); });
     EO_CHECK_IN(blank.text, "holds no characters");
 }
