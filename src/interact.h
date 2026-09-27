@@ -165,10 +165,7 @@ private:
     }
 
     [[noreturn]] void hand_the_file_on(std::string const& bytes) {
-        std::FILE* const file = std::fopen(paths_[1].c_str(), "wb");
-        if (file == nullptr) detail::library_error(fmt("cannot write the handoff to {}", paths_[1]));
-        std::fwrite(bytes.data(), 1, bytes.size(), file);
-        std::fclose(file);
+        detail::write_file(paths_[1], bytes, "handoff");
         deliver(0, "ok handed on to the next phase");
     }
 
@@ -229,11 +226,7 @@ public:
 private:
 
     void put_the_summary_down() {
-        std::string const text = held_.written();
-        std::FILE* const file = std::fopen(paths_[1].c_str(), "wb");
-        if (file == nullptr) detail::library_error(fmt("cannot write the summary to {}", paths_[1]));
-        std::fwrite(text.data(), 1, text.size(), file);
-        std::fclose(file);
+        detail::write_file(paths_[1], held_.written(), "summary");
     }
 
     [[noreturn]] void deliver(int code, std::string text) {

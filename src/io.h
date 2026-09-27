@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -48,6 +49,14 @@ inline bool file_is_there(char const* path) {
     if (descriptor < 0) return false;
     ::close(descriptor);
     return true;
+}
+
+inline void write_file(std::string const& path, std::string const& bytes, char const* what) {
+    std::FILE* const file = std::fopen(path.c_str(), "wb");
+    if (file == nullptr) library_error(fmt("cannot write the {} to {}", what, path));
+    bool const whole = std::fwrite(bytes.data(), 1, bytes.size(), file) == bytes.size();
+    if (std::fclose(file) != 0 || !whole)
+        library_error(fmt("the {} could not be written to {}: {}", what, path, std::strerror(errno)));
 }
 
 class source {

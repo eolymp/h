@@ -230,11 +230,7 @@ public:
         closing_checks(fraction);
         held_.set_fraction(fraction);
         held_.set_message(message);
-        std::string const text = held_.written();
-        std::FILE* const file = std::fopen(paths_[1].c_str(), "wb");
-        if (file == nullptr) detail::library_error(fmt("cannot write the summary to {}", paths_[1]));
-        std::fwrite(text.data(), 1, text.size(), file);
-        std::fclose(file);
+        detail::write_file(paths_[1], held_.written(), "summary");
         deliver(0, message.empty() ? "ok" : "ok " + message);
     }
 

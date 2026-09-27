@@ -167,6 +167,18 @@ EO_TEST(a_controller_refuses_a_score_that_is_not_a_number) {
     EO_CHECK_IN(result.text, "a score of -nan is not a number the judge can pay");
 }
 
+EO_TEST(a_controller_summary_that_cannot_be_written_whole_is_a_jury_error) {
+    file_size_limit disk;
+    staged const result = run_control("1\n", {}, {}, 10, [&](eo::controller& ctl) {
+        ctl.input.read_int(1, 9, "n");
+        disk.cap(27);
+        eo::score(0.00001, "almost nothing");
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "eolymp.h: the summary could not be written to ");
+    EO_CHECK_EQ(result.summary, std::string("eolymp-summary 1\nfraction 1"));
+}
+
 EO_TEST(a_controller_can_award_part_of_the_test) {
     staged const result = run_control("3 1\n", {"ok"}, {"5\n"}, 10, [](eo::controller& ctl) {
         ctl.input.read_int(2, 100, "instances");

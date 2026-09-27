@@ -26,6 +26,30 @@ struct swapped_descriptors {
     }
 };
 
+class file_size_limit {
+public:
+    file_size_limit() {
+        ::getrlimit(RLIMIT_FSIZE, &before_);
+        std::signal(SIGXFSZ, SIG_IGN);
+    }
+
+    file_size_limit(file_size_limit const&) = delete;
+
+    void cap(rlim_t bytes) {
+        rlimit capped = before_;
+        capped.rlim_cur = bytes;
+        ::setrlimit(RLIMIT_FSIZE, &capped);
+    }
+
+    ~file_size_limit() {
+        ::setrlimit(RLIMIT_FSIZE, &before_);
+        std::signal(SIGXFSZ, SIG_DFL);
+    }
+
+private:
+    rlimit before_{};
+};
+
 std::string slurp(std::string const& path) {
     std::FILE* const reading = std::fopen(path.c_str(), "rb");
     if (reading == nullptr) return {};
@@ -125,6 +149,19 @@ EO_TEST(an_interactor_refuses_a_score_that_is_not_a_number) {
     EO_CHECK_EQ(result.code, 3);
     EO_CHECK_IN(result.text, "a score of nan is not a number the judge can pay");
     EO_CHECK_EQ(result.summary, std::string());
+}
+
+EO_TEST(a_summary_that_cannot_be_written_whole_is_a_jury_error) {
+    file_size_limit disk;
+    chat const result = talk("1\n", "5\n", [&](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        disk.cap(27);
+        eo::score(0.00001, "almost nothing");
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "eolymp.h: the summary could not be written to ");
+    EO_CHECK_EQ(result.summary, std::string("eolymp-summary 1\nfraction 1"));
 }
 
 EO_TEST(an_interactor_can_award_part_of_the_test) {

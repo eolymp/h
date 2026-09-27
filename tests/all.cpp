@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <csignal>
+#include <sys/resource.h>
 #include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
