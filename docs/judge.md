@@ -18,6 +18,7 @@ eo-judge version           # the version of eo-judge
 | `--strict` | exit non-zero if anything raised a warning |
 | `--deep` | use the full 100 MB hostile output rather than 2 MB |
 | `--work dir` | keep the workspace instead of a temporary directory |
+| `-v` | after each testset, list every run: `1:2 WRONG_ANSWER 12ms` and the first line of what the checker or interactor said |
 
 Flags may come before or after the problem directory, and `-h` or `--help` prints the usage.
 It exits 0 when it finished, 1 under `--strict` with warnings, 2 on a usage error and 3 when

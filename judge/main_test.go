@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -159,5 +160,21 @@ func TestADontRunSolutionIsNotEvenBuilt(t *testing.T) {
 	}
 	if code, _, errs := invoke("run", dir, "--solution", "parked"); code != 3 || !strings.Contains(errs, "does not compile") {
 		t.Errorf("naming it exited %d, said %q", code, errs)
+	}
+}
+
+func TestVerboseListsEveryRun(t *testing.T) {
+	needsACompiler(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	code, out, errs := invoke("run", "testdata/forged", "-v")
+	if code != 0 {
+		t.Fatalf("exit %d, said %q", code, errs)
+	}
+	if !regexp.MustCompile(`\n    1:1 PARTIALLY_CORRECT \d+ms points 1 one point for answering\n`).MatchString(out) {
+		t.Errorf("printed %q", out)
+	}
+	_, quiet, _ := invoke("run", "testdata/forged")
+	if strings.Contains(quiet, "    1:1 ") {
+		t.Errorf("a run without -v listed its runs: %q", quiet)
 	}
 }

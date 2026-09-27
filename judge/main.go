@@ -24,6 +24,7 @@ const usage = `eo-judge runs an Eolymp problem the way the judge does.
 
   --strict   make every warning fatal
   --work     keep the workspace in this directory
+  -v         print every run of every test after its testset
 
 Flags may come before or after the problem.
 `
@@ -53,6 +54,7 @@ func realMain(args []string, out, errs io.Writer) int {
 	deep := flags.Bool("deep", false, "run the slow hostile outputs")
 	only := flags.String("solution", "", "judge one solution by name")
 	work := flags.String("work", "", "keep the workspace here")
+	verbose := flags.Bool("v", false, "print every run")
 	flags.Usage = func() { fmt.Fprint(errs, usage) }
 	var positional []string
 	for rest := args[1:]; ; {
@@ -122,14 +124,14 @@ func realMain(args []string, out, errs io.Writer) int {
 		}
 		return report(out, append(found, Lint(problem)...), *strict)
 	case "run":
-		return runProblem(ctx, shop, *only, *strict, out, errs)
+		return runProblem(ctx, shop, *only, *strict, *verbose, out, errs)
 	default:
 		fmt.Fprint(errs, usage)
 		return 2
 	}
 }
 
-func runProblem(ctx context.Context, shop *Workspace, only string, strict bool, out, errs io.Writer) int {
+func runProblem(ctx context.Context, shop *Workspace, only string, strict, verbose bool, out, errs io.Writer) int {
 	judged := shop.Problem.Judged(only)
 	if err := shop.BuildAll(judged); err != nil {
 		fmt.Fprintln(errs, "eo-judge:", err)
@@ -167,6 +169,11 @@ func runProblem(ctx context.Context, shop *Workspace, only string, strict bool, 
 		for _, group := range attempt.Groups {
 			fmt.Fprintf(out, "  testset %-2d %-20s %7.4g of %-7.4g", group.Index, group.Verdict, group.Score, group.Cost)
 			fmt.Fprintf(out, "  %s\n", tally(group))
+			if verbose {
+				for _, one := range group.Runs {
+					fmt.Fprintf(out, "    %d:%d %s %dms %s\n", one.Group, one.Index, one.Verdict, one.Wall, one.Message)
+				}
+			}
 		}
 		for _, group := range attempt.Groups {
 			for _, one := range group.Runs {
