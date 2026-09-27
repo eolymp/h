@@ -2,21 +2,28 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"sort"
+	"strings"
 )
+
+const version = "1.0.0"
 
 const usage = `eo-judge runs an Eolymp problem the way the judge does.
 
   eo-judge run <problem> [--solution name]   build, generate, validate, judge, score
   eo-judge check <problem> [--deep]          the whole-problem and configuration checks
   eo-judge lint <problem>                    what the header cannot see
+  eo-judge version                           the version of eo-judge
 
   --strict   make every warning fatal
   --work     keep the workspace in this directory
+
+Flags may come before or after the problem.
 `
 
 func main() {
@@ -30,6 +37,14 @@ func realMain(args []string, out, errs io.Writer) int {
 	}
 
 	command := args[0]
+	switch command {
+	case "version", "--version", "-version":
+		fmt.Fprintf(out, "eo-judge %s\n", version)
+		return 0
+	case "help", "-h", "-help", "--help":
+		fmt.Fprint(out, usage)
+		return 0
+	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(errs)
 	strict := flags.Bool("strict", false, "make every warning fatal")
@@ -37,20 +52,42 @@ func realMain(args []string, out, errs io.Writer) int {
 	only := flags.String("solution", "", "judge one solution by name")
 	work := flags.String("work", "", "keep the workspace here")
 	flags.Usage = func() { fmt.Fprint(errs, usage) }
-	if err := flags.Parse(args[1:]); err != nil {
-		return 2
+	var positional []string
+	for rest := args[1:]; ; {
+		if err := flags.Parse(rest); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				fmt.Fprint(out, usage)
+				return 0
+			}
+			return 2
+		}
+		if flags.NArg() == 0 {
+			break
+		}
+		positional = append(positional, flags.Arg(0))
+		rest = flags.Args()[1:]
 	}
 
-	dir := flags.Arg(0)
-	if dir == "" {
+	if len(positional) != 1 {
 		fmt.Fprint(errs, usage)
 		return 2
 	}
+	dir := positional[0]
 
 	problem, err := LoadProblem(dir)
 	if err != nil {
 		fmt.Fprintln(errs, "eo-judge:", err)
 		return 3
+	}
+
+	if *only != "" && problem.Solution(*only) == nil {
+		var known []string
+		for _, one := range problem.Solutions {
+			known = append(known, one.Name)
+		}
+		fmt.Fprintf(errs, "eo-judge: the problem has no solution called %q; it has %s\n", *only,
+			strings.Join(known, ", "))
+		return 2
 	}
 
 	if command == "lint" {

@@ -88,3 +88,56 @@ func TestAWorkspaceThatWasAskedForIsKept(t *testing.T) {
 		t.Errorf("the workspace was not kept: %v", err)
 	}
 }
+
+func TestVersionAndHelpExitZero(t *testing.T) {
+	for _, args := range [][]string{{"version"}, {"--version"}} {
+		code, out, _ := invoke(args...)
+		if code != 0 || out != "eo-judge "+version+"\n" {
+			t.Errorf("%v exited %d, printed %q", args, code, out)
+		}
+	}
+	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}, {"run", "-h"}, {"lint", "--help"}} {
+		code, out, _ := invoke(args...)
+		if code != 0 || !strings.Contains(out, "eo-judge run <problem>") {
+			t.Errorf("%v exited %d, printed %q", args, code, out)
+		}
+	}
+	code, _, errs := invoke("run", "--no-such-flag", "testdata/broken")
+	if code != 2 || !strings.Contains(errs, "no-such-flag") {
+		t.Errorf("an unknown flag exited %d, said %q", code, errs)
+	}
+}
+
+func TestFlagsMayFollowTheProblem(t *testing.T) {
+	code, _, _ := invoke("lint", "testdata/broken", "--strict")
+	if code != 1 {
+		t.Errorf("--strict after the problem was ignored: exit %d", code)
+	}
+	code, _, _ = invoke("lint", "testdata/broken", "testdata/answers")
+	if code != 2 {
+		t.Errorf("two problems exited %d", code)
+	}
+}
+
+func TestAnUnknownSolutionIsAUsageError(t *testing.T) {
+	for _, command := range []string{"run", "check", "lint"} {
+		code, out, errs := invoke(command, "../tests/live/guess", "--solution", "nosuch")
+		if code != 2 || out != "" {
+			t.Errorf("%s: exit %d, printed %q", command, code, out)
+		}
+		if !strings.Contains(errs, `no solution called "nosuch"; it has binary, linear, polite, crasher`) {
+			t.Errorf("%s: said %q", command, errs)
+		}
+	}
+}
+
+func TestOnlyTheSolutionNamedAfterTheProblemIsJudged(t *testing.T) {
+	needsACompiler(t)
+	code, out, errs := invoke("run", "../tests/live/guess", "--solution", "binary")
+	if code != 0 {
+		t.Fatalf("exit %d, said %q", code, errs)
+	}
+	if !strings.Contains(out, "binary: ACCEPTED, 100") || strings.Contains(out, "linear:") {
+		t.Errorf("printed %q", out)
+	}
+}

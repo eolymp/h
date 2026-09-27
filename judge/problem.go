@@ -80,6 +80,15 @@ func (p *Problem) Interactive() bool {
 	return p.Type == "INTERACTIVE" || p.Type == "COMMUNICATION"
 }
 
+func (p *Problem) Solution(name string) *Solution {
+	for _, one := range p.Solutions {
+		if one.Name == name {
+			return one
+		}
+	}
+	return nil
+}
+
 func (p *Problem) Testset(index int) *Testset {
 	for _, one := range p.Testsets {
 		if one.Index == index {

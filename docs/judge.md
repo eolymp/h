@@ -9,15 +9,17 @@ is written in Go with no dependencies beyond the standard library, and is built 
 eo-judge run   <problem>   # build, generate, validate, judge every solution, score it
 eo-judge check <problem>   # EO801-EO821 and EO901-EO910
 eo-judge lint  <problem>   # what is only visible in the source
+eo-judge version           # the version of eo-judge
 ```
 
 | Flag | Does |
 | --- | --- |
-| `--solution name` | judge one solution instead of all of them |
+| `--solution name` | judge one solution instead of all of them; a name the problem does not have is a usage error that lists the names it has |
 | `--strict` | exit non-zero if anything raised a warning |
 | `--deep` | use the full 100 MB hostile output rather than 2 MB |
 | `--work dir` | keep the workspace instead of a temporary directory |
 
+Flags may come before or after the problem directory, and `-h` or `--help` prints the usage.
 It exits 0 when it finished, 1 under `--strict` with warnings, 2 on a usage error and 3 when
 the problem itself could not be run — a program that does not compile, a generator that
 fails, a missing file.
