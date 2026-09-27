@@ -103,8 +103,9 @@ public:
 
     std::size_t room_for(long long count, value_name const& name) {
         if (count < 0) refuse(name, fmt("a count of {} cannot be read", count));
-        long long const sane = count < (1 << 20) ? count : (1 << 20);
-        return static_cast<std::size_t>(sane);
+        long long const left = from_.bytes_left();
+        if (left >= 0) return static_cast<std::size_t>(std::min(count, left / 2 + 1));
+        return static_cast<std::size_t>(std::min(count, 1LL << 20));
     }
 
     void blame(fault whose) { whose_ = whose; }

@@ -41,6 +41,7 @@
 #include <string>
 #include <string_view>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <type_traits>
 #include <unistd.h>
@@ -828,6 +829,17 @@ public:
     }
 
     std::size_t held() const { return end_ - begin_; }
+
+    long long bytes_left() const {
+        long long const here = static_cast<long long>(held());
+        if (drained_) return here;
+        if (text_backed_) return here + static_cast<long long>(pending_.size());
+        struct stat seen {};
+        if (::fstat(descriptor_, &seen) != 0 || !S_ISREG(seen.st_mode)) return -1;
+        off_t const at = ::lseek(descriptor_, 0, SEEK_CUR);
+        if (at < 0) return -1;
+        return here + static_cast<long long>(seen.st_size - at);
+    }
     char const* window() const { return buffer_.data() + begin_; }
 
     void skip_plain(std::size_t count) {
@@ -1206,8 +1218,9 @@ public:
 
     std::size_t room_for(long long count, value_name const& name) {
         if (count < 0) refuse(name, fmt("a count of {} cannot be read", count));
-        long long const sane = count < (1 << 20) ? count : (1 << 20);
-        return static_cast<std::size_t>(sane);
+        long long const left = from_.bytes_left();
+        if (left >= 0) return static_cast<std::size_t>(std::min(count, left / 2 + 1));
+        return static_cast<std::size_t>(std::min(count, 1LL << 20));
     }
 
     void blame(fault whose) { whose_ = whose; }

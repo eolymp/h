@@ -339,6 +339,32 @@ EO_TEST(a_source_absorbs_what_is_waiting_up_to_a_limit) {
     EO_CHECK(text.absorb(100) == eo::detail::absorbed::nothing);
 }
 
+EO_TEST(a_source_knows_how_much_of_a_file_is_left) {
+    std::string const path = temporary_path();
+    std::FILE* const writing = std::fopen(path.c_str(), "wb");
+    std::fputs("1 2 3\n", writing);
+    std::fclose(writing);
+    eo::detail::source file = eo::detail::source::over_file(path.c_str(), true, 4);
+    EO_CHECK_EQ(file.bytes_left(), 6LL);
+    EO_CHECK_EQ(file.take(), static_cast<int>('1'));
+    EO_CHECK_EQ(file.bytes_left(), 5LL);
+    EO_CHECK_EQ(drain(file), std::string(" 2 3\n"));
+    EO_CHECK_EQ(file.bytes_left(), 0LL);
+    ::unlink(path.c_str());
+    eo::detail::source text = eo::detail::source::over_text("abcdef", false, 4);
+    EO_CHECK_EQ(text.take(), static_cast<int>('a'));
+    EO_CHECK_EQ(text.bytes_left(), 5LL);
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    EO_CHECK_EQ(::write(ends[1], "1 2 3\n", 6), static_cast<ssize_t>(6));
+    ::close(ends[1]);
+    eo::detail::source raw = eo::detail::source::over_descriptor(ends[0], false, false);
+    EO_CHECK_EQ(raw.bytes_left(), -1LL);
+    eo::stream piped(eo::detail::source::over_descriptor(ends[0], true, false), eo::detail::fault::jury_error,
+                     "pipe");
+    EO_CHECK(piped.read_ints(3, 1, 9, "a") == std::vector<int>({1, 2, 3}));
+}
+
 EO_TEST(a_descriptor_that_cannot_be_read_is_a_library_error) {
     int ends[2] = {-1, -1};
     EO_CHECK_EQ(::pipe(ends), 0);

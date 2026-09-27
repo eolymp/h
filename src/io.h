@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "core.h"
@@ -175,6 +176,17 @@ public:
     }
 
     std::size_t held() const { return end_ - begin_; }
+
+    long long bytes_left() const {
+        long long const here = static_cast<long long>(held());
+        if (drained_) return here;
+        if (text_backed_) return here + static_cast<long long>(pending_.size());
+        struct stat seen {};
+        if (::fstat(descriptor_, &seen) != 0 || !S_ISREG(seen.st_mode)) return -1;
+        off_t const at = ::lseek(descriptor_, 0, SEEK_CUR);
+        if (at < 0) return -1;
+        return here + static_cast<long long>(seen.st_size - at);
+    }
     char const* window() const { return buffer_.data() + begin_; }
 
     void skip_plain(std::size_t count) {
