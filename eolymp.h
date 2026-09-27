@@ -530,6 +530,12 @@ public:
 
     std::vector<raised> const& all() const { return entries_; }
 
+    bool raised_already(char const* code) const {
+        for (raised const& one : entries_)
+            if (std::string(one.code) == code) return true;
+        return false;
+    }
+
     void forget_everything() {
         entries_.clear();
         allowed_.clear();
@@ -1910,6 +1916,23 @@ inline std::string format_points(double value) {
     return std::string(buffer, static_cast<std::size_t>(written));
 }
 
+inline double test_cost() {
+    char const* const set = environment("TEST_COST");
+    if (set == nullptr) {
+        if (on_judge() && !diagnostics::shared().raised_already("EO213"))
+            warn("EO213", "TEST_COST is not set, so this test is taken to be worth 100 points",
+                 "points and partial scores follow from the cost; report the judge's configuration", site::here());
+        return 100;
+    }
+    real_read const parsed = parse_real(set, true);
+    if (parsed.problem == number_problem::none) return parsed.value;
+    if (on_judge() && !diagnostics::shared().raised_already("EO213"))
+        warn("EO213", fmt("TEST_COST is \"{}\", which is not a number, so this test is taken to be worth 0 points",
+                          shorten(set)),
+             "points and partial scores follow from the cost; report the judge's configuration", site::here());
+    return 0;
+}
+
 inline double rounded(double value, int digits) {
     if (digits > 15) return value;
     double scale = 1;
@@ -2857,12 +2880,7 @@ public:
     stream output;
     stream jury;
 
-    double cost() const final {
-        char const* const set = detail::environment("TEST_COST");
-        if (set == nullptr) return 100;
-        detail::real_read const parsed = detail::parse_real(set, true);
-        return parsed.problem == detail::number_problem::none ? parsed.value : 0;
-    }
+    double cost() const final { return detail::test_cost(); }
 
     int group() const { return whole_of("TEST_GROUP"); }
     int index() const { return whole_of("TEST_INDEX"); }
@@ -3261,12 +3279,7 @@ public:
         if (broken) fail_run("the solution stopped reading");
     }
 
-    double cost() const final {
-        char const* const set = detail::environment("TEST_COST");
-        if (set == nullptr) return 100;
-        detail::real_read const parsed = detail::parse_real(set, true);
-        return parsed.problem == detail::number_problem::none ? parsed.value : 0;
-    }
+    double cost() const final { return detail::test_cost(); }
 
     void value(std::string name, double what) { held_.record(std::move(name), what); }
 
@@ -3762,12 +3775,7 @@ public:
         return *team_.back();
     }
 
-    double cost() const final {
-        char const* const set = detail::environment("TEST_COST");
-        if (set == nullptr) return 100;
-        detail::real_read const parsed = detail::parse_real(set, true);
-        return parsed.problem == detail::number_problem::none ? parsed.value : 0;
-    }
+    double cost() const final { return detail::test_cost(); }
 
     void value(std::string name, double what) { held_.record(std::move(name), what); }
 

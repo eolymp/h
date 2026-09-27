@@ -125,6 +125,23 @@ inline std::string format_points(double value) {
     return std::string(buffer, static_cast<std::size_t>(written));
 }
 
+inline double test_cost() {
+    char const* const set = environment("TEST_COST");
+    if (set == nullptr) {
+        if (on_judge() && !diagnostics::shared().raised_already("EO213"))
+            warn("EO213", "TEST_COST is not set, so this test is taken to be worth 100 points",
+                 "points and partial scores follow from the cost; report the judge's configuration", site::here());
+        return 100;
+    }
+    real_read const parsed = parse_real(set, true);
+    if (parsed.problem == number_problem::none) return parsed.value;
+    if (on_judge() && !diagnostics::shared().raised_already("EO213"))
+        warn("EO213", fmt("TEST_COST is \"{}\", which is not a number, so this test is taken to be worth 0 points",
+                          shorten(set)),
+             "points and partial scores follow from the cost; report the judge's configuration", site::here());
+    return 0;
+}
+
 inline double rounded(double value, int digits) {
     if (digits > 15) return value;
     double scale = 1;

@@ -127,6 +127,12 @@ public:
 
     std::vector<raised> const& all() const { return entries_; }
 
+    bool raised_already(char const* code) const {
+        for (raised const& one : entries_)
+            if (std::string(one.code) == code) return true;
+        return false;
+    }
+
     void forget_everything() {
         entries_.clear();
         allowed_.clear();

@@ -400,6 +400,7 @@ machine-readable `eo-report` line.
 | EO210 | more than 64 KB was printed before the verdict (a note) |
 | EO211 | the checker runs as the legacy type (a note) |
 | EO212 | the problem declares `eo::many`, but the checker only compares with the jury |
+| EO213 | on the judge, `TEST_COST` is missing or not a number, so the cost is a guess |
 
 `EOLYMP_STRICT=1` turns every warning into a jury error while you prepare a problem. Notes
 stay notes. State the intent where there is a way to — `eo::any`, `eo::unnamed`,

@@ -416,6 +416,42 @@ EO_TEST(points_the_judge_rounds_up_to_the_cost_are_reported) {
     EO_CHECK(!eot::contains(checker_warnings(), "EO206"));
 }
 
+EO_TEST(a_cost_the_judge_did_not_give_is_reported_on_the_judge) {
+    three_files files("1\n", "1\n", "1\n");
+    std::string program = "checker.cpp";
+    std::vector<char*> arguments{program.data(), const_cast<char*>(files.input.c_str()),
+                                 const_cast<char*>(files.output.c_str()),
+                                 const_cast<char*>(files.answer.c_str())};
+    auto const scored = [&](char const* judge, char const* cost) {
+        eo::detail::diagnostics::shared().forget_everything();
+        forget_the_environment();
+        if (judge != nullptr) ::setenv("EOLYMP", judge, 1);
+        if (cost != nullptr) ::setenv("TEST_COST", cost, 1);
+        eot::outcome const result = eot::run_until_stop([&] {
+            eo::checker c(static_cast<int>(arguments.size()), arguments.data());
+            c.input.read_int(1, 9, "n");
+            c.output.read_int(1, 9, "a");
+            eo::score(0.5, "half");
+        });
+        forget_the_environment();
+        return result;
+    };
+    eot::outcome const missing = scored("1", nullptr);
+    EO_CHECK_IN(missing.text, "points 50 half");
+    EO_CHECK_IN(checker_warnings(), "warning EO213: TEST_COST is not set, so this test is taken to be worth 100");
+    EO_CHECK(!eot::contains(checker_warnings(), "times)"));
+    eot::outcome const garbled = scored("1", "ten");
+    EO_CHECK_IN(garbled.text, "points 0 half");
+    EO_CHECK_IN(checker_warnings(), "warning EO213: TEST_COST is \"ten\", which is not a number");
+    EO_CHECK(!eot::contains(checker_warnings(), "times)"));
+    eot::outcome const local = scored(nullptr, nullptr);
+    EO_CHECK_EQ(local.text, std::string("points 50 half"));
+    EO_CHECK(!eot::contains(checker_warnings(), "EO213"));
+    eot::outcome const given = scored("1", "40");
+    EO_CHECK_IN(given.text, "points 20 half");
+    EO_CHECK(!eot::contains(checker_warnings(), "EO213"));
+}
+
 EO_TEST(a_test_worth_nothing_says_so) {
     eo::detail::diagnostics::shared().forget_everything();
     forget_the_environment();

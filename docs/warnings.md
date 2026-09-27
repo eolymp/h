@@ -24,7 +24,7 @@ line on the judge, and the channel each role can afford to write to — is in
 | `eo-judge check` | the emulator, reading the whole problem; **never appears in a judge log** |
 | `eo-judge lint` | a textual scan of the source, for what no run can see |
 
-All 75 designed codes are built.
+All 76 designed codes are built.
 
 ## EO1xx — reading a value
 
@@ -61,6 +61,7 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO210` | note | the program | the checker printed a large amount before its verdict | stored logs are truncated; print after the verdict line |
 | `EO211` | note | the program | the checker runs as the legacy type, which swaps its last two arguments | the ordinary `PROGRAM` type is the norm |
 | `EO212` | warning | the program | the problem declares many answers and the checker only compares with the jury's | compare properties, not the jury's text, or declare `eo::unique` |
+| `EO213` | warning | the program, on the judge | `TEST_COST` is missing, and the test is taken to be worth 100 points, or is not a number, and it is taken to be worth 0; points and partial scores then follow from the wrong cost | the judge sets `TEST_COST` for every checker, interactor and controller; report its configuration |
 
 ## EO3xx — the validator
 
