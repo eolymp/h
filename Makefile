@@ -72,7 +72,9 @@ check: amalgamation-check
 	$(MAKE) budget
 
 judge: eolymp.h eolymp-shapes.h
-	cd judge && gofmt -l . | tee /dev/stderr | (! read) && go vet ./... && go test -count=1 ./...
+	cd judge && unformatted=$$(gofmt -l .) && \
+		if [ -n "$$unformatted" ]; then echo "judge: gofmt would change $$unformatted" >&2; exit 1; fi && \
+		go vet ./... && go test -count=1 ./...
 
 pin:
 	cd judge && AGENT_REPO=$(or $(AGENT_REPO),../../agent) go test -count=1 -run TestTheCopiedPointsParser -v ./...
