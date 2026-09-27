@@ -343,7 +343,10 @@ public:
         detail::blaming() = nullptr;
         detail::current_case() = 0;
         detail::emitter() = nullptr;
-        if (held_ != nullptr) put_the_output_back();
+        if (held_ != nullptr) {
+            put_the_output_back();
+            let_go_of_what_was_held();
+        }
         if (delivered_) return;
         if (std::uncaught_exceptions() == 0) fail_jury("the checker ended without a verdict");
 #ifndef EOLYMP_TESTING
@@ -623,34 +626,45 @@ private:
         detail::finish(code, message.empty() ? head : head + " " + message);
     }
 
-    std::string put_the_output_back() {
-        std::string held;
+    void put_the_output_back() {
         std::fflush(stdout);
         std::fflush(stderr);
         ::dup2(saved_out_, 1);
         ::dup2(saved_err_, 2);
         ::close(saved_out_);
         ::close(saved_err_);
+    }
+
+    long long copy_what_was_held() {
         std::rewind(held_);
-        char buffer[4096];
+        char buffer[1 << 16];
+        long long copied = 0;
         std::size_t got = 0;
-        while ((got = std::fread(buffer, 1, sizeof(buffer), held_)) > 0) held.append(buffer, got);
+        while ((got = std::fread(buffer, 1, sizeof(buffer), held_)) > 0) {
+            std::fwrite(buffer, 1, got, stdout);
+            copied += static_cast<long long>(got);
+        }
+        return copied;
+    }
+
+    void let_go_of_what_was_held() {
         std::fclose(held_);
         held_ = nullptr;
-        return held;
     }
 
     void unwrap(std::string const& verdict) {
         detail::emitter() = nullptr;
-        std::string const held = held_ != nullptr ? put_the_output_back() : std::string();
+        bool const holding = held_ != nullptr;
+        if (holding) put_the_output_back();
         detail::report(verdict);
-        if (!held.empty()) std::fwrite(held.data(), 1, held.size(), stdout);
+        long long const held = holding ? copy_what_was_held() : 0;
+        if (holding) let_go_of_what_was_held();
         std::fwrite("eolymp.h ", 1, 9, stdout);
         std::fwrite(EOLYMP_H_VERSION, 1, std::strlen(EOLYMP_H_VERSION), stdout);
         std::fputc('\n', stdout);
         std::fflush(stdout);
-        if (held.size() > 64 * 1024)
-            detail::note("EO210", fmt("the checker printed {} bytes before its verdict", held.size()),
+        if (held > 64 * 1024)
+            detail::note("EO210", fmt("the checker printed {} bytes before its verdict", held),
                          "stored logs are truncated", detail::site::here());
     }
 

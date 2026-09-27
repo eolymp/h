@@ -969,6 +969,27 @@ EO_TEST(a_checker_finds_a_scratch_file_where_it_can) {
     EO_CHECK_IN(result.text, "eolymp.h: the checker cannot open a scratch file for its own output");
 }
 
+EO_TEST(on_the_judge_a_checker_without_a_verdict_is_a_jury_error) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    three_files files("1\n", "5\n", "5\n");
+    ::setenv("EOLYMP", "1", 1);
+    ::setenv("TEST_COST", "40", 1);
+    std::string program = "checker.cpp";
+    std::vector<char*> arguments{program.data(), const_cast<char*>(files.input.c_str()),
+                                 const_cast<char*>(files.output.c_str()),
+                                 const_cast<char*>(files.answer.c_str())};
+    eot::outcome const result = eot::run_until_stop([&] {
+        eo::checker c(static_cast<int>(arguments.size()), arguments.data());
+        std::printf("said before leaving\n");
+        c.input.read_int(1, 9, "n");
+    });
+    forget_the_environment();
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK(result.printed.rfind("jury error the checker ended without a verdict\n", 0) == 0);
+    EO_CHECK(!eot::contains(result.printed, "said before leaving"));
+}
+
 EO_TEST(a_very_noisy_checker_is_noted) {
     eo::detail::diagnostics::shared().forget_everything();
     forget_the_environment();
