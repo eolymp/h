@@ -70,6 +70,7 @@ public:
 
     [[nodiscard]] std::vector<long long> distinct(long long count, long long low, long long high) {
         if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
+        if (count == 0) return {};
         if (low > high) detail::library_error(fmt("distinct({}, {}) has no values in it", low, high));
         std::uint64_t const span = reach(low, high);
         std::uint64_t const wanted = static_cast<std::uint64_t>(count);

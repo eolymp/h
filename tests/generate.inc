@@ -353,6 +353,16 @@ EO_TEST(the_random_stream_draws_what_a_generator_needs) {
     EO_CHECK_EQ(r.distinct(3, 1, 3).size(), static_cast<std::size_t>(3));
 }
 
+EO_TEST(a_partition_into_one_part_is_the_sum_itself) {
+    eo::rng r(1);
+    EO_CHECK(r.partition(1, 1) == std::vector<long long>{1});
+    EO_CHECK(r.partition(1, 0, 0) == std::vector<long long>{0});
+    EO_CHECK(r.partition(1, 5, 5) == std::vector<long long>{5});
+    EO_CHECK(r.distinct(0, 1, 0).empty());
+    eo::rng same(1);
+    EO_CHECK_EQ(r.uniform(1, 1000000000), same.uniform(1, 1000000000));
+}
+
 EO_TEST(the_random_stream_refuses_what_it_cannot_draw) {
     eo::rng r(1);
     eot::outcome const backwards = eot::run_until_stop([&] { (void)r.uniform(9, 1); });
