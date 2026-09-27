@@ -294,6 +294,9 @@ public:
         if (lenient_) {
             std::string const word = take_word(name, where, expected, longest_number);
             if (word.empty()) refuse(name, fmt("expected {}, found nothing", expected));
+            if (from_.peek() >= 0 && !is_blank(from_.peek()))
+                refuse(name, fmt("expected {}, found a token longer than {} characters: \"{}\"", expected,
+                                 longest_number, shorten(word)));
             return word;
         }
         std::string token;

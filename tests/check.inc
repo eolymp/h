@@ -827,6 +827,26 @@ EO_TEST(a_lenient_read_takes_a_whole_token_and_parses_it) {
         eo::accept();
     });
     EO_CHECK_EQ(spaced.code, 0);
+
+    std::string const split = "0.5" + std::string(4093, '0') + "0.25\n";
+    eot::outcome const endless = check_run("1\n", split, "0.5\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_real(0.0, 1.0, "a");
+        c.output.read_real(0.0, 1.0, "b");
+        eo::accept();
+    });
+    EO_CHECK_EQ(endless.code, 1);
+    EO_CHECK_IN(endless.text, "line 1, a: expected a number, found a token longer than 4096 characters: \"0.5000");
+
+    std::string const longest = "0.5" + std::string(4093, '0') + " 0.25\n";
+    eot::outcome const fits = check_run("1\n", longest, "0.5\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        EO_CHECK(c.output.read_real(0.0, 1.0, "a") == 0.5);
+        EO_CHECK(c.output.read_real(0.0, 1.0, "b") == 0.25);
+        c.jury.skip_rest("compared above");
+        eo::accept();
+    });
+    EO_CHECK_EQ(fits.code, 0);
 }
 
 EO_TEST(text_reads_on_a_checker_stream) {
