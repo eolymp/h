@@ -1,9 +1,22 @@
 # eo-judge
 
 `eo-judge` runs a problem the way the Eolymp judge does, on your machine, and then runs the
-checks that no single program can make from inside one run. It lives in [judge/](../judge),
-is written in Go with no dependencies beyond the standard library, and is built with
-`make judge` or `cd judge && go build .`.
+checks that no single program can make from inside one run. It lives in [judge/](../judge)
+and is written in Go with no dependencies beyond the standard library.
+
+**Installing it.** Each release of eo-judge, tagged `judge/v<version>`, carries static binaries
+for Linux and macOS on amd64 and arm64, with a `SHA256SUMS` file to check them against:
+
+```bash
+curl -LO https://github.com/eolymp/h/releases/download/judge/v1.0.0/eo-judge-linux-amd64
+curl -LO https://github.com/eolymp/h/releases/download/judge/v1.0.0/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+install -m 755 eo-judge-linux-amd64 ~/.local/bin/eo-judge
+```
+
+With Go 1.23 or later, `go install github.com/eolymp/h/judge@v1.0.0` builds the same program
+from the tag; Go names the binary `judge` after its directory. In a checkout, `make build/eo-judge`
+writes `build/eo-judge`, and `make judge` runs gofmt, go vet and the eo-judge tests.
 
 ```bash
 eo-judge run   <problem>   # build, generate, validate, judge every solution, score it

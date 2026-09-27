@@ -3,7 +3,8 @@ import re
 import subprocess
 import sys
 
-HEADERS = ["eolymp.h", "eolymp-shapes.h"]
+RELEASED = ["eolymp.h", "eolymp-shapes.h", "judge", ":(exclude)judge/*_test.go", ":(exclude)judge/testdata"]
+JUDGE_VERSION = re.compile(r'^const version = "(.*)"$', re.M)
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
 
 
@@ -41,17 +42,24 @@ def main() -> int:
     except Refused as reason:
         print(f"version: {reason}", file=sys.stderr)
         return 1
-    changed = subprocess.run(["git", "diff", "--quiet", base, "HEAD", "--", *HEADERS]).returncode != 0
+    judge = subprocess.run(["git", "show", "HEAD:judge/main.go"], capture_output=True, text=True)
+    stated = JUDGE_VERSION.search(judge.stdout)
+    if stated is None or stated.group(1) != after:
+        print(f"version: judge/main.go says eo-judge is {stated.group(1) if stated else 'unversioned'}, "
+              f"but EOLYMP_H_VERSION is {after}; the two are one version", file=sys.stderr)
+        return 1
+    changed = subprocess.run(["git", "diff", "--quiet", base, "HEAD", "--", *RELEASED]).returncode != 0
     if later < earlier:
         print(f"version: EOLYMP_H_VERSION went back from {before} to {after}; raise it instead",
               file=sys.stderr)
         return 1
     if changed and later == earlier:
         still = before if before == after else f"{after}, which ranks the same as {before}"
-        print(f"version: the headers changed but EOLYMP_H_VERSION is still {still}; "
-              f"raise it in src/core.h, or the change never reaches a release", file=sys.stderr)
+        print(f"version: the headers or eo-judge changed but EOLYMP_H_VERSION is still {still}; "
+              f"raise it in src/core.h and judge/main.go, or the change never reaches a release",
+              file=sys.stderr)
         return 1
-    print(f"version: {before} -> {after}" if before != after else f"version: {after}, headers unchanged")
+    print(f"version: {before} -> {after}" if before != after else f"version: {after}, nothing released changed")
     return 0
 
 

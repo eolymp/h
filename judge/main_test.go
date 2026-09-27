@@ -178,3 +178,13 @@ func TestVerboseListsEveryRun(t *testing.T) {
 		t.Errorf("a run without -v listed its runs: %q", quiet)
 	}
 }
+
+func TestEoJudgeCarriesTheRepositorysVersion(t *testing.T) {
+	core, err := os.ReadFile("../src/core.h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(core), "#define EOLYMP_H_VERSION \""+version+"\"\n") {
+		t.Errorf("eo-judge is %s, and src/core.h has another EOLYMP_H_VERSION; the two are one version", version)
+	}
+}
