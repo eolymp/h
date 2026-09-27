@@ -208,6 +208,9 @@ inline bool const bad_patterns_are_reported = (bad_pattern_hook() = &report_a_ba
 
 class allow {
 public:
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     allow(std::string code, std::string reason, char const* file = __builtin_FILE(),
           int line = __builtin_LINE()) {
         detail::diagnostics::shared().allow_code(std::move(code), std::move(reason), detail::site{file, line});

@@ -611,6 +611,9 @@ inline bool const bad_patterns_are_reported = (bad_pattern_hook() = &report_a_ba
 
 class allow {
 public:
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     allow(std::string code, std::string reason, char const* file = __builtin_FILE(),
           int line = __builtin_LINE()) {
         detail::diagnostics::shared().allow_code(std::move(code), std::move(reason), detail::site{file, line});
@@ -1901,6 +1904,9 @@ inline double rounded(double value, int digits) {
 class budget {
 public:
     template <class Owner>
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     budget(Owner& owner, long long limit, std::string name)
         : keeper_(&owner), judge_(&owner), limit_(limit), name_(std::move(name)) {
         keeper_->declare_budget();
@@ -2035,6 +2041,9 @@ inline validator*& live_validator() {
 
 class sum_limit : public detail::registered_sum {
 public:
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     sum_limit(long long limit, std::string name) : limit_(limit), name_(std::move(name)) {
         detail::live_sums().push_back(this);
         detail::sums_ever_made()++;

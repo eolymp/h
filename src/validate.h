@@ -60,6 +60,9 @@ inline validator*& live_validator() {
 
 class sum_limit : public detail::registered_sum {
 public:
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     sum_limit(long long limit, std::string name) : limit_(limit), name_(std::move(name)) {
         detail::live_sums().push_back(this);
         detail::sums_ever_made()++;

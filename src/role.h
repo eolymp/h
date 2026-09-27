@@ -136,6 +136,9 @@ inline double rounded(double value, int digits) {
 class budget {
 public:
     template <class Owner>
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     budget(Owner& owner, long long limit, std::string name)
         : keeper_(&owner), judge_(&owner), limit_(limit), name_(std::move(name)) {
         keeper_->declare_budget();

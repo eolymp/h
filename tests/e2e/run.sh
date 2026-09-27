@@ -28,6 +28,17 @@ build_one -O2 -o "$build/relay_solution" "$root/tests/e2e/relay_solution.cpp"
 for pid in $pids; do wait "$pid"; done
 
 failures=0
+if ${CXX:-c++} -std=${CXXSTD:-c++17} -Wall -Wextra -Werror -fsyntax-only "$root/tests/e2e/discarded.cpp" \
+        > "$build/discarded.log" 2>&1; then
+    echo "e2e: an eo::allow, eo::sum_limit or eo::budget written as a bare statement compiled quietly" >&2
+    failures=$((failures + 1))
+elif [ "$(grep -cE 'discarded.cpp:[0-9]+:[0-9]+: (error|warning): ignoring.*nodiscard' "$build/discarded.log")" != 3 ]; then
+    echo "e2e: a scope object written as a bare statement did not give three nodiscard diagnostics:" >&2
+    cat "$build/discarded.log" >&2
+    failures=$((failures + 1))
+else
+    echo "e2e: a scope object written as a bare statement is a compiler warning"
+fi
 expect() {
     request=$1
     wanted_code=$2

@@ -6,9 +6,10 @@ and what to do about it.
 
 **A warning never changes a verdict.** It cannot make a test invalid or an answer wrong.
 `EOLYMP_STRICT=1` in the environment, or `eo-judge --strict`, makes the first warning fatal;
-that is for a preparation loop, not for the judge. `eo::allow("EO106", "the statement really
-says n ≤ 200001")` silences one code inside a scope and needs a reason, which the report
-lists, so a silence stays visible.
+that is for a preparation loop, not for the judge. `eo::allow quiet("EO106", "the statement
+really says n ≤ 200001");` silences one code for the rest of its scope and needs a reason,
+which the report lists, so a silence stays visible. It has to be a named object: written as
+a bare statement it would end at the semicolon, and the compiler warns about that.
 
 **Where a warning comes out** — the stderr block locally, one line plus an `eo-report` JSON
 line on the judge, and the channel each role can afford to write to — is in
