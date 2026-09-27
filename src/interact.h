@@ -72,8 +72,12 @@ public:
         detail::live_interactor() = nullptr;
         detail::live_scorer() = nullptr;
         detail::current_case() = 0;
-        if (std::uncaught_exceptions() == 0 && !delivered_)
-            fail_jury("the interactor ended without a verdict");
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury("the interactor ended without a verdict");
+#ifndef EOLYMP_TESTING
+        fail_jury("an exception left the interactor before its verdict; catch it inside the interactor's scope "
+                  "and give a verdict there, or let it end the program");
+#endif
     }
 
     stream input;

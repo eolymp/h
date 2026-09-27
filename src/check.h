@@ -300,8 +300,12 @@ public:
         detail::current_case() = 0;
         detail::emitter() = nullptr;
         if (held_ != nullptr) put_the_output_back();
-        if (std::uncaught_exceptions() == 0 && !delivered_)
-            fail_jury("the checker ended without a verdict");
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury("the checker ended without a verdict");
+#ifndef EOLYMP_TESTING
+        fail_jury("an exception left the checker before its verdict; catch it inside the checker's scope "
+                  "and give a verdict there, or let it end the program");
+#endif
     }
 
     stream input;

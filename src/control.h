@@ -152,8 +152,12 @@ public:
         if (replies_ != nullptr) std::fclose(replies_);
         requests_ = nullptr;
         replies_ = nullptr;
-        if (std::uncaught_exceptions() == 0 && !delivered_)
-            fail_jury("the controller ended without a verdict");
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury("the controller ended without a verdict");
+#ifndef EOLYMP_TESTING
+        fail_jury("an exception left the controller before its verdict; catch it inside the controller's scope "
+                  "and give a verdict there, or let it end the program");
+#endif
     }
 
     stream input;

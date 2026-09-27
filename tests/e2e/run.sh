@@ -11,6 +11,7 @@ build_one() {
 build_one -O2 -Wall -Wextra -Werror -o "$build/exit_codes" "$root/tests/e2e/exit_codes.cpp"
 build_one -O2 -Wall -Wextra -Werror -o "$build/validator" "$root/tests/e2e/validator.cpp"
 build_one -O2 -Wall -Wextra -Werror -o "$build/checker" "$root/tests/e2e/checker.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/swallowing_checker" "$root/tests/e2e/swallowing_checker.cpp"
 build_one -O1 -Wall -Wextra -Werror -o "$build/play" "$root/tests/e2e/play.cpp"
 build_one -O2 -Wall -Wextra -Werror -o "$build/interactor" "$root/tests/e2e/interactor.cpp"
 build_one -O2 -o "$build/solution" "$root/tests/e2e/solution.cpp"
@@ -111,6 +112,17 @@ check_checker "a short answer" 1 "wrong answer: output.txt"
 printf 'x\n' > "$build/cans.txt"
 printf '10 20 30\n' > "$build/cout.txt"
 check_checker "a broken answer file" 3 "jury error: answer.txt"
+
+printf '3\n' > "$build/sin.txt"
+printf '5 5 5\n' > "$build/sout.txt"
+EOLYMP=1 TEST_COST=40 "$build/swallowing_checker" "$build/sin.txt" "$build/sout.txt" "$build/sin.txt" \
+    > "$build/swallow.log" 2>&1 && code=0 || code=$?
+if [ "$code" = 3 ] && grep -q "an exception left the checker before its verdict" "$build/swallow.log"; then
+    echo "e2e: an exception the checker swallowed is a jury error, not an accept"
+else
+    echo "e2e: a checker that swallowed an exception exited $code, expected 3" >&2
+    failures=$((failures + 1))
+fi
 
 printf '10 20 30\n' > "$build/cans.txt"
 printf '10 99 30\n' > "$build/cout.txt"
