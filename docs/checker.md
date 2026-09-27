@@ -309,13 +309,14 @@ Each of these gives the verdict and ends the program.
 | --- | --- |
 | `c.tokens()` | the output has exactly the answer's tokens, in order; whitespace does not matter, letter case does |
 | `c.lines()` | the output has the answer's lines, ignoring trailing spaces and tabs |
-| `c.reals(eps)` | token by token: numbers agree within an absolute or relative error of `eps`, other tokens are equal |
+| `c.reals(eps)` | token by token: numbers agree within an absolute or relative error of `eps`, other tokens are equal; a token longer than 4096 characters and than the answer's is wrong |
 | `c.yes_no(certificate)` | a `YES`/`NO` answer, with a certificate after `YES` |
 | `c.yes_no(certificate, "POSSIBLE", "IMPOSSIBLE")` | the same with other words |
 
 Eolymp also has built-in `TOKENS` and `LINES` checkers that need no program at all. Use them
 when they are enough — but note that the built-in `TOKENS` fails with a system failure on a
-token over 64 KB, where `c.tokens()` has no such limit.
+token over 64 KB, where `c.tokens()` has no such limit: it reads a contestant token only one
+character past the answer's, so a huge token costs no memory.
 
 `yes_no` reads the first token of each side, ignoring case, and then:
 

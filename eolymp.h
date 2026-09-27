@@ -2809,7 +2809,10 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
             std::string const want = jury.read_token(any, fmt("token {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
-            std::string const got = output.read_token(any, fmt("token {}", seen));
+            std::string const got = contestant_token(seen, want.size());
+            if (got.size() > want.size())
+                fail_run(fmt("token {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
             if (want != got)
                 fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
                              detail::shorten(want)));
@@ -2827,7 +2830,10 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
             std::string const want = jury.read_token(any, fmt("token {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
-            std::string const got = output.read_token(any, fmt("token {}", seen));
+            std::size_t const longest = std::max<std::size_t>(want.size(), detail::reader::longest_number);
+            std::string const got = contestant_token(seen, longest);
+            if (got.size() > longest)
+                fail_run(fmt("token {} is longer than {} characters: \"{}\"", seen, longest, detail::shorten(got)));
             detail::real_read const wanted = detail::parse_real(want, true);
             detail::real_read const found = detail::parse_real(got, true);
             if (wanted.problem == detail::number_problem::none &&
@@ -2924,6 +2930,11 @@ public:
     }
 
 private:
+    std::string contestant_token(long long seen, std::size_t longest) {
+        return output.inside().take_word(fmt("token {}", seen), detail::site::here(), "a token",
+                                         static_cast<long long>(longest) + 1);
+    }
+
     static void write_log(std::string const& verdict) {
         checker* const one = detail::live_checker();
         if (one == nullptr) return;

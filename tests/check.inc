@@ -532,21 +532,41 @@ EO_TEST(the_ready_made_comparisons_compare) {
 
 EO_TEST(the_ready_made_comparisons_shorten_and_escape_what_they_echo) {
     std::string const huge = std::string(100000, 'z') + "\n";
-    eot::outcome const tokens = check_run("1\n", huge, "a\n", [](eo::checker& c) { c.tokens(); });
-    EO_CHECK_EQ(tokens.text, "wrong answer token 1 is \"" + std::string(40, 'z') + "...\", expected \"a\"");
-    eot::outcome const reals = check_run("1\n", huge, "1.0\n", [](eo::checker& c) { c.reals(1e-6); });
-    EO_CHECK_EQ(reals.text, "wrong answer token 1 is \"" + std::string(40, 'z') + "...\", expected \"1.0\"");
+    eot::outcome const tokens =
+        check_run("1\n", huge, std::string(100000, 'y') + "\n", [](eo::checker& c) { c.tokens(); });
+    EO_CHECK_EQ(tokens.text, "wrong answer token 1 is \"" + std::string(40, 'z') + "...\", expected \"" +
+                                 std::string(40, 'y') + "...\"");
     std::string const bytes = std::string("a\x01\x7f\xd0\xbf\xbf") + "\n";
-    eot::outcome const binary = check_run("1\n", bytes, "a\n", [](eo::checker& c) { c.tokens(); });
-    EO_CHECK_EQ(binary.text,
-                std::string("wrong answer token 1 is \"a\\x01\\x7fп\\xbf\", expected \"a\""));
-    eot::outcome const cyrillic = check_run("1\n", "привіт\n", "вітаю\n", [](eo::checker& c) { c.tokens(); });
-    EO_CHECK_EQ(cyrillic.text, std::string("wrong answer token 1 is \"привіт\", expected \"вітаю\""));
+    eot::outcome const binary = check_run("1\n", bytes, "abcdef\n", [](eo::checker& c) { c.tokens(); });
+    EO_CHECK_EQ(binary.text, std::string("wrong answer token 1 is \"a\\x01\\x7fп\\xbf\", expected \"abcdef\""));
+    eot::outcome const cyrillic =
+        check_run("1\n", "привіт\n", "вітаємо\n", [](eo::checker& c) { c.tokens(); });
+    EO_CHECK_EQ(cyrillic.text, std::string("wrong answer token 1 is \"привіт\", expected \"вітаємо\""));
     std::string const split = std::string(39, 'a') + "їїї\n";
-    eot::outcome const cut = check_run("1\n", split, "b\n", [](eo::checker& c) { c.tokens(); });
-    EO_CHECK_EQ(cut.text, "wrong answer token 1 is \"" + std::string(39, 'a') + "...\", expected \"b\"");
+    eot::outcome const cut =
+        check_run("1\n", split, std::string(50, 'b') + "\n", [](eo::checker& c) { c.tokens(); });
+    EO_CHECK_EQ(cut.text, "wrong answer token 1 is \"" + std::string(39, 'a') + "...\", expected \"" +
+                              std::string(40, 'b') + "...\"");
     eot::outcome const line = check_run("1\n", "a\tb\n", "a b\n", [](eo::checker& c) { c.lines(); });
     EO_CHECK_IN(line.text, "line 1 is \"a\\x09b\", expected \"a b\"");
+}
+
+EO_TEST(the_ready_made_comparisons_read_no_more_of_a_token_than_they_need) {
+    std::string const huge = std::string(2 * 1024 * 1024, 'z') + "\n";
+    eot::outcome const tokens = check_run("1\n", huge, "abc\n", [](eo::checker& c) { c.tokens(); });
+    EO_CHECK_EQ(tokens.text,
+                std::string("wrong answer token 1 is longer than the expected \"abc\"; it starts \"zzzz\""));
+    EO_CHECK(checker_warnings().find("EO111") == std::string::npos);
+    eot::outcome const reals = check_run("1\n", huge, "1.0\n", [](eo::checker& c) { c.reals(1e-6); });
+    EO_CHECK_EQ(reals.text,
+                "wrong answer token 1 is longer than 4096 characters: \"" + std::string(40, 'z') + "...\"");
+    std::string const zeros = "0.5" + std::string(5000, '0') + "\n";
+    EO_CHECK_IN(check_run("1\n", zeros, "0.5\n", [](eo::checker& c) { c.reals(1e-6); }).text,
+                "token 1 is longer than 4096 characters");
+    std::string const fits = "0.5" + std::string(4093, '0') + "\n";
+    EO_CHECK_EQ(check_run("1\n", fits, "0.5\n", [](eo::checker& c) { c.reals(1e-6); }).code, 0);
+    std::string const long_answer = "0.5" + std::string(5000, '0') + "\n";
+    EO_CHECK_EQ(check_run("1\n", long_answer, long_answer, [](eo::checker& c) { c.reals(1e-6); }).code, 0);
 }
 
 EO_TEST(yes_and_no_with_a_certificate) {
