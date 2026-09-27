@@ -156,10 +156,7 @@ func runProblem(ctx context.Context, shop *Workspace, only string, strict bool, 
 		fmt.Fprintf(out, "\n%d test(s) the validator refuses\n", invalid)
 	}
 
-	for _, solution := range shop.Problem.Solutions {
-		if only != "" && solution.Name != only {
-			continue
-		}
+	for _, solution := range shop.Problem.Judged(only) {
 		attempt, err := shop.Evaluate(ctx, solution.Name, &Program{Source: solution.Source})
 		if err != nil {
 			fmt.Fprintln(errs, "eo-judge:", err)

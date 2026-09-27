@@ -34,6 +34,15 @@ func TestConfigurationChecks(t *testing.T) {
 	}
 }
 
+func TestAnEachTestsetWithExpandedIcpcFeedbackIsFlagged(t *testing.T) {
+	problem := &Problem{Type: "PROGRAM", RunCount: 1, Testsets: []*Testset{
+		{Index: 1, ScoringMode: "EACH", FeedbackPolicy: "ICPC_EXPANDED", Tests: []*Test{{Index: 1, Score: 100}}},
+	}}
+	if !fired(Configuration(problem), "EO901") {
+		t.Fatal("EO901 did not fire")
+	}
+}
+
 func TestAnInteractiveProblemNeedsAWallLimit(t *testing.T) {
 	problem := &Problem{Type: "INTERACTIVE", RunCount: 1}
 	if !fired(Configuration(problem), "EO902") {

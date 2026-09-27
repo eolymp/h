@@ -67,7 +67,7 @@ func Configuration(problem *Problem) Findings {
 		rows += len(testset.Tests)
 		where := fmt.Sprintf("testset %d", testset.Index)
 
-		if testset.ScoringMode == "EACH" && testset.FeedbackPolicy == "ICPC" {
+		if testset.ScoringMode == "EACH" && strings.HasPrefix(testset.FeedbackPolicy, "ICPC") {
 			found.warn("EO901", where, "an EACH testset with ICPC feedback",
 				"ICPC stops after the first test worth nothing, so the rest score 0; use COMPLETE")
 		}

@@ -93,7 +93,7 @@ func (w *Workspace) solutionChecks(ctx context.Context, found *Findings) error {
 	passed := map[int]bool{}
 	failed := map[int]bool{}
 
-	for _, one := range w.Problem.Solutions {
+	for _, one := range w.Problem.Judged("") {
 		attempt, err := w.Evaluate(ctx, one.Name, &Program{Source: one.Source})
 		if err != nil {
 			return err

@@ -44,6 +44,16 @@ func TestIcpcLeavesOtherGroupsAlone(t *testing.T) {
 	}
 }
 
+func TestIcpcExpandedStopsLikeIcpc(t *testing.T) {
+	problem := &Problem{Testsets: []*Testset{{Index: 1, FeedbackPolicy: "ICPC_EXPANDED"}}}
+	gate := admissionFor(problem)
+	plan := planOf(1, 2)
+	gate.Notify(plan[0], &RunResult{Verdict: WrongAnswer})
+	if gate.Admit(plan[1]) != Rejected {
+		t.Fatal("ICPC_EXPANDED stops after a wrong answer")
+	}
+}
+
 func TestDependencyBlocksUntilTheBlockersPass(t *testing.T) {
 	first := planOf(1, 2)
 	gate := &dependency{group: 2, mode: "FULLY_ACCEPTED", blockers: map[string]bool{

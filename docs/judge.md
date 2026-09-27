@@ -81,11 +81,18 @@ Eolymp API, so a problem exported from the platform maps onto it one to one.
 }
 ```
 
+`eo-judge` refuses a `problem.json` with a field it does not know or a value outside the lists
+below, naming it, rather than ignoring a misspelt `"scoringMode": "WORSE"` and judging under the
+default. Field names match exactly, case included, and nothing may follow the problem's
+object. Every value the platform itself exports is accepted, so a problem exported from Eolymp
+loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
+`UNKNOWN_DEPENDENCY_MODE` or `UNSET` is the same as leaving the field out.
+
 ### Problem
 
 | Field | Default | Means |
 | --- | --- | --- |
-| `type` | `PROGRAM` | `PROGRAM`, `INTERACTIVE` or `COMMUNICATION` |
+| `type` | `PROGRAM` | `PROGRAM`, `INTERACTIVE` or `COMMUNICATION`; `FUNCTION`, `OUTPUT`, `SQL`, `ML`, `QUIZ` and `WIDGET` are platform types too, and `eo-judge` refuses them with "eo-judge does not run FUNCTION problems" |
 | `runCount` | 1 | how many times a solution runs, chaining the interactor's output into the next run |
 | `timeLimit`, `cpuLimit` | — | milliseconds; a testset may override the wall limit |
 | `memoryLimit` | — | bytes |
@@ -93,7 +100,7 @@ Eolymp API, so a problem exported from the platform maps onto it one to one.
 | `exactFormat` | false | whitespace is part of the format, which turns EO818 off |
 | `checker`, `validator`, `interactor` | — | one program each |
 | `scripts` | — | named generators; `answerGenerator` names one of them |
-| `solutions` | — | what `run` judges and `check` compares subtasks against |
+| `solutions` | — | what `run` judges and `check` compares subtasks against; each has a `name`, a `source`, an optional `type`, and an optional expected score in `scores`; `CORRECT` is a reference expected to score full marks unless `scores` says otherwise, `DONT_RUN` is left out of `run` and `check` unless `--solution` names it, and `INCORRECT`, `WRONG_ANSWER`, `TIMEOUT`, `OVERFLOW`, `TIMEOUT_OR_ACCEPTED`, `OVERFLOW_OR_ACCEPTED` and `FAILURE` are judged with no expectation checked |
 | `testsets` | — | the groups |
 
 ### Program
@@ -115,9 +122,9 @@ matches what a judge log would say.
 | Field | Default | Means |
 | --- | --- | --- |
 | `index` | — | 0 is the examples testset |
-| `scoringMode` | `EACH` | `EACH`, `ALL`, `WORST` or `BEST` |
-| `feedbackPolicy` | `COMPLETE` | `ICPC` stops the group after a test worth nothing |
-| `dependencyMode` | `FULLY_ACCEPTED` | or `FIRST_POINT` |
+| `scoringMode` | `EACH` | `EACH`, `ALL`, `WORST` or `BEST`, or `NO_SCORE`, which runs the group and pays nothing for it |
+| `feedbackPolicy` | `COMPLETE` | `COMPLETE`, or `ICPC`, which stops the group after a test worth nothing; `ICPC_EXPANDED` stops the same way and only shows the contestant more |
+| `dependencyMode` | `FULLY_ACCEPTED` | `FULLY_ACCEPTED` or `FIRST_POINT` |
 | `dependencies` | — | testset indexes that must pass first |
 | `timeLimit`, `memoryLimit` | the problem's | per testset |
 | `tests[].score` | 0 | what the test is worth |

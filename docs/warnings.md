@@ -138,7 +138,7 @@ These are the checks the platform should eventually make when a problem is saved
 
 | Code | Severity | Reporter | Fires when | What to do |
 | --- | --- | --- | --- | --- |
-| `EO901` | warning | `eo-judge check` | an `EACH` testset carries `ICPC` feedback | ICPC stops after the first test worth nothing, so the rest score 0; use `COMPLETE` |
+| `EO901` | warning | `eo-judge check` | an `EACH` testset carries `ICPC` or `ICPC_EXPANDED` feedback | ICPC stops after the first test worth nothing, so the rest score 0; use `COMPLETE` |
 | `EO902` | warning | `eo-judge check` | an interactive problem has no wall `timeLimit` | the interactor is given the wall limit plus a second and nothing else bounds it |
 | `EO903` | warning | `eo-judge check` | a program includes a quoted header with no matching `files[]` entry | attach it, or the first run fails to compile and shows up only as a submission failure |
 | `EO904` | warning | `eo-judge check` | a testset is listed among its own dependencies | nothing in it will ever run |
