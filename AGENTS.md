@@ -28,10 +28,11 @@ make check      # the C++ gate: 9 parts, what CI runs on four toolchains
 make judge      # gofmt, go vet and the eo-judge tests
 make mutants    # a changed operator or bound must make the suite fail
 make sanitize   # the suite and the end-to-end programs under ASan and UBSan
+make version    # changed headers need a raised EOLYMP_H_VERSION
 ```
 
-CI runs all four: `make check` on g++, clang++, musl and macOS, and `make judge`,
-`make mutants` and `make sanitize` once each.
+CI runs all five: `make check` on g++, clang++, musl and macOS, `make judge`,
+`make mutants` and `make sanitize` once each, and `make version` on every pull request.
 
 Two parts fail for reasons worth knowing in advance:
 

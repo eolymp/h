@@ -210,6 +210,7 @@ clang++, musl and macOS. Each part answers a question:
 | `codes` | every warning code the sources raise has a row in `docs/warnings.md` |
 | `mutants` | a changed operator or bound in either header makes the suite fail; run with `make mutants` |
 | `sanitize` | the suite and the end-to-end programs pass under ASan and UBSan; run with `make sanitize` |
+| `version` | a change to the headers raises `EOLYMP_H_VERSION`; CI runs `make version` on every pull request |
 | `budget` | what including the header costs a translation unit |
 | `examples` | every example in `docs/` compiles |
 
