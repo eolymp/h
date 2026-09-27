@@ -8,8 +8,11 @@ TESTS := tests/all.cpp tests/harness.h $(wildcard tests/*.inc)
 
 all: eolymp.h eolymp-shapes.h
 
-eolymp.h eolymp-shapes.h: $(SOURCES) tools/amalgamate.py
+eolymp.h: $(SOURCES) tools/amalgamate.py
 	python3 tools/amalgamate.py
+
+eolymp-shapes.h: eolymp.h
+	@test -f $@ || python3 tools/amalgamate.py
 
 amalgamate:
 	python3 tools/amalgamate.py
@@ -17,12 +20,14 @@ amalgamate:
 amalgamation-check:
 	python3 tools/amalgamate.py --check
 
-build/tests: eolymp.h eolymp-shapes.h $(TESTS)
-	@mkdir -p build
-	$(CXX) -std=$(CXXSTD) -O1 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
+STANDARDS := c++17 c++20 c++23
 
-test: build/tests
-	./build/tests
+build/tests-%: eolymp.h eolymp-shapes.h $(TESTS)
+	@mkdir -p build
+	$(CXX) -std=$* -O1 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
+
+test: build/tests-$(CXXSTD)
+	./build/tests-$(CXXSTD)
 
 coverage: eolymp.h eolymp-shapes.h
 	python3 tools/coverage.py
@@ -30,13 +35,8 @@ coverage: eolymp.h eolymp-shapes.h
 e2e: eolymp.h eolymp-shapes.h
 	sh tests/e2e/run.sh
 
-standards: eolymp.h eolymp-shapes.h
-	@mkdir -p build
-	@for standard in c++17 c++20 c++23; do \
-		echo "standards: $$standard"; \
-		$(CXX) -std=$$standard -O1 $(WARNINGS) -DEOLYMP_TESTING -o build/tests-$$standard tests/all.cpp || exit 1; \
-		./build/tests-$$standard || exit 1; \
-	done
+standards: $(STANDARDS:%=build/tests-%)
+	@for standard in $(STANDARDS); do echo "standards: $$standard"; ./build/tests-$$standard || exit 1; done
 
 hostile: eolymp.h eolymp-shapes.h
 	sh tests/hostile/run.sh
@@ -54,7 +54,9 @@ mutants: eolymp.h eolymp-shapes.h
 	@mkdir -p build
 	python3 tools/mutants.py
 
-check: amalgamation-check test coverage standards e2e hostile examples codes budget
+check: amalgamation-check
+	$(MAKE) test coverage standards e2e hostile examples codes
+	$(MAKE) budget
 
 judge: eolymp.h eolymp-shapes.h
 	cd judge && gofmt -l . | tee /dev/stderr | (! read) && go vet ./... && go test -count=1 ./...
