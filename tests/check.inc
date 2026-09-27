@@ -895,6 +895,80 @@ EO_TEST(on_the_judge_the_verdict_line_comes_first) {
     EO_CHECK_IN(result.printed, "eolymp.h " EOLYMP_H_VERSION);
 }
 
+namespace {
+
+class descriptor_limit {
+public:
+    descriptor_limit() { ::getrlimit(RLIMIT_NOFILE, &before_); }
+    descriptor_limit(descriptor_limit const&) = delete;
+
+    void leave(int free) {
+        rlim_t top = 0;
+        for (int seen = 0; seen < free || ::fcntl(static_cast<int>(top), F_GETFD) >= 0; top++)
+            if (::fcntl(static_cast<int>(top), F_GETFD) < 0) seen++;
+        rlimit capped = before_;
+        capped.rlim_cur = top;
+        ::setrlimit(RLIMIT_NOFILE, &capped);
+    }
+
+    ~descriptor_limit() { ::setrlimit(RLIMIT_NOFILE, &before_); }
+
+private:
+    rlimit before_{};
+};
+
+std::string round_trip(std::FILE* file) {
+    if (file == nullptr) return "no file";
+    std::fputs("held", file);
+    std::rewind(file);
+    char buffer[8] = {};
+    std::size_t const got = std::fread(buffer, 1, sizeof(buffer) - 1, file);
+    std::fclose(file);
+    return std::string(buffer, got);
+}
+
+}  // namespace
+
+EO_TEST(a_checker_finds_a_scratch_file_where_it_can) {
+#ifdef __linux__
+    EO_CHECK_EQ(round_trip(eo::detail::scratch_in_memory()), std::string("held"));
+#endif
+    EO_CHECK_EQ(round_trip(eo::detail::scratch_in_the_temporary_directory()), std::string("held"));
+    EO_CHECK_EQ(round_trip(eo::detail::scratch_in_the_workspace()), std::string("held"));
+    EO_CHECK_EQ(round_trip(eo::detail::scratch_file()), std::string("held"));
+    std::array<eo::detail::scratch_maker, 3> const makers = eo::detail::scratch_makers();
+    EO_CHECK(makers[0] == &eo::detail::scratch_in_the_temporary_directory);
+    EO_CHECK(makers[1] == &eo::detail::scratch_in_memory);
+    EO_CHECK(makers[2] == &eo::detail::scratch_in_the_workspace);
+    eo::detail::scratch_maker const refuse = [] { return static_cast<std::FILE*>(nullptr); };
+    EO_CHECK_EQ(round_trip(eo::detail::first_scratch(std::array<eo::detail::scratch_maker, 2>{
+                    refuse, &eo::detail::scratch_in_the_workspace})),
+                std::string("held"));
+    EO_CHECK_EQ(eo::detail::opened_scratch(-1), nullptr);
+    {
+        descriptor_limit none;
+        none.leave(0);
+        EO_CHECK_EQ(eo::detail::scratch_file(), nullptr);
+    }
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    three_files files("1\n", "5\n", "5\n");
+    ::setenv("EOLYMP", "1", 1);
+    std::string program = "checker.cpp";
+    std::vector<char*> arguments{program.data(), const_cast<char*>(files.input.c_str()),
+                                 const_cast<char*>(files.output.c_str()),
+                                 const_cast<char*>(files.answer.c_str())};
+    eot::outcome const result = eot::run_until_stop([&] {
+        descriptor_limit five;
+        five.leave(5);
+        eo::checker c(static_cast<int>(arguments.size()), arguments.data());
+        eo::accept();
+    });
+    forget_the_environment();
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "eolymp.h: the checker cannot open a scratch file for its own output");
+}
+
 EO_TEST(a_very_noisy_checker_is_noted) {
     eo::detail::diagnostics::shared().forget_everything();
     forget_the_environment();

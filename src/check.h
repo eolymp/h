@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include "core.h"
@@ -55,6 +57,45 @@ inline checker*& live_checker() {
     static checker* only = nullptr;
     return only;
 }
+
+inline std::FILE* opened_scratch(int descriptor) {
+    if (descriptor < 0) return nullptr;
+    std::FILE* const file = ::fdopen(descriptor, "w+b");
+    if (file == nullptr) ::close(descriptor);
+    return file;
+}
+
+inline std::FILE* scratch_in_memory() {
+#if defined(__linux__) && defined(SYS_memfd_create)
+    return opened_scratch(static_cast<int>(::syscall(SYS_memfd_create, "eolymp-checker-output", 0)));
+#else
+    return nullptr;
+#endif
+}
+
+inline std::FILE* scratch_in_the_temporary_directory() { return std::tmpfile(); }
+
+inline std::FILE* scratch_in_the_workspace() {
+    char name[] = "eolymp-checker-output-XXXXXX";
+    int const descriptor = ::mkstemp(name);
+    if (descriptor >= 0) ::unlink(name);
+    return opened_scratch(descriptor);
+}
+
+using scratch_maker = std::FILE* (*)();
+
+inline std::array<scratch_maker, 3> scratch_makers() {
+    return {&scratch_in_the_temporary_directory, &scratch_in_memory, &scratch_in_the_workspace};
+}
+
+template <std::size_t Count>
+inline std::FILE* first_scratch(std::array<scratch_maker, Count> const& makers) {
+    for (scratch_maker const make : makers)
+        if (std::FILE* const made = make()) return made;
+    return nullptr;
+}
+
+inline std::FILE* scratch_file() { return first_scratch(scratch_makers()); }
 
 class reader;
 
@@ -281,10 +322,10 @@ public:
         if (detail::on_judge()) {
             saved_out_ = ::dup(1);
             saved_err_ = ::dup(2);
-            held_ = std::tmpfile();
+            held_ = detail::scratch_file();
             if (held_ == nullptr)
-                detail::library_error(  // LCOV_EXCL: a workspace with no writable temporary directory
-                    "the checker cannot open a temporary file for its own output");
+                detail::library_error("the checker cannot open a scratch file for its own output: not in memory, "
+                                      "not in the temporary directory and not in the workspace");
             ::dup2(::fileno(held_), 1);
             ::dup2(::fileno(held_), 2);
             detail::emitter() = &checker::write_log;
