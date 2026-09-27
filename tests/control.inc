@@ -179,6 +179,15 @@ EO_TEST(a_controller_summary_that_cannot_be_written_whole_is_a_jury_error) {
     EO_CHECK_EQ(result.summary, std::string("eolymp-summary 1\nfraction 1"));
 }
 
+EO_TEST(a_controller_writes_points_above_the_cost_as_full_marks) {
+    staged const result = run_control("1\n", {}, {}, 10, [](eo::controller& ctl) {
+        ctl.input.read_int(1, 9, "n");
+        eo::points(50, "more than the test");
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_IN(result.summary, "fraction 1\n");
+}
+
 EO_TEST(a_controller_can_award_part_of_the_test) {
     staged const result = run_control("3 1\n", {"ok"}, {"5\n"}, 10, [](eo::controller& ctl) {
         ctl.input.read_int(2, 100, "instances");

@@ -3255,7 +3255,7 @@ public:
     [[noreturn]] void pass(double fraction, std::string const& message) final {
         if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
-        held_.set_fraction(fraction);
+        held_.set_fraction(std::min(fraction, 1.0));
         held_.set_message(message);
         put_the_summary_down();
         deliver(0, message.empty() ? "ok" : "ok " + message);
@@ -3761,7 +3761,7 @@ public:
     [[noreturn]] void pass(double fraction, std::string const& message) final {
         if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
-        held_.set_fraction(fraction);
+        held_.set_fraction(std::min(fraction, 1.0));
         held_.set_message(message);
         detail::write_file(paths_[1], held_.written(), "summary");
         deliver(0, message.empty() ? "ok" : "ok " + message);

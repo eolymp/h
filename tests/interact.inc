@@ -222,6 +222,17 @@ EO_TEST(a_summary_carries_only_numbers_the_checker_reads_back) {
     EO_CHECK_IN(escaped.text, "the value name \"line\\x0abreak\"");
 }
 
+EO_TEST(points_above_the_cost_are_full_marks_in_the_summary) {
+    chat const result = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::points(50, "more than the test");
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_EQ(result.summary, std::string("eolymp-summary 1\nfraction 1\nmessage more than the test\n"));
+    EO_CHECK_IN(checker_warnings(), "warning EO207: 50 points is more than the test's 40");
+}
+
 EO_TEST(an_interactor_refuses_what_the_solution_sends) {
     chat const early = talk("100 42\n", "", [](eo::interactor& it) {
         it.input.read_int(1, 1000, "n");
