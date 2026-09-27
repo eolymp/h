@@ -4345,11 +4345,10 @@ public:
     public:
         template <class... Args>
         void line(Args const&... values) {
-            std::string built;
             bool first = true;
-            (detail::add_to_line(built, values, first), ...);
-            built.push_back('\n');
-            put(built);
+            (add(values, first), ...);
+            held_.push_back('\n');
+            if (held_.size() >= 1u << 20) flush();
         }
 
         void line() { put("\n"); }
@@ -4368,6 +4367,18 @@ public:
 
     private:
         friend class generator;
+
+        template <class T>
+        void add(T const& value, bool& first) {
+            if constexpr (detail::is_a_list<T>::value && !std::is_convertible_v<T const&, std::string_view>) {
+                for (auto const& one : value) {
+                    add(one, first);
+                    if (held_.size() >= 1u << 20) flush();
+                }
+            } else {
+                detail::add_to_line(held_, value, first);
+            }
+        }
 
         void put(std::string const& bytes) {
             held_ += bytes;
