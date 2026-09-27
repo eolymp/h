@@ -159,6 +159,9 @@ func LoadProblem(dir string) (*Problem, error) {
 	if err := exactNames(raw, reflect.TypeOf(problem)); err != nil {
 		return nil, fmt.Errorf("problem.json: %w", err)
 	}
+	if err := repeatedKey(json.NewDecoder(bytes.NewReader(body))); err != nil {
+		return nil, fmt.Errorf("problem.json: %w", err)
+	}
 
 	absent(&problem.Type, "UNKNOWN_TYPE", "PROGRAM")
 	if problem.RunCount < 1 {
@@ -243,6 +246,48 @@ func oneOf(what, value string, allowed ...string) error {
 	return fmt.Errorf("%s is %q; it is one of %s", what, value, strings.Join(allowed, ", "))
 }
 
+func plainName(what, name string) error {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00") {
+		return fmt.Errorf("%s %q cannot be a file name; use letters, digits, dots, dashes and underscores",
+			what, name)
+	}
+	if len(name) > 240 {
+		return fmt.Errorf("%s %q... is %d bytes long; it becomes part of a directory name, so it holds at most 240",
+			what, name[:16], len(name))
+	}
+	return nil
+}
+
+func repeatedKey(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delim, opens := token.(json.Delim)
+	if !opens {
+		return nil
+	}
+	seen := map[string]bool{}
+	for decoder.More() {
+		if delim == '{' {
+			key, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			name, _ := key.(string)
+			if seen[name] {
+				return fmt.Errorf("%q appears twice in one object; the second would silently replace the first", name)
+			}
+			seen[name] = true
+		}
+		if err := repeatedKey(decoder); err != nil {
+			return err
+		}
+	}
+	_, err = decoder.Token()
+	return err
+}
+
 func (p *Problem) checkNames() error {
 	if err := oneOf("type", p.Type, "UNKNOWN_TYPE", "PROGRAM", "FUNCTION", "OUTPUT", "SQL", "ML", "QUIZ",
 		"INTERACTIVE", "COMMUNICATION", "WIDGET"); err != nil {
@@ -266,7 +311,20 @@ func (p *Problem) checkNames() error {
 			return err
 		}
 	}
+	for name := range p.Scripts {
+		if err := plainName("the script", name); err != nil {
+			return err
+		}
+	}
+	named := map[string]bool{}
 	for _, solution := range p.Solutions {
+		if err := plainName("the solution", solution.Name); err != nil {
+			return err
+		}
+		if named[solution.Name] {
+			return fmt.Errorf("two solutions are called %q; each needs a name of its own", solution.Name)
+		}
+		named[solution.Name] = true
 		if solution.Type == "" {
 			continue
 		}

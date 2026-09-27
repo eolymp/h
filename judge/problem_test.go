@@ -56,7 +56,34 @@ func TestAMisspeltFieldOrNameIsRefused(t *testing.T) {
 			t.Errorf("%s gave %v, want %q", body, err, said)
 		}
 	}
+	for _, name := range []string{"../escape", "a/b", "..", ".", "", "back\\\\slash"} {
+		body := `{"solutions": [{"name": "` + name + `", "source": "a.cpp"}]}`
+		if err := loading(t, body); err == nil || !strings.Contains(err.Error(), "cannot be a file name") {
+			t.Errorf("the solution name %q gave %v", name, err)
+		}
+	}
+	if err := loading(t, `{"scripts": {"../gen": {"source": "gen.cpp"}}}`); err == nil ||
+		!strings.Contains(err.Error(), `the script "../gen" cannot be a file name`) {
+		t.Errorf("a script name with a path gave %v", err)
+	}
 	if err := loading(t, `{"type": "INTERACTIVE", "solutions": [{"name": "a", "type": "INCORRECT"}]}`); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestARepeatedOrOverlongNameIsRefused(t *testing.T) {
+	for body, said := range map[string]string{
+		`{"solutions": [{"name": "a", "source": "a.cpp"}, {"name": "a", "source": "b.cpp"}]}`: `two solutions are called "a"`,
+		`{"scripts": {"gen": {"source": "a.cpp"}, "gen": {"source": "b.cpp"}}}`:               `"gen" appears twice in one object`,
+		`{"type": "PROGRAM", "testsets": [], "type": "INTERACTIVE"}`:                          `"type" appears twice in one object`,
+		`{"solutions": [{"name": "` + strings.Repeat("x", 241) + `", "source": "a.cpp"}]}`:    `is 241 bytes long; it becomes part of a directory name, so it holds at most 240`,
+	} {
+		err := loading(t, body)
+		if err == nil || !strings.Contains(err.Error(), said) {
+			t.Errorf("%.80s gave %v, want %q", body, err, said)
+		}
+	}
+	if err := loading(t, `{"solutions": [{"name": "`+strings.Repeat("x", 240)+`", "source": "a.cpp"}]}`); err != nil {
 		t.Error(err)
 	}
 }

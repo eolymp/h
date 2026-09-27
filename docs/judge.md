@@ -84,8 +84,8 @@ Eolymp API, so a problem exported from the platform maps onto it one to one.
 
 `eo-judge` refuses a `problem.json` with a field it does not know or a value outside the lists
 below, naming it, rather than ignoring a misspelt `"scoringMode": "WORSE"` and judging under the
-default. Field names match exactly, case included, and nothing may follow the problem's
-object. Every value the platform itself exports is accepted, so a problem exported from Eolymp
+default. Field names match exactly, case included, a key appears once in an object, and
+nothing may follow the problem's object. Every value the platform itself exports is accepted, so a problem exported from Eolymp
 loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
 `UNKNOWN_DEPENDENCY_MODE` or `UNSET` is the same as leaving the field out.
 
@@ -100,8 +100,8 @@ loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
 | `uniqueAnswer` | false | the answer is the only correct one, which is what turns EO804 on |
 | `exactFormat` | false | whitespace is part of the format, which turns EO818 off |
 | `checker`, `validator`, `interactor` | — | one program each |
-| `scripts` | — | named generators; `answerGenerator` names one of them |
-| `solutions` | — | what `run` judges and `check` compares subtasks against; each has a `name`, a `source`, an optional `type`, and an optional expected score in `scores`; `CORRECT` is a reference expected to score full marks unless `scores` says otherwise, `DONT_RUN` is left out of `run` and `check` unless `--solution` names it, and `INCORRECT`, `WRONG_ANSWER`, `TIMEOUT`, `OVERFLOW`, `TIMEOUT_OR_ACCEPTED`, `OVERFLOW_OR_ACCEPTED` and `FAILURE` are judged with no expectation checked |
+| `scripts` | — | named generators, whose names become directory names like a solution's; `answerGenerator` names one of them |
+| `solutions` | — | what `run` judges and `check` compares subtasks against; each has a `name`, which becomes a directory name and so cannot hold `/`, be `..`, be longer than 240 bytes or be another solution's, a `source`, an optional `type`, and an optional expected score in `scores`; `CORRECT` is a reference expected to score full marks unless `scores` says otherwise, `DONT_RUN` is left out of `run` and `check` unless `--solution` names it, and `INCORRECT`, `WRONG_ANSWER`, `TIMEOUT`, `OVERFLOW`, `TIMEOUT_OR_ACCEPTED`, `OVERFLOW_OR_ACCEPTED` and `FAILURE` are judged with no expectation checked |
 | `testsets` | — | the groups |
 
 ### Program
