@@ -297,6 +297,19 @@ EO_TEST(a_test_too_big_to_store_is_reported) {
     EO_CHECK_IN(checker_warnings(), "warning EO502: this test is 68157440 bytes");
 }
 
+EO_TEST(a_range_wider_than_half_a_long_long_draws_the_same_values) {
+    eo::rng r(1);
+    long long mixed = 0;
+    bool inside = true;
+    for (int at = 0; at < 1000; at++) {
+        long long const drawn = r.uniform(-5000000000000000000LL, 5000000000000000000LL);
+        inside = inside && drawn >= -5000000000000000000LL && drawn <= 5000000000000000000LL;
+        mixed ^= drawn;
+    }
+    EO_CHECK(inside);
+    EO_CHECK_EQ(mixed, -4525108027791797183LL);
+}
+
 EO_TEST(the_random_stream_draws_what_a_generator_needs) {
     eo::rng r(12345);
     EO_CHECK_EQ(r.uniform(5, 5), 5LL);

@@ -1543,7 +1543,7 @@ public:
         if (low > high) detail::library_error(fmt("uniform({}, {}) has no values in it", low, high));
         std::uint64_t const span = reach(low, high);
         if (span == 0) return static_cast<long long>(next());
-        return low + static_cast<long long>(below(span));
+        return static_cast<long long>(static_cast<std::uint64_t>(low) + below(span));
     }
 
     [[nodiscard]] double real(double low, double high) {
