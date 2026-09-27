@@ -638,6 +638,13 @@ public:
 namespace eo {
 namespace detail {
 
+inline bool would_block() { return errno == EAGAIN || errno == EWOULDBLOCK; }
+
+inline void wait_for(int descriptor, short event) {
+    pollfd ready{descriptor, event, 0};
+    ::poll(&ready, 1, -1);
+}
+
 inline int constexpr last_words_patience_ms = 500;
 inline int constexpr last_words_deadline_ms = 2000;
 
@@ -653,7 +660,7 @@ inline void write_while_read(int descriptor, std::string const& bytes, int patie
             continue;
         }
         if (wrote < 0 && errno == EINTR) continue;
-        if (wrote == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) return;
+        if (wrote == 0 || !would_block()) return;
         long long const spent = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::steady_clock::now() - started)
                                     .count();
@@ -669,6 +676,10 @@ inline void write_all(int descriptor, char const* bytes, std::size_t size, bool&
         ssize_t const written = ::write(descriptor, bytes, size);
         if (written < 0) {
             if (errno == EINTR) continue;
+            if (would_block()) {
+                wait_for(descriptor, POLLOUT);
+                continue;
+            }
             broken = true;
             return;
         }
@@ -836,6 +847,10 @@ private:
             ssize_t const got = ::read(descriptor_, buffer_.data() + end_, room);
             if (got < 0) {
                 if (errno == EINTR) continue;
+                if (would_block()) {
+                    wait_for(descriptor_, POLLIN);
+                    continue;
+                }
                 library_error(fmt("cannot read the input: {}", std::strerror(errno)));
             }
             if (got == 0) drained_ = true;

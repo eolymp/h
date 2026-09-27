@@ -255,6 +255,45 @@ EO_TEST(a_last_word_gives_up_on_a_reader_that_trickles) {
     ::waitpid(reader, &status, 0);
 }
 
+EO_TEST(a_non_blocking_pipe_is_waited_on_both_ways) {
+    ::signal(SIGPIPE, SIG_IGN);
+    int towards[2] = {-1, -1};
+    int back[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(towards), 0);
+    EO_CHECK_EQ(::pipe(back), 0);
+    ::fcntl(towards[1], F_SETFL, ::fcntl(towards[1], F_GETFL) | O_NONBLOCK);
+    ::fcntl(back[0], F_SETFL, ::fcntl(back[0], F_GETFL) | O_NONBLOCK);
+    pid_t const echo = ::fork();
+    if (echo == 0) {
+        ::close(towards[1]);
+        ::close(back[0]);
+        ::usleep(50000);
+        long long total = 0;
+        char chunk[4096];
+        for (;;) {
+            ssize_t const one = ::read(towards[0], chunk, sizeof(chunk));
+            if (one <= 0) break;
+            total += one;
+        }
+        std::string const said = std::to_string(total) + "\n";
+        ::usleep(50000);
+        ssize_t const told = ::write(back[1], said.data(), said.size());
+        ::_exit(told == static_cast<ssize_t>(said.size()) ? 0 : 1);
+    }
+    ::close(towards[0]);
+    ::close(back[1]);
+    std::string const whole(1 << 18, 'x');
+    bool broken = false;
+    eo::detail::write_all(towards[1], whole.data(), whole.size(), broken);
+    EO_CHECK(!broken);
+    ::close(towards[1]);
+    eo::detail::source heard = eo::detail::source::over_descriptor(back[0], true, false);
+    EO_CHECK_EQ(drain(heard), std::string("262144\n"));
+    int status = 0;
+    ::waitpid(echo, &status, 0);
+    EO_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
 EO_TEST(a_descriptor_that_cannot_be_read_is_a_library_error) {
     int ends[2] = {-1, -1};
     EO_CHECK_EQ(::pipe(ends), 0);
