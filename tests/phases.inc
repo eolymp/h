@@ -159,6 +159,33 @@ EO_TEST(a_handoff_this_release_cannot_read_is_a_jury_error) {
     EO_CHECK_IN(paid.text, "left a header this release cannot read");
 }
 
+EO_TEST(a_handoff_cut_short_is_a_jury_error) {
+    for (char const* carried : {"eolymp-phase 2 2\ninput 50\n7\n\n", "eolymp-phase 2 2\ninput 2",
+                                "eolymp-phase 2 2\ninput 2\n7\n", "eolymp-phase 2 2\ninput 2\n7"}) {
+        chat const cut = talk(carried, "", [](eo::interactor& it) {
+            eo::phases ph(it, 2);
+            (void)ph.number();
+            eo::accept();
+        });
+        EO_CHECK_EQ(cut.code, 3);
+        EO_CHECK_IN(cut.text, "the previous phase left a handoff cut short of its ");
+    }
+    chat const negative = talk("eolymp-phase 2 2\ninput -5\n7\n\n", "", [](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        (void)ph.number();
+        eo::accept();
+    });
+    EO_CHECK_EQ(negative.code, 3);
+    EO_CHECK_IN(negative.text, "the previous phase left a handoff whose test has a size of -5 bytes");
+    chat const whole = talk("eolymp-phase 2 2\ninput 2\n7\n\n", "", [](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        EO_CHECK_EQ(it.input.read_long(0, 99, "x"), 7LL);
+        EO_CHECK(ph.previous().at_eof());
+        eo::accept();
+    });
+    EO_CHECK_EQ(whole.code, 0);
+}
+
 EO_TEST(a_handoff_too_big_to_copy_is_reported) {
     chat const result = talk("7\n", "", [](eo::interactor& it) {
         eo::phases ph(it, 2);

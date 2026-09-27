@@ -3441,6 +3441,11 @@ private:
         if (parsed.problem != detail::number_problem::none)
             owner_->fail_jury("the previous phase left a handoff with no size on its test");
         bytes = parsed.value;
+        if (bytes < 0)
+            owner_->fail_jury(fmt("the previous phase left a handoff whose test has a size of {} bytes", bytes));
+        if (second == std::string::npos || static_cast<unsigned long long>(bytes) >= carried.size() - second - 1)
+            owner_->fail_jury(fmt("the previous phase left a handoff cut short of its {}-byte test and the "
+                                  "line break after it", bytes));
         test_ = carried.substr(second + 1, static_cast<std::size_t>(bytes));
         payload_ = carried.substr(second + 1 + static_cast<std::size_t>(bytes) + 1);
     }
