@@ -1611,7 +1611,9 @@ public:
 
     [[nodiscard]] double real(double low, double high) {
         double const fraction = static_cast<double>(next() >> 11) * (1.0 / 9007199254740992.0);
-        return low + fraction * (high - low);
+        double const span = high - low;
+        double volatile const part = fraction * span;
+        return low + part;
     }
 
     [[nodiscard]] bool chance(double odds) { return real(0, 1) < odds; }

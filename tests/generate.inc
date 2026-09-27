@@ -310,6 +310,18 @@ EO_TEST(a_range_wider_than_half_a_long_long_draws_the_same_values) {
     EO_CHECK_EQ(mixed, -4525108027791797183LL);
 }
 
+EO_TEST(a_real_draw_rounds_the_product_before_the_sum) {
+    eo::rng r(42);
+    std::uint64_t mixed = 1469598103934665603ull;
+    for (int at = 0; at < 1000; at++) {
+        double const drawn = r.real(-1.3, 7.7);
+        std::uint64_t bits = 0;
+        std::memcpy(&bits, &drawn, sizeof(bits));
+        mixed = (mixed ^ bits) * 1099511628211ull;
+    }
+    EO_CHECK_EQ(mixed, 14174797998470170970ull);
+}
+
 EO_TEST(the_random_stream_draws_what_a_generator_needs) {
     eo::rng r(12345);
     EO_CHECK_EQ(r.uniform(5, 5), 5LL);

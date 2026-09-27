@@ -235,6 +235,23 @@ else
            failures=$((failures + 1)) ;;
     esac
 fi
+if grep -qw fma /proc/cpuinfo 2>/dev/null; then
+    fused=ok
+    for compiler in ${CXX:-c++} clang++; do
+        command -v "${compiler%% *}" > /dev/null 2>&1 || continue
+        $compiler -std=${CXXSTD:-c++17} -O2 -march=haswell -ffp-contract=fast -o "$build/real_bits" \
+            "$root/tests/e2e/real_bits.cpp"
+        drawn=$("$build/real_bits")
+        if [ "$drawn" != 14174797998470170970 ]; then
+            echo "e2e: rng.real under $compiler with fused multiply-add drew $drawn" >&2
+            failures=$((failures + 1))
+            fused=
+        fi
+    done
+    [ -n "$fused" ] && echo "e2e: rng.real draws the same bits with fused multiply-add allowed"
+else
+    echo "e2e: rng.real under fused multiply-add skipped, this CPU has none"
+fi
 if [ ! -w /dev/full ]; then
     echo "e2e: a generator writing to a full disk skipped, there is no /dev/full"
 else
