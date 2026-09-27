@@ -205,7 +205,7 @@ eo::jury_error("the jury's path is not simple");
 | `eo::wrong(…)` | 1 | `wrong answer` | WRONG_ANSWER, 0 |
 | `eo::score(f)` with f = 1 | 0 | `ok` | ACCEPTED |
 | `eo::score(f)` with 0 < f < 1 | 7 | `points <f × cost>` | PARTIALLY_CORRECT, f × cost points |
-| `eo::score(f)` with f = 0 | 7 | `points 0` | PARTIALLY_CORRECT, 0 points |
+| `eo::score(f)` with f = 0 | 7 | `points 0` | PARTIALLY_CORRECT, 0 points; ACCEPTED on a test worth 0 |
 | `eo::points(p)` | as `eo::score(p / cost)` | | |
 | `eo::jury_error(…)` | 3 | `jury error` | VERIFICATION_FAILURE |
 
@@ -227,8 +227,9 @@ eo::score(quality, eo::round_to(0), "D = {}", d);
 
 **A partial score pays only in the right testset mode.** Under `ALL` a partially scored run
 is not a pass and the whole testset pays nothing; partial scores need `EACH` or `WORST`. On a
-test that carries no points — a sample, a stress run — a partial score is worth nothing, and
-the library says so with note EO208.
+test that carries no points — a sample, a stress run — any score, 0 included, reaches the
+test's cost of 0, so the judge counts the run as accepted; the library says so with warning
+EO208. An answer that earns nothing should end with `eo::wrong`.
 
 **Every path must end in a verdict.** Returning from `main` without one is a jury error.
 
@@ -393,7 +394,7 @@ machine-readable `eo-report` line.
 | EO205 | a fraction outside [0, 1], or negative points, was clamped |
 | EO206 | a fraction is a hair below full marks; use `eo::ratio` |
 | EO207 | `eo::points` exceeded the test's cost |
-| EO208 | a partial score on a test that carries no points (a note) |
+| EO208 | a partial score, 0 included, on a test worth 0 points, which the judge counts as accepted |
 | EO210 | more than 64 KB was printed before the verdict (a note) |
 | EO211 | the checker runs as the legacy type (a note) |
 | EO212 | the problem declares `eo::many`, but the checker only compares with the jury |

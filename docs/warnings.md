@@ -56,7 +56,7 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO205` | warning | the program | a score outside 0..1, or negative `eo::points`, was clamped; a score of 2 or more is called a likely percentage or points | keep the formula inside the test; Eolymp reads a fraction of the test cost, not a percentage: use `eo::ratio(a, b)`, or `eo::points` for points |
 | `EO206` | warning | the program | a score is a hair below full marks, from floating-point division | use `eo::ratio(a, b)`, which is exact |
 | `EO207` | warning | the program | more points were given than the test is worth | the judge clamps it to the cost; scale the formula instead |
-| `EO208` | note | the program | a partial score on a test with no cost | samples and stress runs carry no points, so the fraction is discarded |
+| `EO208` | warning | the program | a partial score, 0 included, on a test worth 0 points, such as a sample: the judge counts any points as reaching a cost of 0, so the run is ACCEPTED | end an answer that earns nothing with `eo::wrong`, which the sample then shows as a wrong answer |
 | `EO209` | warning | the program | the checker ran for more than half of the judge's 10 000 ms wall limit | a slower machine or a busy judge would not finish it in time |
 | `EO210` | note | the program | the checker printed a large amount before its verdict | stored logs are truncated; print after the verdict line |
 | `EO211` | note | the program | the checker runs as the legacy type, which swaps its last two arguments | the ordinary `PROGRAM` type is the norm |

@@ -3014,8 +3014,10 @@ public:
         if (fraction >= 1) deliver(0, "ok", message);
         double const paid = fraction * cost();
         if (cost() <= 0)
-            detail::note("EO208", "a partial score with no cost is worth nothing",
-                         "samples and stress runs carry no points", detail::site::here());
+            detail::warn("EO208", fmt("this test is worth {} points, so the judge counts this score of {} as "
+                                      "accepted: points reach a cost of 0", cost(), fraction),
+                         "end an answer that earns nothing with eo::wrong, which a sample shows as a wrong answer",
+                         detail::site::here());
         deliver(7, "points " + detail::format_points(paid), message);
     }
 

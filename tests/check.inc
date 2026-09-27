@@ -415,7 +415,21 @@ EO_TEST(a_test_worth_nothing_says_so) {
     });
     forget_the_environment();
     EO_CHECK_EQ(result.text, std::string("points 0 half"));
-    EO_CHECK_IN(checker_warnings(), "note EO208");
+    EO_CHECK_IN(checker_warnings(), "warning EO208: this test is worth 0 points, so the judge counts this "
+                                     "score of 0.5 as accepted");
+    EO_CHECK_IN(checker_warnings(), "end an answer that earns nothing with eo::wrong");
+    eo::detail::diagnostics::shared().forget_everything();
+    ::setenv("TEST_COST", "0", 1);
+    eot::outcome const zero = eot::run_until_stop([&] {
+        eo::checker c(static_cast<int>(arguments.size()), arguments.data());
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(0.0, "nothing");
+    });
+    forget_the_environment();
+    EO_CHECK_EQ(zero.code, 7);
+    EO_CHECK_EQ(zero.text, std::string("points 0 nothing"));
+    EO_CHECK_IN(checker_warnings(), "score of 0 as accepted");
 }
 
 EO_TEST(the_checker_knows_which_test_it_is_on) {
