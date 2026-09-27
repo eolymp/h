@@ -76,3 +76,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: make mutants
+
+  release:
+    needs: [ linux, musl, macos, judge, sanitize, mutants ]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version
+        id: read
+        run: |
+          version=$(sed -n 's/^#define EOLYMP_H_VERSION "\(.*\)"$/\1/p' src/core.h)
+          if [ -z "$version" ]; then
+            echo "src/core.h carries no EOLYMP_H_VERSION" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to publish headers that are not what src/ generates
+        run: python3 tools/amalgamate.py --check
+
+      - name: Release, unless this version already has one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.read.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION is already released; nothing to do."
+            exit 0
+          fi
+          if ! gh release create "v$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "eolymp.h $VERSION" \
+            --generate-notes \
+            eolymp.h eolymp-shapes.h; then
+            if gh release view "v$VERSION" >/dev/null 2>&1; then
+              echo "v$VERSION was released by another run meanwhile; nothing to do."
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "released v$VERSION"

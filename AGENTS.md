@@ -67,13 +67,14 @@ with `AGENT_REPO` set the test fails instead of skipping.
 ## Releasing
 
 `EOLYMP_H_VERSION` in `src/core.h` is the only place a version is written. Change it, run
-`make`, and merging to `main` publishes the release: the `release` workflow reads the version,
-refuses to publish headers that are not what `src/` generates, and creates the tag `v<version>`
-with both headers attached. It does nothing when that tag already exists, so an ordinary merge
-is a no-op.
+`make`, and merging to `main` publishes the release: once every other `check` job has passed
+on that commit, the `release` job reads the version, refuses to publish headers that are not
+what `src/` generates, and creates the tag `v<version>` on that commit with both headers
+attached. It does nothing when that tag already exists, so an ordinary merge is a no-op.
 
 A release is what the judge's C++ runtime pins to, so the version has to move in the same
-change as the behaviour. Semantic versioning, and the promise in
+change as the behaviour, and `make version` — which CI runs on every pull request — fails a
+change to the headers that leaves the version where it was. Semantic versioning, and the promise in
 [docs/README.md](docs/README.md#versions): nothing that changes a verdict changes within a
 major version.
 
