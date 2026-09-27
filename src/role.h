@@ -108,7 +108,8 @@ inline double clamped(double fraction, site where) {
         return fraction < 0 ? 0.0 : 1.0;
     }
     if (fraction > 0 && fraction < 1 && fraction > 1 - 1e-9)
-        warn("EO206", fmt("a score of {} is a hair below full marks", fraction),
+        warn("EO206", fmt("a score of {} is a hair below full marks, which the judge may read as full marks",
+                          fraction),
              "use eo::ratio(a, b), which is exact", where);
     return fraction;
 }

@@ -397,6 +397,25 @@ EO_TEST(a_score_may_be_anything_that_converts_to_a_double) {
     EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO205", line).c_str());
 }
 
+EO_TEST(points_the_judge_rounds_up_to_the_cost_are_reported) {
+    eot::outcome const close = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::score(1 - 1e-8, "almost");
+    });
+    EO_CHECK_EQ(close.code, 7);
+    EO_CHECK_EQ(close.text, std::string("points 39.9999996 almost"));
+    EO_CHECK_IN(checker_warnings(), "warning EO206: 'points 39.9999996' is below the test's 40, but the judge reads "
+                                     "points as a float, which rounds it to the full cost");
+    eot::outcome const clear = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(1, 9, "a");
+        eo::points(39.9999, "not quite");
+    });
+    EO_CHECK_EQ(clear.text, std::string("points 39.9999 not quite"));
+    EO_CHECK(!eot::contains(checker_warnings(), "EO206"));
+}
+
 EO_TEST(a_test_worth_nothing_says_so) {
     eo::detail::diagnostics::shared().forget_everything();
     forget_the_environment();

@@ -216,7 +216,9 @@ testset configuration, and the checker never hard-codes 100.
 **Use `eo::ratio(a, b)`** for "a out of b": it is exact, so `eo::ratio(n, n)` is exactly 1 and
 a perfect answer is an accept. A fraction outside [0, 1], an infinity included, is clamped
 with warning EO205, which says that a finite one of 2 or more looks like a percentage; one
-that is NaN is a jury error, and one within 10⁻⁹ of 1 gets EO206.
+that is NaN is a jury error, and one within 10⁻⁹ of 1 gets EO206. So do points
+that the judge, which reads them as a 32-bit float, would round up to the full cost and so
+count as an accept.
 
 **Rounding.** Some tasks round the score, and a documented full score can be unreachable
 without it:
@@ -392,7 +394,7 @@ machine-readable `eo-report` line.
 | EO203 | the answer file still holds something when the checker finished |
 | EO204 | `eo::wrong` or `eo::jury_error` carries no message |
 | EO205 | a fraction outside [0, 1], or negative points, was clamped |
-| EO206 | a fraction is a hair below full marks; use `eo::ratio` |
+| EO206 | a fraction is a hair below full marks, or its points round up to the cost on the judge; use `eo::ratio` |
 | EO207 | `eo::points` exceeded the test's cost |
 | EO208 | a partial score, 0 included, on a test worth 0 points, which the judge counts as accepted |
 | EO210 | more than 64 KB was printed before the verdict (a note) |

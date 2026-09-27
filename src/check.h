@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <initializer_list>
@@ -471,12 +472,18 @@ public:
         closing_checks(fraction);
         if (fraction >= 1) deliver(0, "ok", message);
         double const paid = fraction * cost();
+        std::string const printed = detail::format_points(paid);
+        if (cost() > 0 && std::strtof(printed.c_str(), nullptr) >= static_cast<float>(cost()))
+            detail::warn("EO206", fmt("'points {}' is below the test's {}, but the judge reads points as a "
+                                      "float, which rounds it to the full cost: the run counts as accepted",
+                                      printed, cost()),
+                         "use eo::ratio(a, b), which is exact, or eo::accept for full marks", detail::site::here());
         if (cost() <= 0)
             detail::warn("EO208", fmt("this test is worth {} points, so the judge counts this score of {} as "
                                       "accepted: points reach a cost of 0", cost(), fraction),
                          "end an answer that earns nothing with eo::wrong, which a sample shows as a wrong answer",
                          detail::site::here());
-        deliver(7, "points " + detail::format_points(paid), message);
+        deliver(7, "points " + printed, message);
     }
 
     [[noreturn]] void fail_run(std::string const& message) final {

@@ -54,7 +54,7 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO203` | warning | the program | the answer file still holds unread content when the checker finished | read it, or say why not: `c.jury.skip_rest("...")` |
 | `EO204` | warning | the program | a wrong answer carries no message | say what was wrong with it; the message is what the author sees in the log |
 | `EO205` | warning | the program | a score outside 0..1, or negative `eo::points`, was clamped; a score of 2 or more is called a likely percentage or points | keep the formula inside the test; Eolymp reads a fraction of the test cost, not a percentage: use `eo::ratio(a, b)`, or `eo::points` for points |
-| `EO206` | warning | the program | a score is a hair below full marks, from floating-point division | use `eo::ratio(a, b)`, which is exact |
+| `EO206` | warning | the program | a score is a hair below full marks, from floating-point division, or its points are below the cost but round up to it in the judge's 32-bit float, so the run counts as ACCEPTED | use `eo::ratio(a, b)`, which is exact, or `eo::accept` for full marks |
 | `EO207` | warning | the program | more points were given than the test is worth | the judge clamps it to the cost; scale the formula instead |
 | `EO208` | warning | the program | a partial score, 0 included, on a test worth 0 points, such as a sample: the judge counts any points as reaching a cost of 0, so the run is ACCEPTED | end an answer that earns nothing with `eo::wrong`, which the sample then shows as a wrong answer |
 | `EO209` | warning | the program | the checker ran for more than half of the judge's 10 000 ms wall limit | a slower machine or a busy judge would not finish it in time |
