@@ -24,7 +24,7 @@ STANDARDS := c++17 c++20 c++23
 
 build/tests-%: eolymp.h eolymp-shapes.h $(TESTS)
 	@mkdir -p build
-	$(CXX) -std=$* -O1 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
+	$(CXX) -std=$* -O2 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
 
 test: build/tests-$(CXXSTD)
 	./build/tests-$(CXXSTD)
