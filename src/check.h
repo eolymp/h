@@ -263,6 +263,7 @@ private:
     friend class checker;
     friend class interactor;
     friend class controller;
+    friend class channel;
 
     detail::reader& inside() { return reader_; }
     bool trailing_matters() const { return trailing_matters_; }

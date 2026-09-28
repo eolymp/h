@@ -123,6 +123,8 @@ public:
 
     absorbed absorb(std::size_t most) { return from_.absorb(most); }
 
+    int listening_descriptor() const { return from_.listening_descriptor(); }
+
     bool content_waiting() {
         for (;;) {
             std::string const held = from_.ahead(from_.held());

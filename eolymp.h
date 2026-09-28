@@ -739,23 +739,6 @@ inline void write_while_read(int descriptor, std::string const& bytes, int patie
     }
 }
 
-inline void write_all(int descriptor, char const* bytes, std::size_t size, bool& broken) {
-    while (size > 0) {
-        ssize_t const written = ::write(descriptor, bytes, size);
-        if (written < 0) {
-            if (errno == EINTR) continue;
-            if (would_block()) {
-                wait_for(descriptor, POLLOUT);
-                continue;
-            }
-            broken = true;
-            return;
-        }
-        bytes += written;
-        size -= static_cast<std::size_t>(written);
-    }
-}
-
 inline bool file_is_there(char const* path) {
     int const descriptor = ::open(path, O_RDONLY);
     if (descriptor < 0) return false;
@@ -878,6 +861,8 @@ public:
         column_ += static_cast<long long>(count);
     }
 
+    int listening_descriptor() const { return drained_ || text_backed_ ? -1 : descriptor_; }
+
     absorbed absorb(std::size_t most) {
         if (drained_ || text_backed_) return absorbed::nothing;
         int ready = 0;
@@ -987,6 +972,40 @@ private:
     long long line_ = 1;
     long long column_ = 1;
 };
+
+inline std::size_t constexpr absorb_limit = std::size_t{1} << 24;
+
+template <class Reading>
+inline void write_while_absorbing(int to, std::string const& bytes, Reading& from, bool& deaf,
+                                  std::string const& who, char const* role, char const* instead) {
+    std::size_t sent = 0;
+    bool listening = true;
+    while (sent < bytes.size()) {
+        pollfd both[2] = {{to, POLLOUT, 0}, {listening ? from.listening_descriptor() : -1, POLLIN, 0}};
+        int const ready = ::poll(both, 2, -1);
+        if (ready < 0 && errno != EINTR && errno != EAGAIN) deaf = true;
+        if (deaf) return;
+        if (ready < 0) continue;
+        if (both[1].revents != 0) {
+            absorbed const what = from.absorb(absorb_limit);
+            if (what == absorbed::full)
+                warn_at_once("EO409",
+                             fmt("{} sent more than {} MB while the {} was still writing to it, and the rest "
+                                 "of it waits in the pipe",
+                                 who, absorb_limit >> 20, role),
+                             instead, site::here());
+            listening = what == absorbed::some;
+        }
+        if (both[0].revents == 0) continue;
+        std::size_t const step = std::min<std::size_t>(bytes.size() - sent, PIPE_BUF);
+        ssize_t const wrote = ::write(to, bytes.data() + sent, step);
+        if (wrote > 0) sent += static_cast<std::size_t>(wrote);
+        if (wrote < 0 && errno != EINTR && !would_block()) {
+            deaf = true;
+            return;
+        }
+    }
+}
 
 }  // namespace detail
 }  // namespace eo
@@ -1268,6 +1287,8 @@ public:
     }
 
     absorbed absorb(std::size_t most) { return from_.absorb(most); }
+
+    int listening_descriptor() const { return from_.listening_descriptor(); }
 
     bool content_waiting() {
         for (;;) {
@@ -3083,6 +3104,7 @@ private:
     friend class checker;
     friend class interactor;
     friend class controller;
+    friend class channel;
 
     detail::reader& inside() { return reader_; }
     bool trailing_matters() const { return trailing_matters_; }
@@ -3661,37 +3683,9 @@ private:
     }
 
     void write_while_listening() {
-        std::size_t sent = 0;
-        bool listening = true;
-        while (sent < pending_.size()) {
-            pollfd both[2] = {{1, POLLOUT, 0}, {listening ? 0 : -1, POLLIN, 0}};
-            int const ready = ::poll(both, 2, -1);
-            if (ready < 0 && errno != EINTR && errno != EAGAIN) deaf_ = true;
-            if (deaf_) return;
-            if (ready < 0) continue;
-            if (both[1].revents != 0) listening = took_in(contestant.inside().absorb(heard_limit));
-            if (both[0].revents == 0) continue;
-            std::size_t const step = std::min<std::size_t>(pending_.size() - sent, PIPE_BUF);
-            ssize_t const wrote = ::write(1, pending_.data() + sent, step);
-            if (wrote > 0) sent += static_cast<std::size_t>(wrote);
-            if (wrote < 0 && errno != EINTR && !detail::would_block()) {
-                deaf_ = true;
-                return;
-            }
-        }
-    }
-
-    static std::size_t constexpr heard_limit = std::size_t{1} << 24;
-
-    static bool took_in(detail::absorbed what) {
-        if (what == detail::absorbed::full)
-            detail::warn_at_once(
-                "EO409",
-                fmt("the solution sent more than {} MB while the interactor was still writing to it, and the rest "
-                    "of it waits in the pipe",
-                    heard_limit >> 20),
-                "read the solution's answers between sends instead of sending everything first", detail::site::here());
-        return what == detail::absorbed::some;
+        detail::write_while_absorbing(1, pending_, contestant.inside(), deaf_, "the solution", "interactor",
+                                      "read the solution's answers between sends instead of sending everything "
+                                      "first");
     }
 
     void waiting_and_flush() {
@@ -4257,7 +4251,11 @@ private:
 inline void channel::flush() {
     if (pending_.empty() || shut_) return;
     spoken_to_ = true;
-    if (!deaf_) detail::write_all(writes_, pending_.data(), pending_.size(), deaf_);
+    if (!deaf_)
+        detail::write_while_absorbing(writes_, pending_, reads_->inside(), deaf_, fmt("instance {}", index_),
+                                      "controller",
+                                      "read the instances' answers between sends instead of sending everything "
+                                      "first");
     owner_->sent_bytes_ += static_cast<long long>(pending_.size());
     pending_.clear();
 }

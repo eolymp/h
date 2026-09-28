@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <climits>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -17,6 +18,7 @@
 #include <unistd.h>
 
 #include "core.h"
+#include "diag.h"
 #include "fmt.h"
 
 namespace eo {
@@ -52,23 +54,6 @@ inline void write_while_read(int descriptor, std::string const& bytes, int patie
         pollfd room{descriptor, POLLOUT, 0};
         int const ready = ::poll(&room, 1, static_cast<int>(std::min<long long>(patience_ms, deadline_ms - spent)));
         if (ready == 0 || (ready < 0 && errno != EINTR)) return;
-    }
-}
-
-inline void write_all(int descriptor, char const* bytes, std::size_t size, bool& broken) {
-    while (size > 0) {
-        ssize_t const written = ::write(descriptor, bytes, size);
-        if (written < 0) {
-            if (errno == EINTR) continue;
-            if (would_block()) {
-                wait_for(descriptor, POLLOUT);
-                continue;
-            }
-            broken = true;
-            return;
-        }
-        bytes += written;
-        size -= static_cast<std::size_t>(written);
     }
 }
 
@@ -194,6 +179,8 @@ public:
         column_ += static_cast<long long>(count);
     }
 
+    int listening_descriptor() const { return drained_ || text_backed_ ? -1 : descriptor_; }
+
     absorbed absorb(std::size_t most) {
         if (drained_ || text_backed_) return absorbed::nothing;
         int ready = 0;
@@ -303,6 +290,40 @@ private:
     long long line_ = 1;
     long long column_ = 1;
 };
+
+inline std::size_t constexpr absorb_limit = std::size_t{1} << 24;
+
+template <class Reading>
+inline void write_while_absorbing(int to, std::string const& bytes, Reading& from, bool& deaf,
+                                  std::string const& who, char const* role, char const* instead) {
+    std::size_t sent = 0;
+    bool listening = true;
+    while (sent < bytes.size()) {
+        pollfd both[2] = {{to, POLLOUT, 0}, {listening ? from.listening_descriptor() : -1, POLLIN, 0}};
+        int const ready = ::poll(both, 2, -1);
+        if (ready < 0 && errno != EINTR && errno != EAGAIN) deaf = true;
+        if (deaf) return;
+        if (ready < 0) continue;
+        if (both[1].revents != 0) {
+            absorbed const what = from.absorb(absorb_limit);
+            if (what == absorbed::full)
+                warn_at_once("EO409",
+                             fmt("{} sent more than {} MB while the {} was still writing to it, and the rest "
+                                 "of it waits in the pipe",
+                                 who, absorb_limit >> 20, role),
+                             instead, site::here());
+            listening = what == absorbed::some;
+        }
+        if (both[0].revents == 0) continue;
+        std::size_t const step = std::min<std::size_t>(bytes.size() - sent, PIPE_BUF);
+        ssize_t const wrote = ::write(to, bytes.data() + sent, step);
+        if (wrote > 0) sent += static_cast<std::size_t>(wrote);
+        if (wrote < 0 && errno != EINTR && !would_block()) {
+            deaf = true;
+            return;
+        }
+    }
+}
 
 }  // namespace detail
 }  // namespace eo

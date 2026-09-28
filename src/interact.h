@@ -183,37 +183,9 @@ private:
     }
 
     void write_while_listening() {
-        std::size_t sent = 0;
-        bool listening = true;
-        while (sent < pending_.size()) {
-            pollfd both[2] = {{1, POLLOUT, 0}, {listening ? 0 : -1, POLLIN, 0}};
-            int const ready = ::poll(both, 2, -1);
-            if (ready < 0 && errno != EINTR && errno != EAGAIN) deaf_ = true;
-            if (deaf_) return;
-            if (ready < 0) continue;
-            if (both[1].revents != 0) listening = took_in(contestant.inside().absorb(heard_limit));
-            if (both[0].revents == 0) continue;
-            std::size_t const step = std::min<std::size_t>(pending_.size() - sent, PIPE_BUF);
-            ssize_t const wrote = ::write(1, pending_.data() + sent, step);
-            if (wrote > 0) sent += static_cast<std::size_t>(wrote);
-            if (wrote < 0 && errno != EINTR && !detail::would_block()) {
-                deaf_ = true;
-                return;
-            }
-        }
-    }
-
-    static std::size_t constexpr heard_limit = std::size_t{1} << 24;
-
-    static bool took_in(detail::absorbed what) {
-        if (what == detail::absorbed::full)
-            detail::warn_at_once(
-                "EO409",
-                fmt("the solution sent more than {} MB while the interactor was still writing to it, and the rest "
-                    "of it waits in the pipe",
-                    heard_limit >> 20),
-                "read the solution's answers between sends instead of sending everything first", detail::site::here());
-        return what == detail::absorbed::some;
+        detail::write_while_absorbing(1, pending_, contestant.inside(), deaf_, "the solution", "interactor",
+                                      "read the solution's answers between sends instead of sending everything "
+                                      "first");
     }
 
     void waiting_and_flush() {

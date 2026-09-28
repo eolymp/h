@@ -338,7 +338,11 @@ private:
 inline void channel::flush() {
     if (pending_.empty() || shut_) return;
     spoken_to_ = true;
-    if (!deaf_) detail::write_all(writes_, pending_.data(), pending_.size(), deaf_);
+    if (!deaf_)
+        detail::write_while_absorbing(writes_, pending_, reads_->inside(), deaf_, fmt("instance {}", index_),
+                                      "controller",
+                                      "read the instances' answers between sends instead of sending everything "
+                                      "first");
     owner_->sent_bytes_ += static_cast<long long>(pending_.size());
     pending_.clear();
 }
