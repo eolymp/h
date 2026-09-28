@@ -34,9 +34,9 @@ make version    # changed headers or eo-judge need a raised version
 ```
 
 CI runs all six: `make check` on g++, clang++, musl and macOS, `make judge`,
-`make mutants` and `make sanitize` once each, `make fuzz` for 45 s a harness on every push
-and pull request and for 30 minutes a harness every night, and `make version` on every pull
-request.
+`make mutants` and `make sanitize` once each, `make fuzz` for 90 s with every harness side by
+side on every push and pull request and for 30 minutes a harness every night, and
+`make version` on every pull request.
 
 Two parts fail for reasons worth knowing in advance:
 
