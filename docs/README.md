@@ -215,6 +215,7 @@ clang++, musl and macOS. Each part answers a question:
 | `codes` | every warning code the sources raise has a row in `docs/warnings.md` |
 | `mutants` | a changed operator or bound in either header makes the suite fail; run with `make mutants` |
 | `sanitize` | the suite and the end-to-end programs pass under ASan and UBSan; run with `make sanitize` |
+| `fuzz` | six libFuzzer harnesses find no crash, sanitizer report or broken property in 45 s each (30 minutes each nightly); needs clang++, and `FUZZER` and `FUZZ_SECONDS` pick one harness and the time; run with `make fuzz` |
 | `version` | a change to the headers or to eo-judge raises `EOLYMP_H_VERSION`, and eo-judge's version is the same number; CI runs `make version` on every pull request |
 | `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
 | `examples` | every example in `docs/` compiles |

@@ -17,6 +17,7 @@ directly in `eolymp.h` is lost and breaks the build.
 | `src/shapes/*.h` | the opt-in test shapes |
 | `judge/*.go` | `eo-judge`, the emulator; its own Go module, standard library only |
 | `tests/` | one translation unit, `tests/all.cpp`, including `tests/*.inc`; plus e2e, differential and hostile suites |
+| `tests/fuzz/` | libFuzzer harnesses, one property each; `make fuzz` builds and runs them with clang++ |
 | `tests/live/` | two whole problems; the `eo-judge` tests run them end to end as fixtures |
 | `tools/` | the amalgamator and every gate |
 | `docs/` | the guides; `docs/warnings.md` is every warning code |
@@ -28,11 +29,14 @@ make check      # the C++ gate: 9 parts, what CI runs on four toolchains
 make judge      # gofmt, go vet and the eo-judge tests
 make mutants    # a changed operator or bound must make the suite fail
 make sanitize   # the suite and the end-to-end programs under ASan and UBSan
+make fuzz       # six libFuzzer harnesses, 45 s each; needs clang++
 make version    # changed headers or eo-judge need a raised version
 ```
 
-CI runs all five: `make check` on g++, clang++, musl and macOS, `make judge`,
-`make mutants` and `make sanitize` once each, and `make version` on every pull request.
+CI runs all six: `make check` on g++, clang++, musl and macOS, `make judge`,
+`make mutants` and `make sanitize` once each, `make fuzz` for 45 s a harness on every push
+and pull request and for 30 minutes a harness every night, and `make version` on every pull
+request.
 
 Two parts fail for reasons worth knowing in advance:
 

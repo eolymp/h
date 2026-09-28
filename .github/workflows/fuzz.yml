@@ -1,0 +1,41 @@
+name: fuzz
+
+on:
+  push: { branches: [ main ] }
+  pull_request:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('fuzz-pr-{0}', github.event.pull_request.number) || format('fuzz-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        fuzzer: [ compare_fuzz, options_fuzz, parse_fuzz, phases_fuzz, reader_fuzz, summary_fuzz ]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/fuzz/corpus/${{ matrix.fuzzer }}
+          key: fuzz-corpus-${{ matrix.fuzzer }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.fuzzer }}-
+      - run: make fuzz
+        env:
+          FUZZER: ${{ matrix.fuzzer }}
+          FUZZ_SECONDS: ${{ github.event_name == 'schedule' && '1800' || '45' }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: fuzz-crash-${{ matrix.fuzzer }}
+          path: build/fuzz/crashes/
+          if-no-files-found: ignore

@@ -60,11 +60,13 @@ make check
 tests, every line of both headers covered, C++17, 20 and 23 at `-O2` under `-Wall -Wextra
 -Wshadow -Werror`, the judge's real exit codes from a compiled validator, builds in hostile
 surroundings, every example in these pages compiled, and every warning code the sources raise
-documented. CI also runs `make judge` for the `eo-judge` tests, `make mutants`, which
-requires the suite to notice a changed operator or bound, and `make sanitize`, which runs the
-suite and the end-to-end programs under ASan and UBSan; on a pull request it also runs
-`make version`, which fails a change to the headers or to eo-judge that leaves the version
-where it was.
+documented. CI also runs `make judge` for the `eo-judge` tests; `make mutants`, which
+requires the suite to notice a changed operator or bound; `make sanitize`, which runs the
+suite and the end-to-end programs under ASan and UBSan; and `make fuzz`, which runs six
+libFuzzer harnesses over the number parsers, the reader, the checker's comparisons, the
+generator's options, the interactor's summary and the phases handoff. On a pull request it
+also runs `make version`, which fails a change to the headers or to eo-judge that leaves the
+version where it was.
 
 ## Where to read
 
