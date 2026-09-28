@@ -78,7 +78,9 @@ five, run `make`, and merging to `main` publishes the release: once every other 
 has passed on that commit, the `release` job reads the version, refuses to publish headers
 that are not what `src/` generates, and creates the tag `v<version>` on that commit with both
 headers attached, then `judge/v<version>` with eo-judge's binaries. It does nothing for a tag
-that already exists, so an ordinary merge is a no-op.
+that already exists, so an ordinary merge is a no-op. Add a `## <version>` section to
+[CHANGELOG.md](CHANGELOG.md) in the same change, listing every verdict it changes; the
+release uses that section as its notes.
 
 A release is what the judge's C++ runtime pins to, so the version has to move in the same
 change as the behaviour, and `make version` — which CI runs on every pull request — fails a

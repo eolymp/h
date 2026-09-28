@@ -55,8 +55,8 @@ its eolymp.h counterpart, for a problem moving over.
   input's size, so a 49 MB test costs the same as a small one. A token or a line read with a
   stated maximum stops one character past it rather than holding the rest.
 - **It compiles in about two seconds.** The validator above builds with `-O2` in about 2 s and
-  leaves a 167 KB object, and the first checker in [checker.md](checker.md) is about the same
-  (g++ 12 and clang 14 on Linux; the standard headers alone take 0.4 s). `make budget`
+  leaves an object of about 166 KB, and the first checker in [checker.md](checker.md) is about
+  the same (g++ 12 and clang 14 on Linux; the standard headers alone take 0.4 s). `make budget`
   measures the compiler's CPU time for both on every run of the gate, against the standard
   headers built in the same run, and fails when either takes more than 9 times as much. The judge compiles the
   validator again for every run that needs it.
@@ -144,7 +144,7 @@ get between the judge's parser and the score it is looking for:
 
 ```
 points 25 matched 10 of 40
-eolymp.h 1.0.0
+eolymp.h 2.0.0
 warning EO203 ./eolymp.h:NNNN the answer file still holds "40" when the checker finished
 note EO106 checker.cpp:4 the bounds 1..200001 are one away from a round number
 eo-report {"version":1,"warnings":[{"code":"EO106","at":"checker.cpp:4","count":1},{"code":"EO203","at":"./eolymp.h:NNNN","count":1}]}
@@ -250,9 +250,10 @@ print each test as it runs.
 Semantic versioning, with one promise: nothing that changes a verdict changes within a major
 version. Warnings can be added in a minor version, because they never change a verdict on
 their own. `eo::version()` and `EOLYMP_H_VERSION` say which release you have, as a string
-such as `"1.0.0"`; `EOLYMP_H_VERSION_MAJOR`, `EOLYMP_H_VERSION_MINOR` and
+such as `"2.0.0"`; `EOLYMP_H_VERSION_MAJOR`, `EOLYMP_H_VERSION_MINOR` and
 `EOLYMP_H_VERSION_PATCH` are the same numbers for the preprocessor, as in
-`#if EOLYMP_H_VERSION_MAJOR >= 2`.
+`#if EOLYMP_H_VERSION_MAJOR >= 2`. [CHANGELOG.md](../CHANGELOG.md) lists every verdict a
+release changes.
 
 ## Licence
 

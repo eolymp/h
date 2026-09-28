@@ -76,6 +76,7 @@ version where it was.
 | to write a jury program | [docs/](docs/) — one guide per kind |
 | to know what a warning code means | [docs/warnings.md](docs/warnings.md), one row per code |
 | to move a problem from testlib | [docs/testlib.md](docs/testlib.md) |
+| to know what changed in a release | [CHANGELOG.md](CHANGELOG.md), every verdict change listed |
 | to run a whole problem before uploading it | [docs/judge.md](docs/judge.md) |
 | to change this repository | [AGENTS.md](AGENTS.md) |
 
