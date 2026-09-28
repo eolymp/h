@@ -27,6 +27,32 @@ build_one -O2 -Wall -Wextra -Werror -o "$build/relay" "$root/tests/e2e/relay.cpp
 build_one -O2 -o "$build/relay_solution" "$root/tests/e2e/relay_solution.cpp"
 build_one -O2 -Wall -Wextra -Werror -o "$build/bulk" "$root/tests/e2e/bulk.cpp"
 build_one -O2 -o "$build/bulk_solution" "$root/tests/e2e/bulk_solution.cpp"
+build_with() {
+    "$@" &
+    pids="$pids $!"
+}
+fused=
+if grep -qw fma /proc/cpuinfo 2>/dev/null; then
+    fused=ok
+    for compiler in ${CXX:-c++} clang++; do
+        command -v "${compiler%% *}" > /dev/null 2>&1 || continue
+        drawer=$((${drawer:-0} + 1))
+        fused="$fused $drawer:$compiler"
+        build_with $compiler -std=${CXXSTD:-c++17} -O2 -march=haswell -ffp-contract=fast \
+            -o "$build/real_bits_$drawer" "$root/tests/e2e/real_bits.cpp"
+    done
+fi
+gcc_says=$(g++ --version 2>/dev/null | head -1)
+clang_says=$(clang++ --version 2>/dev/null | head -1)
+crossed=
+if [ -n "$gcc_says" ] && [ -n "$clang_says" ] && [ "$gcc_says" != "$clang_says" ]; then
+    crossed=yes
+    for pair in gcc:g++ clang:clang++; do
+        build_with ${pair#*:} -std=${CXXSTD:-c++17} -O2 -o "$build/shaper_${pair%%:*}" "$root/tests/e2e/shaper.cpp"
+        build_with ${pair#*:} -std=${CXXSTD:-c++17} -O2 -o "$build/digest_${pair%%:*}" \
+            "$root/tests/e2e/shapes_digest.cpp"
+    done
+fi
 for pid in $pids; do wait "$pid"; done
 
 failures=0
@@ -237,15 +263,11 @@ else
            failures=$((failures + 1)) ;;
     esac
 fi
-if grep -qw fma /proc/cpuinfo 2>/dev/null; then
-    fused=ok
-    for compiler in ${CXX:-c++} clang++; do
-        command -v "${compiler%% *}" > /dev/null 2>&1 || continue
-        $compiler -std=${CXXSTD:-c++17} -O2 -march=haswell -ffp-contract=fast -o "$build/real_bits" \
-            "$root/tests/e2e/real_bits.cpp"
-        drawn=$("$build/real_bits")
+if [ -n "$fused" ]; then
+    for built in ${fused#ok}; do
+        drawn=$("$build/real_bits_${built%%:*}")
         if [ "$drawn" != 14174797998470170970 ]; then
-            echo "e2e: rng.real under $compiler with fused multiply-add drew $drawn" >&2
+            echo "e2e: rng.real under ${built#*:} with fused multiply-add drew $drawn" >&2
             failures=$((failures + 1))
             fused=
         fi
@@ -294,11 +316,7 @@ if cmp -s "$build/shaped_path_edges.txt" "$build/shaped_star_edges.txt"; then
 fi
 echo "e2e: presented relabelled the path, turned edges and shuffled them"
 
-gcc_says=$(g++ --version 2>/dev/null | head -1)
-clang_says=$(clang++ --version 2>/dev/null | head -1)
-if [ -n "$gcc_says" ] && [ -n "$clang_says" ] && [ "$gcc_says" != "$clang_says" ]; then
-    g++ -std=${CXXSTD:-c++17} -O2 -o "$build/shaper_gcc" "$root/tests/e2e/shaper.cpp"
-    clang++ -std=${CXXSTD:-c++17} -O2 -o "$build/shaper_clang" "$root/tests/e2e/shaper.cpp"
+if [ -n "$crossed" ]; then
     "$build/shaper_gcc" -n=400 -shape=caterpillar -maxw=1000 > "$build/shaped_gcc.txt" 2>/dev/null
     "$build/shaper_clang" -n=400 -shape=caterpillar -maxw=1000 > "$build/shaped_clang.txt" 2>/dev/null
     if cmp -s "$build/shaped_gcc.txt" "$build/shaped_clang.txt"; then
@@ -308,8 +326,6 @@ if [ -n "$gcc_says" ] && [ -n "$clang_says" ] && [ "$gcc_says" != "$clang_says" 
         failures=$((failures + 1))
     fi
 
-    g++ -std=${CXXSTD:-c++17} -O2 -o "$build/digest_gcc" "$root/tests/e2e/shapes_digest.cpp"
-    clang++ -std=${CXXSTD:-c++17} -O2 -o "$build/digest_clang" "$root/tests/e2e/shapes_digest.cpp"
     "$build/digest_gcc" > "$build/digest_gcc.txt"
     "$build/digest_clang" > "$build/digest_clang.txt"
     if cmp -s "$build/digest_gcc.txt" "$build/digest_clang.txt"; then
