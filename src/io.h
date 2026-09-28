@@ -293,9 +293,9 @@ private:
 
 inline std::size_t constexpr absorb_limit = std::size_t{1} << 24;
 
-template <class Reading>
+template <class Reading, class Naming>
 inline void write_while_absorbing(int to, std::string const& bytes, Reading& from, bool& deaf,
-                                  std::string const& who, char const* role, char const* instead) {
+                                  Naming const& who, char const* role, char const* instead) {
     std::size_t sent = 0;
     bool listening = true;
     while (sent < bytes.size()) {
@@ -310,7 +310,7 @@ inline void write_while_absorbing(int to, std::string const& bytes, Reading& fro
                 warn_at_once("EO409",
                              fmt("{} sent more than {} MB while the {} was still writing to it, and the rest "
                                  "of it waits in the pipe",
-                                 who, absorb_limit >> 20, role),
+                                 who(), absorb_limit >> 20, role),
                              instead, site::here());
             listening = what == absorbed::some;
         }

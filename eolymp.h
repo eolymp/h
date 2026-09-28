@@ -975,9 +975,9 @@ private:
 
 inline std::size_t constexpr absorb_limit = std::size_t{1} << 24;
 
-template <class Reading>
+template <class Reading, class Naming>
 inline void write_while_absorbing(int to, std::string const& bytes, Reading& from, bool& deaf,
-                                  std::string const& who, char const* role, char const* instead) {
+                                  Naming const& who, char const* role, char const* instead) {
     std::size_t sent = 0;
     bool listening = true;
     while (sent < bytes.size()) {
@@ -992,7 +992,7 @@ inline void write_while_absorbing(int to, std::string const& bytes, Reading& fro
                 warn_at_once("EO409",
                              fmt("{} sent more than {} MB while the {} was still writing to it, and the rest "
                                  "of it waits in the pipe",
-                                 who, absorb_limit >> 20, role),
+                                 who(), absorb_limit >> 20, role),
                              instead, site::here());
             listening = what == absorbed::some;
         }
@@ -3683,9 +3683,9 @@ private:
     }
 
     void write_while_listening() {
-        detail::write_while_absorbing(1, pending_, contestant.inside(), deaf_, "the solution", "interactor",
-                                      "read the solution's answers between sends instead of sending everything "
-                                      "first");
+        detail::write_while_absorbing(
+            1, pending_, contestant.inside(), deaf_, [] { return std::string("the solution"); }, "interactor",
+            "read the solution's answers between sends instead of sending everything first");
     }
 
     void waiting_and_flush() {
@@ -4252,10 +4252,9 @@ inline void channel::flush() {
     if (pending_.empty() || shut_) return;
     spoken_to_ = true;
     if (!deaf_)
-        detail::write_while_absorbing(writes_, pending_, reads_->inside(), deaf_, fmt("instance {}", index_),
-                                      "controller",
-                                      "read the instances' answers between sends instead of sending everything "
-                                      "first");
+        detail::write_while_absorbing(
+            writes_, pending_, reads_->inside(), deaf_, [this] { return fmt("instance {}", index_); }, "controller",
+            "read the instances' answers between sends instead of sending everything first");
     owner_->sent_bytes_ += static_cast<long long>(pending_.size());
     pending_.clear();
 }

@@ -183,9 +183,9 @@ private:
     }
 
     void write_while_listening() {
-        detail::write_while_absorbing(1, pending_, contestant.inside(), deaf_, "the solution", "interactor",
-                                      "read the solution's answers between sends instead of sending everything "
-                                      "first");
+        detail::write_while_absorbing(
+            1, pending_, contestant.inside(), deaf_, [] { return std::string("the solution"); }, "interactor",
+            "read the solution's answers between sends instead of sending everything first");
     }
 
     void waiting_and_flush() {
