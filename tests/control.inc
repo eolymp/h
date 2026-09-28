@@ -381,6 +381,30 @@ EO_TEST(a_dialogue_the_pipes_cannot_carry_is_reported) {
     EO_CHECK_IN(said, "warning EO402: 100002 round trips were answered with no eo::budget declared");
 }
 
+EO_TEST(a_controller_stops_taking_in_an_instance_at_16_mb) {
+    std::string flood;
+    while (flood.size() <= (std::size_t{1} << 24)) flood += "7\n";
+    staged const result = run_control("1\n", {"ok", "ok"}, {"1\n", flood}, 10, [](eo::controller& ctl) {
+        ctl.input.read_int(1, 9, "n");
+        eo::channel& first = ctl.spawn();
+        eo::channel& second = ctl.spawn();
+        first.send("quiet");
+        first.read_int(1, 9, "x");
+        second.send("loud");
+        second.read_int(1, 9, "x");
+        eo::accept("heard both");
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(),
+                "warning EO409: instance 2 sent more than 16 MB while the controller was still writing to it, "
+                "and the rest of it waits in the pipe");
+    EO_CHECK_EQ(result.log.rfind("warning EO409 ", 0), std::size_t{0});
+    EO_CHECK_IN(result.log,
+                " instance 2 sent more than 16 MB while the controller was still writing to it, and the rest "
+                "of it waits in the pipe\n");
+    EO_CHECK(result.log.find("instance 1 sent") == std::string::npos);
+}
+
 EO_TEST(a_judge_that_answers_nonsense_is_a_jury_error) {
     staged const odd = run_control("3 1\n", {"ok"}, {"5\n"}, 10, [](eo::controller& ctl) {
         ctl.input.read_int(2, 100, "instances");
