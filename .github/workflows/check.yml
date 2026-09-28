@@ -79,7 +79,7 @@ jobs:
 
   release:
     needs: [ linux, musl, macos, judge, sanitize, mutants ]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.repository == 'eolymp/h' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     concurrency:
       group: release

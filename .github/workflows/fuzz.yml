@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   fuzz:
+    if: github.event_name != 'schedule' || github.repository == 'eolymp/h'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
