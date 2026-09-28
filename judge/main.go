@@ -45,6 +45,18 @@ func realMain(args []string, temp string, out, errs io.Writer) int {
 
 	switch args[0] {
 	case "version", "--version", "-version":
+		asJSON := false
+		for _, one := range args[1:] {
+			if one != "--json" && one != "-json" {
+				fmt.Fprintf(errs, "eo-judge: version takes only --json, not %q\n\n%s", one, usage)
+				return 2
+			}
+			asJSON = true
+		}
+		if asJSON {
+			fmt.Fprintf(out, "{\"version\": %q}\n", version)
+			return 0
+		}
 		fmt.Fprintf(out, "eo-judge %s\n", version)
 		return 0
 	case "help", "-h", "-help", "--help":
