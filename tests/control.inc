@@ -381,6 +381,33 @@ EO_TEST(a_dialogue_the_pipes_cannot_carry_is_reported) {
     EO_CHECK_IN(said, "warning EO402: 100002 round trips were answered with no eo::budget declared");
 }
 
+EO_TEST(a_channel_reads_what_an_instance_says_as_a_stream_does) {
+    staged const result = run_control("1\n", {"ok"}, {"5 2.5 YES 1 2 3 tail\n"}, 10, [](eo::controller& ctl) {
+        ctl.input.read_int(1, 9, "n");
+        eo::channel& only = ctl.spawn();
+        only.send("go");
+        EO_CHECK_EQ(only.read_long(1, 9, "a"), 5LL);
+        EO_CHECK(only.read_real(0.0, 9.0, "r") == 2.5);
+        EO_CHECK_EQ(only.read_choice({"YES", "NO"}, "c"), std::string("YES"));
+        EO_CHECK(only.read_longs(3, 1, 9, "v") == std::vector<long long>({1, 2, 3}));
+        EO_CHECK(!only.at_eof());
+        EO_CHECK_EQ(only.from().read_token(eo::any, "t"), std::string("tail"));
+        EO_CHECK(only.at_eof());
+        eo::accept("heard it all");
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_EQ(result.text, std::string("ok heard it all"));
+    staged const outside = run_control("1\n", {"ok"}, {"10\n"}, 10, [](eo::controller& ctl) {
+        ctl.input.read_int(1, 9, "n");
+        eo::channel& only = ctl.spawn();
+        only.send("go");
+        only.read_long(1, 9, "a");
+        eo::accept("never reached");
+    });
+    EO_CHECK_EQ(outside.code, 1);
+    EO_CHECK_EQ(outside.text, std::string("wrong answer: instance 1, line 1, a: 10 is above 9"));
+}
+
 EO_TEST(a_controller_stops_taking_in_an_instance_at_16_mb) {
     std::string flood;
     while (flood.size() <= (std::size_t{1} << 24)) flood += "7\n";
