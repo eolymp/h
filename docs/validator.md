@@ -471,4 +471,5 @@ The whole-problem checks EO806–EO811 and the configuration checks EO9xx are in
 | `eo::element(name, index)` | names one element of a sequence, without a coverage entry of its own |
 | `eo::fmt("…", args)` | build a string with `{}` placeholders |
 | `eo::allow name("EO106", "why")` | silence one warning code in a scope |
-| `eo::version()`, `EOLYMP_H_VERSION` | the library's version |
+| `eo::version()`, `EOLYMP_H_VERSION` | the library's version, as a string |
+| `EOLYMP_H_VERSION_MAJOR`, `_MINOR`, `_PATCH` | the same version as three numbers, for `#if` |

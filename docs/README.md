@@ -239,7 +239,10 @@ print each test as it runs.
 
 Semantic versioning, with one promise: nothing that changes a verdict changes within a major
 version. Warnings can be added in a minor version, because they never change a verdict on
-their own. `eo::version()` and `EOLYMP_H_VERSION` say which release you have.
+their own. `eo::version()` and `EOLYMP_H_VERSION` say which release you have, as a string
+such as `"1.0.0"`; `EOLYMP_H_VERSION_MAJOR`, `EOLYMP_H_VERSION_MINOR` and
+`EOLYMP_H_VERSION_PATCH` are the same numbers for the preprocessor, as in
+`#if EOLYMP_H_VERSION_MAJOR >= 2`.
 
 ## Licence
 

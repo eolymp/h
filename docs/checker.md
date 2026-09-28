@@ -451,4 +451,5 @@ Still missing:
 | `eo::element(name, index)` | names one element of a sequence, without a coverage entry of its own |
 | `eo::all_distinct`, `eo::is_sorted`, `eo::is_permutation`, `eo::is_tree`, `eo::is_connected`, `eo::is_simple_graph` | structural checks |
 | `eo::allow name("EO103", "why")` | silence one warning code in a scope |
-| `eo::version()`, `EOLYMP_H_VERSION` | the library's version |
+| `eo::version()`, `EOLYMP_H_VERSION` | the library's version, as a string |
+| `EOLYMP_H_VERSION_MAJOR`, `_MINOR`, `_PATCH` | the same version as three numbers, for `#if` |

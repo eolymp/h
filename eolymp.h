@@ -49,10 +49,32 @@
 #include <vector>
 
 #define EOLYMP_H_VERSION "1.0.0"
+#define EOLYMP_H_VERSION_MAJOR 1
+#define EOLYMP_H_VERSION_MINOR 0
+#define EOLYMP_H_VERSION_PATCH 0
 
 namespace eo {
 
 inline char const* version() { return EOLYMP_H_VERSION; }
+
+namespace detail {
+
+constexpr long version_part(char const* text, int which) {
+    for (; which > 0; which--) {
+        while (*text != '.') text++;
+        text++;
+    }
+    long value = 0;
+    while (*text >= '0' && *text <= '9') value = value * 10 + (*text++ - '0');
+    return value;
+}
+
+static_assert(version_part(EOLYMP_H_VERSION, 0) == EOLYMP_H_VERSION_MAJOR &&
+                  version_part(EOLYMP_H_VERSION, 1) == EOLYMP_H_VERSION_MINOR &&
+                  version_part(EOLYMP_H_VERSION, 2) == EOLYMP_H_VERSION_PATCH,
+              "EOLYMP_H_VERSION and EOLYMP_H_VERSION_MAJOR, _MINOR and _PATCH disagree");
+
+}
 
 struct any_t {};
 struct unnamed_t {};
