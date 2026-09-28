@@ -7,13 +7,13 @@ with a file that includes only the standard headers eolymp.h uses.
 """
 import os
 import pathlib
-import re
 import resource
 import subprocess
 import sys
 
+from common import ROOT, compiler, cpp_blocks, standard
+
 CEILING_RATIO = 9.0
-BLOCK = re.compile(r"```cpp\n(.*?)```", re.S)
 
 BASELINE = """\
 #include <algorithm>
@@ -38,7 +38,7 @@ int main() { return 0; }
 
 
 def first_program(page: pathlib.Path) -> str:
-    for code in BLOCK.findall(page.read_text()):
+    for code in cpp_blocks(page):
         if "int main" in code:
             return code
     raise SystemExit(f"budget: {page} has no program to measure")
@@ -53,7 +53,7 @@ def fastest(command, root, runs=3, enough=0.0):
     best = float("inf")
     for _ in range(runs):
         before = cpu_of_children()
-        subprocess.run(command, cwd=root, check=True)
+        subprocess.run(command, cwd=root, check=True, env={**os.environ, "CCACHE_DISABLE": "1"})
         best = min(best, cpu_of_children() - before)
         if best <= enough:
             break
@@ -61,7 +61,7 @@ def fastest(command, root, runs=3, enough=0.0):
 
 
 def main() -> int:
-    root = pathlib.Path(__file__).resolve().parent.parent
+    root = ROOT
     build = root / "build" / "budget"
     build.mkdir(parents=True, exist_ok=True)
     programs = {
@@ -69,15 +69,13 @@ def main() -> int:
         "validator": first_program(root / "docs" / "README.md"),
         "checker": first_program(root / "docs" / "checker.md"),
     }
-    compiler = os.environ.get("CXX", "c++")
-    standard = os.environ.get("CXXSTD", "c++17")
     measured = {}
     for name, code in programs.items():
         source = build / f"{name}.cpp"
         source.write_text(code)
         target = build / f"{name}.o"
         ceiling = 0.0 if name == "baseline" else CEILING_RATIO * measured["baseline"][0]
-        compile_time = fastest([compiler, f"-std={standard}", f"-I{root}", "-O2", "-c", "-o", str(target),
+        compile_time = fastest([*compiler(), f"-std={standard()}", f"-I{root}", "-O2", "-c", "-o", str(target),
                                 str(source)], root, enough=ceiling)
         measured[name] = (compile_time, target.stat().st_size)
     base = measured["baseline"][0]

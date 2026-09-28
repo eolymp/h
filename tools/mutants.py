@@ -8,11 +8,12 @@ the set an outside review found surviving, plus what has been added since.
 import concurrent.futures
 import os
 import pathlib
-import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+
+from common import ROOT, compiler
 
 MUTANTS = [
     ("a sum limit that allows one more", "src/validate.h",
@@ -92,12 +93,12 @@ def attempt(root, mutant, compiler):
 
 
 def main() -> int:
-    root = pathlib.Path(__file__).resolve().parent.parent
-    compiler = shlex.split(os.environ.get("CXX", "c++"))
+    root = ROOT
+    command = compiler()
     workers = int(os.environ.get("JOBS", os.cpu_count() or 1))
     with concurrent.futures.ThreadPoolExecutor(workers) as pool:
-        control = pool.submit(run_a_copy, root, compiler)
-        outcomes = list(pool.map(lambda one: attempt(root, one, compiler), MUTANTS))
+        control = pool.submit(run_a_copy, root, command)
+        outcomes = list(pool.map(lambda one: attempt(root, one, command), MUTANTS))
     if control.result() != "passed":
         print(f"mutants: the unchanged sources, copied and built the same way, {control.result()}; "
               f"no mutant can be said to be killed")

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import os
-import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+
+from common import ROOT, compiler, standard
 
 MEASURED = re.compile(r"^\s*(#####|=====|\d+\*?):\s*(\d+):(.*)$")
 
@@ -12,22 +14,20 @@ HEADERS = ["eolymp.h", "eolymp-shapes.h"]
 
 
 def main() -> int:
-    root = pathlib.Path(__file__).resolve().parent.parent
+    root = ROOT
     build = root / "build" / "cov"
     shutil.rmtree(build, ignore_errors=True)
     build.mkdir(parents=True, exist_ok=True)
-    compiler = os.environ.get("CXX", "c++")
-    standard = os.environ.get("CXXSTD", "c++17")
-    gcov = os.environ.get("GCOV", "gcov").split()
+    gcov = shlex.split(os.environ.get("GCOV", "gcov"))
     if shutil.which(gcov[0]) is None:
-        print(f"coverage: {gcov[0]} is not on the path; set GCOV to the coverage tool of {compiler}",
+        print(f"coverage: {gcov[0]} is not on the path; set GCOV to the coverage tool of {shlex.join(compiler())}",
               file=sys.stderr)
         return 1
     described = subprocess.run(gcov + ["--version"], capture_output=True, text=True)
     authoritative = "LLVM" not in described.stdout
     every_inline = ["-fkeep-inline-functions"] if authoritative else []
     subprocess.run(
-        [compiler, f"-std={standard}", "-O0", "-g", "--coverage", *every_inline, "-DEOLYMP_TESTING",
+        [*compiler(), f"-std={standard()}", "-O0", "-g", "--coverage", *every_inline, "-DEOLYMP_TESTING",
          "-o", str(build / "tests"), "tests/all.cpp"],
         cwd=root, check=True)
     subprocess.run([str(build / "tests")], cwd=build, check=True)

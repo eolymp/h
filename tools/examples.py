@@ -1,26 +1,22 @@
 #!/usr/bin/env python3
 import concurrent.futures
 import os
-import pathlib
-import re
 import shutil
 import subprocess
-import sys
 
-BLOCK = re.compile(r"```cpp\n(.*?)```", re.S)
+from common import ROOT, compiler, cpp_blocks, standard, warnings
 
 
 def main() -> int:
-    root = pathlib.Path(__file__).resolve().parent.parent
+    root = ROOT
     build = root / "build" / "examples"
     shutil.rmtree(build, ignore_errors=True)
     build.mkdir(parents=True, exist_ok=True)
-    compiler = os.environ.get("CXX", "c++")
-    standard = os.environ.get("CXXSTD", "c++17")
+    command = [*compiler(), f"-std={standard()}", "-O1", *warnings(), f"-I{root}", "-c"]
     examples = []
     pages = sorted((root / "docs").glob("*.md")) + [root / "README.md"]
     for page in pages:
-        for number, code in enumerate(BLOCK.findall(page.read_text()), start=1):
+        for number, code in enumerate(cpp_blocks(page), start=1):
             if "int main" not in code:
                 continue
             stem = page.relative_to(root).with_suffix("").as_posix().replace("/", "_")
@@ -31,8 +27,7 @@ def main() -> int:
     def build_one(example):
         source = example[2]
         return example, subprocess.run(
-            [compiler, f"-std={standard}", "-O1", "-Wall", "-Wextra", "-Wshadow", "-Werror",
-             f"-I{root}", "-c", "-o", str(source.with_suffix(".o")), str(source)],
+            [*command, "-o", str(source.with_suffix(".o")), str(source)],
             capture_output=True, text=True, cwd=root)
 
     compiled = len(examples)

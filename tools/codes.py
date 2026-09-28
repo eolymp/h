@@ -9,6 +9,8 @@ import pathlib
 import re
 import sys
 
+from common import ROOT
+
 ROW = re.compile(r"^\|\s*`(EO\d{3})`\s*\|")
 PLANNED = re.compile(r"^\|\s*`(EO\d{3})`\s*\|.*\bnot built\b", re.IGNORECASE)
 
@@ -63,7 +65,7 @@ def documented(page: pathlib.Path) -> tuple:
 
 
 def main() -> int:
-    root = pathlib.Path(__file__).resolve().parent.parent
+    root = ROOT
     page = root / "docs" / "warnings.md"
     if not page.exists():
         print("warnings: docs/warnings.md is missing", file=sys.stderr)
