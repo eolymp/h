@@ -257,13 +257,4 @@ private:
     long long budgets_ = 0;
 };
 
-
-namespace detail {
-
-inline interactor& the_interactor() {
-    if (live_interactor() == nullptr) library_error("this verdict needs an eo::interactor");
-    return *live_interactor();
-}
-
-}  // namespace detail
 }  // namespace eo

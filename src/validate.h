@@ -459,14 +459,6 @@ private:
         return from_.rest_of_line(least, most, allowed, bounds, name, where);
     }
 
-    std::string take_word(detail::value_name const& name, detail::site where, char const* expected) {
-        return from_.take_word(name, where, expected);
-    }
-
-    [[noreturn]] void invalid_here(detail::value_name const& name, std::string what) {
-        from_.refuse(name, what);
-    }
-
     template <class T, class Read>
     std::vector<T> many(long long count, detail::value_name const& name, Read read_one) {
         std::vector<T> values;

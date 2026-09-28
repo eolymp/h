@@ -1243,11 +1243,9 @@ public:
     long long line() const { return from_.line(); }
     bool carriage_returns() const { return from_.carriage_returns(); }
     std::string last_value() const { return last_indexed_ ? fmt("{}[{}]", last_value_, last_index_) : last_value_; }
-    bool separated() const { return separated_; }
     void mark_separated() { separated_ = true; }
     std::map<std::string, seen_bounds> const& bounds() const { return bounds_; }
     bool read_anything() const { return read_anything_; }
-    void saw_something() { read_anything_ = true; }
     void exponents(bool allowed) { exponents_ = allowed; }
 
     void before_blocking(void (*hook)(void*), void* owner) {
@@ -2759,14 +2757,6 @@ private:
         return from_.rest_of_line(least, most, allowed, bounds, name, where);
     }
 
-    std::string take_word(detail::value_name const& name, detail::site where, char const* expected) {
-        return from_.take_word(name, where, expected);
-    }
-
-    [[noreturn]] void invalid_here(detail::value_name const& name, std::string what) {
-        from_.refuse(name, what);
-    }
-
     template <class T, class Read>
     std::vector<T> many(long long count, detail::value_name const& name, Read read_one) {
         std::vector<T> values;
@@ -3757,15 +3747,6 @@ private:
     long long budgets_ = 0;
 };
 
-
-namespace detail {
-
-inline interactor& the_interactor() {
-    if (live_interactor() == nullptr) library_error("this verdict needs an eo::interactor");
-    return *live_interactor();
-}
-
-}  // namespace detail
 }  // namespace eo
 
 namespace eo {
