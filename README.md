@@ -41,6 +41,7 @@ validator.cpp:6: line 1, a[1]: a line break follows n; read it with read_eoln()
 | [docs/controller.md](docs/controller.md) | writing a controller: spawning instances, channels, and the flush that keeps them all moving |
 | [docs/README.md](docs/README.md) | the repository: what the library gives you, how a problem gets the header, what each directory holds, and what every gate proves |
 | [docs/warnings.md](docs/warnings.md) | every warning code, one self-contained row each |
+| [docs/testlib.md](docs/testlib.md) | coming from testlib: each call beside its eolymp.h counterpart, and what behaves differently |
 
 ## Building
 
@@ -74,6 +75,7 @@ version where it was.
 | --- | --- |
 | to write a jury program | [docs/](docs/) — one guide per kind |
 | to know what a warning code means | [docs/warnings.md](docs/warnings.md), one row per code |
+| to move a problem from testlib | [docs/testlib.md](docs/testlib.md) |
 | to run a whole problem before uploading it | [docs/judge.md](docs/judge.md) |
 | to change this repository | [AGENTS.md](AGENTS.md) |
 
