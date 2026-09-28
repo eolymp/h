@@ -84,11 +84,11 @@ inline void kept_of(long long kept, long long tries, char const* what, eo::detai
     if (given != made.n)
         eo::detail::library_error(fmt("a parent array needs a tree; {} of {} vertices were reached from {}",
                                       given, made.n, root));
-    std::vector<int> parents(static_cast<std::size_t>(made.n) + 1, 0);
+    std::vector<int> parents(static_cast<std::size_t>(made.n) - 1, 0);
     for (int vertex = 1; vertex <= made.n; vertex++)
-        parents[static_cast<std::size_t>(label[static_cast<std::size_t>(vertex)])] =
-            label[static_cast<std::size_t>(came_from[static_cast<std::size_t>(vertex)])];
-    parents.erase(parents.begin(), parents.begin() + 2);
+        if (vertex != root)
+            parents[static_cast<std::size_t>(label[static_cast<std::size_t>(vertex)]) - 2] =
+                label[static_cast<std::size_t>(came_from[static_cast<std::size_t>(vertex)])];
     return parents;
 }
 
