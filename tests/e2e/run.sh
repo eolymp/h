@@ -106,7 +106,8 @@ fi
 expect_run "exit_codes accept" 0 "*" "$build/exit_codes" accept
 expect_run "exit_codes invalid" 3 "*line 2: n is 7*" "$build/exit_codes" invalid
 expect_run "exit_codes library" 3 "*eolymp.h: two roles in one program*" "$build/exit_codes" library
-expect_run "exit_codes version" 0 "*0.*" "$build/exit_codes" version
+released=$(python3 "$root/tools/version.py" --print) || fail "tools/version.py cannot read the version"
+expect_run "exit_codes version" 0 "${released:-no version}" "$build/exit_codes" version
 expect_run "exit_codes anything" 1 "*unknown request*" "$build/exit_codes" anything
 
 validate() {
