@@ -22,9 +22,13 @@ amalgamation-check:
 
 STANDARDS := $(filter-out $(CXXSTD),c++17 c++20 c++23)
 
+build/tests-$(CXXSTD): eolymp.h eolymp-shapes.h $(TESTS)
+	@mkdir -p build
+	$(CXX) -std=$(CXXSTD) -O2 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
+
 build/tests-%: eolymp.h eolymp-shapes.h $(TESTS)
 	@mkdir -p build
-	$(CXX) -std=$* -O2 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
+	$(CXX) -std=$* -O0 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
 
 test: build/tests-$(CXXSTD)
 	./build/tests-$(CXXSTD)
@@ -64,7 +68,7 @@ SANITIZED := ASAN_OPTIONS=exitcode=86:halt_on_error=1 UBSAN_OPTIONS=exitcode=86:
 
 sanitize: eolymp.h eolymp-shapes.h $(TESTS)
 	@mkdir -p build
-	$(CXX) -std=$(CXXSTD) -O1 -g $(WARNINGS) $(SANITIZERS) -DEOLYMP_TESTING -o build/tests-sanitized tests/all.cpp
+	$(CXX) -std=$(CXXSTD) -O0 -g $(WARNINGS) $(SANITIZERS) -DEOLYMP_TESTING -o build/tests-sanitized tests/all.cpp
 	$(SANITIZED) ./build/tests-sanitized
 	$(SANITIZED) E2E_BUILD="$(CURDIR)/build/e2e-sanitized" CXX="$(CXX) $(SANITIZERS)" sh tests/e2e/run.sh
 

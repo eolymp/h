@@ -69,7 +69,7 @@ def run_a_copy(root, compiler, where=None, old=None, new=None):
             (copy / where).write_text((root / where).read_text().replace(old, new))
         subprocess.run([sys.executable, "tools/amalgamate.py"], cwd=copy, check=True,
                        capture_output=True)
-        built = subprocess.run([*compiler, "-std=c++17", "-O1", "-DEOLYMP_TESTING", "-o", "mutant",
+        built = subprocess.run([*compiler, "-std=c++17", "-O0", "-DEOLYMP_TESTING", "-o", "mutant",
                                 "tests/all.cpp"], cwd=copy, capture_output=True)
         if built.returncode != 0:
             return "does not compile"
