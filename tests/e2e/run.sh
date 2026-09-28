@@ -25,6 +25,8 @@ build_one -O2 -Wall -Wextra -Werror -o "$build/shape_validator" "$root/tests/e2e
 build_one -O1 -Wall -Wextra -Werror -o "$build/serve" "$root/tests/e2e/serve.cpp"
 build_one -O2 -Wall -Wextra -Werror -o "$build/relay" "$root/tests/e2e/relay.cpp"
 build_one -O2 -o "$build/relay_solution" "$root/tests/e2e/relay_solution.cpp"
+build_one -O2 -Wall -Wextra -Werror -o "$build/bulk" "$root/tests/e2e/bulk.cpp"
+build_one -O2 -o "$build/bulk_solution" "$root/tests/e2e/bulk_solution.cpp"
 for pid in $pids; do wait "$pid"; done
 
 failures=0
@@ -328,8 +330,10 @@ serve_it() {
     label=$1
     limit=$2
     wanted=$3
-    shift 3
-    line=$(TEST_COST=40 "$build/serve" "$build/com" "$limit" "$build/relay" "$build/com/in.txt" \
+    controller=$4
+    test=$5
+    shift 5
+    line=$(TEST_COST=40 "$build/serve" "$build/com" "$limit" "$controller" "$test" \
            "$build/com/summary.txt" -- "$@" 2>"$build/com/log.txt")
     got=$(echo "$line" | sed 's/controller \([0-9-]*\).*/\1/')
     if [ "$got" != "$wanted" ]; then
@@ -340,7 +344,7 @@ serve_it() {
 }
 
 rm -f "$build/com/summary.txt"
-serve_it "a correct relay" 10 0 "$build/relay_solution"
+serve_it "a correct relay" 10 0 "$build/relay" "$build/com/in.txt" "$build/relay_solution"
 relayed=$(TEST_COST=40 "$build/stock_checker" "$build/com/in.txt" "$build/com/summary.txt" \
           "$build/com/in.txt" 2>&1) && relayed_code=0 || relayed_code=$?
 if [ "$relayed_code" = 0 ]; then
@@ -349,10 +353,18 @@ else
     echo "e2e: the relay ended $relayed_code saying \"$relayed\"" >&2
     failures=$((failures + 1))
 fi
-serve_it "an instance beyond the limit" 2 3 "$build/relay_solution"
-serve_it "an instance that says nothing" 10 1 "$build/relay_solution" mute
-serve_it "an instance that lies" 10 1 "$build/relay_solution" liar
+serve_it "an instance beyond the limit" 2 3 "$build/relay" "$build/com/in.txt" "$build/relay_solution"
+serve_it "an instance that says nothing" 10 1 "$build/relay" "$build/com/in.txt" "$build/relay_solution" mute
+serve_it "an instance that lies" 10 1 "$build/relay" "$build/com/in.txt" "$build/relay_solution" liar
 echo "e2e: the limit is a jury error, and a silent or lying instance is a wrong answer"
+
+printf '100000\n' > "$build/com/bulk.txt"
+before_bulk=$failures
+serve_it "an instance that answers each of 100000 lines as it reads them" 1 0 "$build/bulk" \
+    "$build/com/bulk.txt" "$build/bulk_solution"
+if [ "$failures" = "$before_bulk" ]; then
+    echo "e2e: a controller sent 100000 lines before reading and took in the answers meanwhile"
+fi
 
 if [ "$failures" != 0 ]; then
     echo "e2e: $failures checks failed" >&2
