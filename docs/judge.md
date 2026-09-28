@@ -108,7 +108,8 @@ loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
 | --- | --- | --- |
 | `type` | `PROGRAM` | `PROGRAM`, `INTERACTIVE` or `COMMUNICATION`; `FUNCTION`, `OUTPUT`, `SQL`, `ML`, `QUIZ` and `WIDGET` are platform types too, and `eo-judge` refuses them with "eo-judge does not run FUNCTION problems" |
 | `runCount` | 1 | how many times a solution runs, chaining the interactor's output into the next run |
-| `timeLimit`, `cpuLimit` | — | milliseconds; a testset may override the wall limit |
+| `timeLimit`, `cpuLimit` | — | milliseconds; a testset may override `timeLimit`; eo-judge enforces `timeLimit` as a wall-clock limit and reads `cpuLimit` without enforcing it |
+| `interactorTimeLimit` | — | read and not used: an interactor gets the solution's limit plus a second, as the agent gives it |
 | `memoryLimit` | — | bytes |
 | `uniqueAnswer` | false | the answer is the only correct one, which is what turns EO804 on |
 | `exactFormat` | false | whitespace is part of the format, which turns EO818 off |
@@ -198,8 +199,9 @@ so run a problem you do not trust in a container.
   starts a group or a session of its own escapes, and nothing else is confined. An interrupt
   stops a build the same way, and a second one ends eo-judge at once. Run problems you do not
   trust in a container.
-- **It does not enforce memory.** It measures peak usage and reports it; the time limit is
-  enforced, memory is not. A memory-limit verdict is the judge's to give.
+- **It does not enforce memory, or report it.** The time limit is enforced, as a wall-clock
+  limit; `memoryLimit` is read and nothing measures a run against it. A memory-limit verdict
+  is the judge's to give.
 - **It does not run `COMMUNICATION` problems.** One interactor against one solution works;
   several instances behind the SPAWN handshake do not yet.
 - **It does not fetch a problem from the platform.** The directory is written by hand, or by

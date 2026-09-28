@@ -337,8 +337,9 @@ that a run may receive no input.
 ## Warnings
 
 The rules are those of every eolymp.h program: a warning never changes a verdict except in
-strict mode (`EOLYMP_STRICT=1`); each carries a stable code, the line of your source and a
-fix; each is counted once per call site; `eo::allow quiet("EO402", "why")` silences one code
+strict mode (`EOLYMP_STRICT=1`); each carries a stable code, a line and a fix, the line
+of your source for a read, a bound or a clamped score and the header's own line for how the
+run ended (EO204, EO402–EO406); each is counted once per call site; `eo::allow quiet("EO402", "why")` silences one code
 in a scope, with a reason the report prints. They appear on stderr, which on the judge is
 `interactor.log`.
 
@@ -371,8 +372,8 @@ prints, and type the solution's lines.
 
 When it ends, `output.txt` holds the summary and the exit code is the one the judge would
 see. To run a real solution against it, connect the two with pipes the way the judge does;
-`tests/e2e/play.cpp` in this repository is thirty lines that do exactly that, and the
-repository's own gate uses it to run a correct solution, a two-phase chain, and six badly
+`tests/e2e/play.cpp` in this repository is a short program that does exactly that, and the
+repository's own gate uses it to run a correct solution, a two-phase chain, and seven badly
 behaved solutions on every build.
 
 ## Not here yet

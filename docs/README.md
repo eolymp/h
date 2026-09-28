@@ -54,7 +54,7 @@ that is the page to look a code up in.
   input's size, so a 49 MB test costs the same as a small one. A token or a line read with a
   stated maximum stops one character past it rather than holding the rest.
 - **It compiles in about two seconds.** The validator above builds with `-O2` in about 2 s and
-  leaves a 164 KB object, and the first checker in [checker.md](checker.md) is the same
+  leaves a 167 KB object, and the first checker in [checker.md](checker.md) is about the same
   (g++ 12 and clang 14 on Linux; the standard headers alone take 0.4 s). `make budget`
   measures the compiler's CPU time for both on every run of the gate, against the standard
   headers built in the same run, and fails when either takes more than 9 times as much. The judge compiles the
@@ -88,9 +88,12 @@ runtime's tag names the image; rebuilding that runtime moves every program on th
 the release it then carries, so the library is upgraded for a whole judge at once rather than
 one problem at a time.
 
-Locally, put both headers next to the source and point the compiler at them:
+Locally, download both headers from the latest release, put them next to the source and
+point the compiler at them:
 
 ```bash
+curl -LO https://github.com/eolymp/h/releases/latest/download/eolymp.h
+curl -LO https://github.com/eolymp/h/releases/latest/download/eolymp-shapes.h
 g++ -std=c++17 -O2 -I. -o validator validator.cpp
 ```
 
@@ -100,8 +103,12 @@ GCC and clang, on glibc, on musl — the judge's own libc — and on macOS with 
 ## How a warning reaches you
 
 A warning is raised where it is noticed and kept once per code and line with a count, so a
-read inside a loop is reported once. A warning about a call carries the line of *your* source,
-found without a macro; one about the state a run ended in carries the header's own line. What
+read inside a loop is reported once. A warning about a read, a bound or a clamped score
+carries the line of *your* source, found without a macro. One about how the run ended — the
+answer file left unread, a verdict with no message, points the judge rounds up, a test worth
+nothing (EO201–EO204, EO206's rounding, EO208, EO210, EO212, the EO40x end-of-run checks) —
+carries the header's own line, and a validator's or a generator's run-level warning names
+only the program. What
 happens to it when the program ends depends on one thing: whether `EOLYMP` is set in the
 environment. That is how the header tells a local build from the judge.
 
@@ -137,10 +144,12 @@ get between the judge's parser and the score it is looking for:
 ```
 points 25 matched 10 of 40
 eolymp.h 1.0.0
-warning EO203 ./eolymp.h:2717 the answer file still holds "40" when the checker finished
+warning EO203 ./eolymp.h:NNNN the answer file still holds "40" when the checker finished
 note EO106 checker.cpp:4 the bounds 1..200001 are one away from a round number
-eo-report {"version":1,"warnings":[{"code":"EO106","at":"checker.cpp:4","count":1},{"code":"EO203","at":"./eolymp.h:2717","count":1}]}
+eo-report {"version":1,"warnings":[{"code":"EO106","at":"checker.cpp:4","count":1},{"code":"EO203","at":"./eolymp.h:NNNN","count":1}]}
 ```
+
+`NNNN` is a line of the header itself, which moves from one release to the next.
 
 **A warning never changes a verdict.** It cannot make a test invalid or an answer wrong. Two
 things change that deliberately: `EOLYMP_STRICT=1` makes the first warning fatal, which is
@@ -178,7 +187,7 @@ validator:
 | `core.h` | the environment the judge sets, and the single exit every verdict leaves through |
 | `fmt.h` | `eo::fmt`, the `{}` messages the API takes everywhere |
 | `parse.h` | the strict number syntax |
-| `io.h` | the reader: a fixed buffer, no copy of what it has read, `read()` refills so a pipe cannot deadlock it, and the line and column a message needs |
+| `io.h` | the reader: one buffer of a fixed size, grown only to hold what an interactor takes in while a large send waits, no copy of what it has read, `read()` refills so a pipe cannot deadlock it, and the line and column a message needs |
 | `diag.h` | the warnings: codes, call sites, counts, the report, strict mode, `eo::allow` |
 | `read.h` | `eo::charset`, names, and the vocabulary the readers share |
 | `structure.h` | `all_distinct`, `is_sorted`, `is_permutation`, `is_tree`, `is_connected`, `is_simple_graph` |

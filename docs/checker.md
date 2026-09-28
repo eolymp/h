@@ -375,7 +375,9 @@ wrong answer: case 2: output.txt, line 1, answer: expected an integer, found "x"
 ## Warnings
 
 A warning is about the problem, not about one run, and **it never changes a verdict**. Each
-carries a stable code, the line of your source and a fix; each is counted once per call site;
+carries a stable code, a line and a fix: the line of your source for a read, a bound or a
+clamped score, and the header's own line for how the run ended — EO201–EO204, EO206's
+rounding, EO208, EO210 and EO212. Each is counted once per call site;
 the report is capped at thirty lines. They appear as compiler warnings where they can be, on
 stderr locally, and in `checker.log` after the verdict on the judge, followed by one
 machine-readable `eo-report` line.

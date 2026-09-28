@@ -36,7 +36,7 @@ validator.cpp:6: line 1, a[1]: a line break follows n; read it with read_eoln()
 | --- | --- |
 | [docs/validator.md](docs/validator.md) | writing a validator: everything that is built, and nothing that is not |
 | [docs/checker.md](docs/checker.md) | writing a checker: the three streams, scores as a fraction of the test, and the log |
-| [docs/interactor.md](docs/interactor.md) | writing an interactor: a pipe that cannot deadlock, the summary the checker reads, and `run_count` phases |
+| [docs/interactor.md](docs/interactor.md) | writing an interactor: sends that do not deadlock the pair, the summary the checker reads, and `run_count` phases |
 | [docs/generator.md](docs/generator.md) | writing a generator: declared options, named random streams, and a writer that cannot leave a trailing space |
 | [docs/controller.md](docs/controller.md) | writing a controller: spawning instances, channels, and the flush that keeps them all moving |
 | [docs/README.md](docs/README.md) | the repository: what the library gives you, how a problem gets the header, what each directory holds, and what every gate proves |

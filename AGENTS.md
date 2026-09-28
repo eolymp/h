@@ -16,7 +16,7 @@ directly in `eolymp.h` is lost and breaks the build.
 | `src/*.h` | the library, one file per layer; `core.h` carries `EOLYMP_H_VERSION` |
 | `src/shapes/*.h` | the opt-in test shapes |
 | `judge/*.go` | `eo-judge`, the emulator; its own Go module, standard library only |
-| `tests/` | one translation unit, `tests/all.cpp`, including `tests/*.inc`; plus e2e, differential and hostile suites |
+| `tests/` | one translation unit, `tests/all.cpp`, including `tests/*.inc`; plus the e2e and hostile suites |
 | `tests/fuzz/` | libFuzzer harnesses, one property each; `make fuzz` builds and runs them with clang++ |
 | `tests/live/` | two whole problems; the `eo-judge` tests run them end to end as fixtures |
 | `tools/` | the amalgamator and every gate |
