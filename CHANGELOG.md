@@ -62,6 +62,10 @@ behaviour.
 - An interactor that sends more than 64 KB before reading, to a solution that answers as it
   reads: a deadlock, a time limit or an idleness verdict, → accept, taking in up to 16 MB of
   answers meanwhile; beyond that, warning EO409 and the old deadlock.
+- A controller that sends an instance more than 64 KB before reading, to an instance that
+  answers as it reads: a deadlock, a time limit or an idleness verdict, → the controller's own
+  verdict, taking in up to 16 MB of that instance's answers meanwhile; beyond that, warning
+  EO409 and the old deadlock. Only the instance being written to is taken in from.
 - An inherited non-blocking pipe: a jury error, "Resource temporarily unavailable", → the real
   verdict.
 - A controller with many instances: about 1 GB per 1000 instances, which could reach the
@@ -77,6 +81,9 @@ behaviour.
   `-march=native` or `haswell`, GCC on arm64) now draws the same bits as g++ on x86, so tests
   those builds generated before come out different. GCC on x86 without FMA, the judge's
   build, is unchanged.
+- A real that is not a number, written by `{}` or `eo::fixed` into a message, a log or a
+  generated test, is spelt `nan`, `-nan`, `inf` or `-inf` under every C library. Built on
+  macOS, a negative NaN used to come out as `nan`.
 - New or changed warnings, which change no verdict except under `EOLYMP_STRICT` or
   `eo-judge --strict`: EO206 (points the judge's float rounds up to the cost), EO208 (now a
   warning, and right that the run is accepted), EO213, EO409 and EO112.
