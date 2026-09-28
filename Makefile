@@ -81,13 +81,15 @@ build/fuzz/%: tests/fuzz/%.cpp tests/fuzz/fuzz.h eolymp.h eolymp-shapes.h
 	@mkdir -p build/fuzz
 	$(FUZZ_CXX) $(FUZZ_FLAGS) -o $@ $<
 
-fuzz: $(addprefix build/fuzz/,$(or $(FUZZER),$(FUZZERS)))
-	@for one in $(or $(FUZZER),$(FUZZERS)); do \
-		mkdir -p build/fuzz/corpus/$$one build/fuzz/crashes && \
-		echo "fuzz: $$one for $(FUZZ_SECONDS) s" && \
-		./build/fuzz/$$one -max_total_time=$(FUZZ_SECONDS) -timeout=10 -rss_limit_mb=2048 -close_fd_mask=3 \
-			-artifact_prefix=build/fuzz/crashes/$$one- -print_final_stats=1 build/fuzz/corpus/$$one || exit 1; \
-	done
+fuzz: $(addprefix fuzz-,$(or $(FUZZER),$(FUZZERS)))
+
+fuzz-%: build/fuzz/%
+	@mkdir -p build/fuzz/corpus/$* build/fuzz/crashes
+	@echo "fuzz: $* for $(FUZZ_SECONDS) s"
+	./build/fuzz/$* -max_total_time=$(FUZZ_SECONDS) -timeout=10 -rss_limit_mb=2048 -close_fd_mask=3 \
+		-artifact_prefix=build/fuzz/crashes/$*- -print_final_stats=1 build/fuzz/corpus/$*
+
+.PRECIOUS: build/fuzz/%
 
 mutants: eolymp.h eolymp-shapes.h
 	@mkdir -p build
