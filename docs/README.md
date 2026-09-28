@@ -218,7 +218,7 @@ clang++, musl and macOS. Each part answers a question:
 | --- | --- |
 | `amalgamation-check` | the committed `eolymp.h` and `eolymp-shapes.h` are what `src/` generates |
 | `test` | the suite passes |
-| `coverage` | every line of both headers runs at least once, and fails the build if one does not |
+| `coverage` | every line of both headers runs at least once, including inline functions nothing calls, and fails the build if one does not |
 | `standards` | it compiles and passes as C++17, C++20 and C++23, at `-O2` under `-Wall -Wextra -Wshadow -Werror`, which is where GCC's flow warnings such as `-Wstringop-overflow` appear; the suite calls every role and every shape |
 | `e2e` | a real compiled validator gives the judge's exit codes and messages, through the exit path the tests cannot reach |
 | `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals |
@@ -239,7 +239,10 @@ CXX=g++-16 GCOV=gcov-16 make check
 **One caveat about coverage.** The line gate needs GNU `gcov`. LLVM's `gcov` emulation loses
 a basic block whose only exit is a throw, so it reports lines as unrun that the tests
 provably run; under it the tool prints what it found and says the gate is elsewhere rather
-than failing or passing quietly. CI runs the real gate on the GCC and musl legs.
+than failing or passing quietly. CI runs the real gate on the GCC and musl legs. Under GNU
+`gcov` the suite is built with `-fkeep-inline-functions`, because without it an inline function
+that nothing calls is never emitted, so `gcov` cannot see it and it passes as covered; a
+template that nothing instantiates is still invisible.
 
 Tests are one translation unit — `tests/all.cpp` including `tests/*.inc` — so coverage is
 measured on the shipped header rather than on the sources it came from. Set `EOT_TRACE=1` to

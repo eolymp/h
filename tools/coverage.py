@@ -18,15 +18,6 @@ def main() -> int:
     build.mkdir(parents=True, exist_ok=True)
     compiler = os.environ.get("CXX", "c++")
     standard = os.environ.get("CXXSTD", "c++17")
-    subprocess.run(
-        [compiler, f"-std={standard}", "-O0", "-g", "--coverage", "-DEOLYMP_TESTING",
-         "-o", str(build / "tests"), "tests/all.cpp"],
-        cwd=root, check=True)
-    subprocess.run([str(build / "tests")], cwd=build, check=True)
-    notes = sorted(build.glob("*.gcno"))
-    if not notes:
-        print("coverage: the compiler produced no .gcno files", file=sys.stderr)
-        return 1
     gcov = os.environ.get("GCOV", "gcov").split()
     if shutil.which(gcov[0]) is None:
         print(f"coverage: {gcov[0]} is not on the path; set GCOV to the coverage tool of {compiler}",
@@ -34,6 +25,16 @@ def main() -> int:
         return 1
     described = subprocess.run(gcov + ["--version"], capture_output=True, text=True)
     authoritative = "LLVM" not in described.stdout
+    every_inline = ["-fkeep-inline-functions"] if authoritative else []
+    subprocess.run(
+        [compiler, f"-std={standard}", "-O0", "-g", "--coverage", *every_inline, "-DEOLYMP_TESTING",
+         "-o", str(build / "tests"), "tests/all.cpp"],
+        cwd=root, check=True)
+    subprocess.run([str(build / "tests")], cwd=build, check=True)
+    notes = sorted(build.glob("*.gcno"))
+    if not notes:
+        print("coverage: the compiler produced no .gcno files", file=sys.stderr)
+        return 1
     subprocess.run(gcov + ["-r", "-o", str(build)] + [str(note) for note in notes],
                    cwd=root, check=True, stdout=subprocess.DEVNULL)
     unrun = 0
