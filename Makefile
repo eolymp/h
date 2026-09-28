@@ -20,7 +20,7 @@ amalgamate:
 amalgamation-check:
 	python3 tools/amalgamate.py --check
 
-STANDARDS := c++17 c++20 c++23
+STANDARDS := $(filter-out $(CXXSTD),c++17 c++20 c++23)
 
 build/tests-%: eolymp.h eolymp-shapes.h $(TESTS)
 	@mkdir -p build
@@ -35,8 +35,13 @@ coverage: eolymp.h eolymp-shapes.h
 e2e: eolymp.h eolymp-shapes.h
 	sh tests/e2e/run.sh
 
-standards: $(STANDARDS:%=build/tests-%)
-	@for standard in $(STANDARDS); do echo "standards: $$standard"; ./build/tests-$$standard || exit 1; done
+standards: $(STANDARDS:%=standard-%)
+
+standard-%: build/tests-%
+	@echo "standards: $*"
+	@./build/tests-$*
+
+.PRECIOUS: build/tests-%
 
 hostile: eolymp.h eolymp-shapes.h
 	sh tests/hostile/run.sh

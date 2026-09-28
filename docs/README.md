@@ -219,7 +219,7 @@ clang++, musl and macOS. Each part answers a question:
 | `amalgamation-check` | the committed `eolymp.h` and `eolymp-shapes.h` are what `src/` generates |
 | `test` | the suite passes |
 | `coverage` | every line of both headers runs at least once, including inline functions nothing calls, and fails the build if one does not |
-| `standards` | it compiles and passes as C++17, C++20 and C++23, at `-O2` under `-Wall -Wextra -Wshadow -Werror`, which is where GCC's flow warnings such as `-Wstringop-overflow` appear; the suite calls every role and every shape |
+| `standards` | it compiles and passes as C++17, C++20 and C++23 (`test` runs the one in `CXXSTD`, and this target the other two), at `-O2` under `-Wall -Wextra -Wshadow -Werror`, which is where GCC's flow warnings such as `-Wstringop-overflow` appear; the suite calls every role and every shape |
 | `e2e` | a real compiled validator gives the judge's exit codes and messages, through the exit path the tests cannot reach |
 | `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals |
 | `codes` | every warning code the sources raise has a row in `docs/warnings.md` |
