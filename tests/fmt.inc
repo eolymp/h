@@ -34,6 +34,19 @@ EO_TEST(fmt_writes_reals_that_read_back_exactly) {
     EO_CHECK(written.size() > 1);
 }
 
+EO_TEST(fmt_writes_nan_and_inf_the_same_way_under_every_library) {
+    double const nothing = std::nan("");
+    double const endless = std::numeric_limits<double>::infinity();
+    EO_CHECK_EQ(eo::fmt("{}", nothing), std::string("nan"));
+    EO_CHECK_EQ(eo::fmt("{}", -nothing), std::string("-nan"));
+    EO_CHECK_EQ(eo::fmt("{}", endless), std::string("inf"));
+    EO_CHECK_EQ(eo::fmt("{}", -endless), std::string("-inf"));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(nothing, 6)), std::string("nan"));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(-nothing, 6)), std::string("-nan"));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(endless, 2)), std::string("inf"));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(-endless, 2)), std::string("-inf"));
+}
+
 EO_TEST(fmt_writes_a_fixed_number_of_any_length) {
     EO_CHECK_EQ(eo::fmt("[{}]", eo::fixed(2.5, 3)), std::string("[2.500]"));
     std::string const huge = eo::fmt("[{}]", eo::fixed(1e300, 2));

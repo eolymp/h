@@ -179,7 +179,15 @@ inline void append_unsigned(std::string& out, unsigned long long value) {
     out.append(buffer, static_cast<std::size_t>(written.ptr - buffer));
 }
 
+inline bool append_non_finite(std::string& out, double value) {
+    if (std::isfinite(value)) return false;
+    if (std::isnan(value)) out.append(std::signbit(value) ? "-nan" : "nan");
+    else out.append(value < 0 ? "-inf" : "inf");
+    return true;
+}
+
 inline void append_real(std::string& out, double value) {
+    if (append_non_finite(out, value)) return;
     char buffer[48];
 #if defined(__cpp_lib_to_chars)
     char* end = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::general, 15).ptr;
@@ -209,6 +217,7 @@ template <class T>
 struct is_fixed<fixed_number<T>> : std::true_type {};
 
 inline void append_fixed(std::string& out, double value, int digits) {
+    if (append_non_finite(out, value)) return;
     char buffer[64];
     std::size_t const written =
         static_cast<std::size_t>(std::snprintf(buffer, sizeof(buffer), "%.*f", digits, value));
