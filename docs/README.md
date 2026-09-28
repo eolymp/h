@@ -211,8 +211,10 @@ does not match.
 make check
 ```
 
-That is the whole gate — nine parts — and it is what CI runs on four toolchains: g++,
-clang++, musl and macOS. Each part answers a question:
+That is the whole C++ gate, and CI runs it on g++, clang++, musl and macOS. CI also runs
+`make judge`, `make mutants`, `make sanitize` and `make fuzz`, and `make version` on a pull
+request. This table is the one description of the gate: the rows down to `budget` are what
+`make check` runs, the rest run on their own, and each answers a question:
 
 | Target | Proves |
 | --- | --- |
@@ -222,13 +224,14 @@ clang++, musl and macOS. Each part answers a question:
 | `standards` | it also compiles and passes in the other two of C++17, C++20 and C++23, at `-O0` under the same warnings, which proves the language and library differences in a third of the build time |
 | `e2e` | a real compiled validator gives the judge's exit codes and messages, through the exit path the tests cannot reach |
 | `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals |
-| `codes` | every warning code the sources raise has a row in `docs/warnings.md` |
+| `examples` | every example in `docs/` compiles |
+| `codes` | every warning code the sources raise has a row in `docs/warnings.md`, and the page's count of built codes is right |
+| `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
 | `mutants` | a changed operator or bound in either header makes the suite fail; run with `make mutants` |
 | `sanitize` | the suite and the end-to-end programs pass under ASan and UBSan; run with `make sanitize` |
-| `fuzz` | six libFuzzer harnesses find no crash, sanitizer report or broken property in 45 s each (in CI, 90 s for all of them side by side on a push or pull request, and 30 minutes each nightly); needs clang++; `make fuzz-<harness>` or `FUZZER` runs one harness, `FUZZ_SECONDS` sets the time, and `make -j fuzz` runs them side by side; run with `make fuzz` |
+| `fuzz` | every libFuzzer harness in `tests/fuzz/` finds no crash, sanitizer report or broken property in 45 s each (in CI, 90 s for all of them side by side on a push or pull request, and 30 minutes each nightly); needs clang++; `make fuzz-<harness>` or `FUZZER` runs one harness, `FUZZ_SECONDS` sets the time, and `make -j fuzz` runs them side by side; run with `make fuzz` |
+| `judge` | `gofmt` and `go vet` are clean and the `eo-judge` tests pass; run with `make judge` |
 | `version` | a change to the headers or to eo-judge raises `EOLYMP_H_VERSION`, and eo-judge's version is the same number; CI runs `make version` on every pull request |
-| `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
-| `examples` | every example in `docs/` compiles |
 
 Set `CXX` and `CXXSTD` to choose a toolchain, and `GCOV` to the matching coverage tool:
 
