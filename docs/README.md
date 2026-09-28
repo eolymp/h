@@ -188,7 +188,7 @@ validator:
 | `core.h` | the environment the judge sets, and the single exit every verdict leaves through |
 | `fmt.h` | `eo::fmt`, the `{}` messages the API takes everywhere |
 | `parse.h` | the strict number syntax |
-| `io.h` | the reader: one buffer of a fixed size, grown only to hold what an interactor takes in while a large send waits, no copy of what it has read, `read()` refills so a pipe cannot deadlock it, and the line and column a message needs |
+| `io.h` | the reader: one buffer of a fixed size, grown only to hold what an interactor or a controller takes in while a large send waits, no copy of what it has read, `read()` refills so a pipe cannot deadlock it, and the line and column a message needs |
 | `diag.h` | the warnings: codes, call sites, counts, the report, strict mode, `eo::allow` |
 | `read.h` | `eo::charset`, names, and the vocabulary the readers share |
 | `structure.h` | `all_distinct`, `is_sorted`, `is_permutation`, `is_tree`, `is_connected`, `is_simple_graph` |

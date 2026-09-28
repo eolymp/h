@@ -87,7 +87,7 @@ Raised by `eo::interactor`, `eo::controller` and `eo::phases`.
 | `EO406` | note | the program | the test has an answer file the interactor never read | drop it, or read it |
 | `EO407` | warning | the program | a `run_count` handoff is large | the judge copies it between runs, so keep it small |
 | `EO408` | warning | the program | an instance was started and never talked to | spawn it where it is needed, or drop it |
-| `EO409` | warning | the program | while the interactor was still writing to the solution, the solution sent more than 16 MB of answers, which the library stops taking in, so the pair can wait for each other until the time limit; it is written to stderr the moment it is raised, because a run killed at the limit never reaches the report | read the solution's answers between sends instead of sending everything first |
+| `EO409` | warning | the program | while an interactor was still writing to the solution, or a controller to one of its instances, the solution or that instance sent more than 16 MB of answers, which the library stops taking in, so the two can wait for each other until the time limit; the 16 MB are counted for each instance, and only the instance being written to is taken in from; it is written to stderr the moment it is raised, because a run killed at the limit never reaches the report | read the solution's or the instance's answers between sends instead of sending everything first |
 
 ## EO5xx — the generator
 
