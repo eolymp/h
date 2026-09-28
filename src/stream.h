@@ -77,7 +77,7 @@ public:
 
     long long line() const { return from_.line(); }
     bool carriage_returns() const { return from_.carriage_returns(); }
-    std::string const& last_value() const { return last_value_; }
+    std::string last_value() const { return last_indexed_ ? fmt("{}[{}]", last_value_, last_index_) : last_value_; }
     bool separated() const { return separated_; }
     void mark_separated() { separated_ = true; }
     std::map<std::string, seen_bounds> const& bounds() const { return bounds_; }
@@ -103,8 +103,9 @@ public:
 
     std::size_t room_for(long long count, value_name const& name) {
         if (count < 0) refuse(name, fmt("a count of {} cannot be read", count));
-        long long const sane = count < (1 << 20) ? count : (1 << 20);
-        return static_cast<std::size_t>(sane);
+        long long const left = from_.bytes_left();
+        if (left >= 0) return static_cast<std::size_t>(std::min(count, left / 2 + 1));
+        return static_cast<std::size_t>(std::min(count, 1LL << 20));
     }
 
     void blame(fault whose) { whose_ = whose; }
@@ -119,6 +120,10 @@ public:
         while (at < rest.size() && !is_blank(static_cast<unsigned char>(rest[at]))) at++;
         return rest.substr(0, at);
     }
+
+    absorbed absorb(std::size_t most) { return from_.absorb(most); }
+
+    int listening_descriptor() const { return from_.listening_descriptor(); }
 
     bool content_waiting() {
         for (;;) {
@@ -171,24 +176,24 @@ public:
     double fractional(double low, double high, stated bounds, int least_decimals, int most_decimals,
                       bool decimals_stated, value_name const& name, site where) {
         std::string const token = take_number(name, where, true, "a number");
-        real_read const parsed = parse_real(token, exponents_);
+        real_read const parsed = parse_real(token, exponents_, lenient_);
         if (parsed.problem != number_problem::none)
             refuse(name, fmt("expected a number, found \"{}\": {}", shorten(token), describe(parsed.problem)));
-        if (name.absent())
+        if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
-        if (!decimals_stated && !lenient_)
+        if (!decimals_stated && !lenient_ && fresh("EO109", where))
             warn("EO109", "this number is read without a rule on its digits",
                  "say how many digits follow the point: read_real(low, high, least, most, name)", where);
-        if (bounds == stated::absent)
+        if (bounds == stated::absent && fresh(loose_code_, where))
             warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
         if (bounds == stated::yes) {
             if (parsed.value < low) refuse(name, fmt("{} is below {}", parsed.value, low));
             if (parsed.value > high) refuse(name, fmt("{} is above {}", parsed.value, high));
         }
         if (decimals_stated && (parsed.decimals < least_decimals || parsed.decimals > most_decimals)) {
-            std::string const said = fmt("{} has {} digits after the point, not {}..{}", token, parsed.decimals,
-                                         least_decimals, most_decimals);
+            std::string const said = fmt("{} has {} digits after the point, not {}..{}", shorten(token),
+                                         parsed.decimals, least_decimals, most_decimals);
             refuse(name, said);
         }
         if (bounds == stated::yes)
@@ -199,18 +204,19 @@ public:
 
     std::string word(long long least, long long most, charset const* allowed, stated bounds,
                      value_name const& name, site where) {
-        long long const cap = bounds == stated::yes ? most + 1 : 0;
+        long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
         std::string const token = take_word(name, where, "a token", cap);
-        if (name.absent())
+        if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
-        if (bounds == stated::absent)
-            warn(lenient_ ? loose_code_ : "EO108", "this token is read with no length and no charset",
-                 "give a length and the characters it may hold, or say eo::any", where);
-        else if (allowed == nullptr && bounds == stated::yes && !lenient_)
+        if (bounds == stated::absent) {
+            if (fresh(lenient_ ? loose_code_ : "EO108", where))
+                warn(lenient_ ? loose_code_ : "EO108", "this token is read with no length and no charset",
+                     "give a length and the characters it may hold, or say eo::any", where);
+        } else if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this token is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
-        if (token.size() > 1024 * 1024)
+        if (token.size() > 1024 * 1024 && fresh("EO111", where))
             note("EO111", fmt("a token of {} bytes was held in memory", token.size()),
                  "bound its length if the format allows", where);
         if (bounds == stated::yes) {
@@ -223,8 +229,8 @@ public:
             if (allowed != nullptr)
                 for (char const one : token)
                     if (!allowed->has(one))
-                        refuse(name, fmt("\"{}\" holds \"{}\", which is not in \"{}\"", shorten(token), one,
-                                         allowed->text()));
+                        refuse(name, fmt("\"{}\" holds \"{}\", which is not in \"{}\"", shorten(token),
+                                         escaped(std::string(1, one)), allowed->text()));
             remember(name, "length", least, most, length == least, length == most,
                      where);
         }
@@ -235,7 +241,7 @@ public:
                              value_name const& name, site where) {
         settle();
         std::string text;
-        long long const cap = bounds == stated::yes ? most + 1 : 0;
+        long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
         long long seen = 0;
         while (true) {
             int const next = from_.peek();
@@ -249,7 +255,7 @@ public:
             text.pop_back();
             seen--;
         }
-        if (allowed == nullptr && bounds == stated::yes && !lenient_)
+        if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this line is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
         long long const length = cap == 0 ? static_cast<long long>(text.size()) : seen;
@@ -260,10 +266,28 @@ public:
         if (allowed != nullptr)
             for (char const one : text)
                 if (!allowed->has(one))
-                    refuse(name, fmt("the line holds \"{}\", which is not in \"{}\"", one, allowed->text()));
+                    refuse(name, fmt("the line holds \"{}\", which is not in \"{}\"", escaped(std::string(1, one)),
+                                     allowed->text()));
         if (bounds == stated::yes)
             remember(name, "length", least, most, length == least, length == most,
                      where);
+        if (from_.peek() == '\n') from_.take();
+        was_read(name);
+        separated_ = true;
+        return text;
+    }
+
+    std::string line_up_to(std::size_t keep, bool& longer, value_name const& name) {
+        settle();
+        std::string text;
+        longer = false;
+        while (true) {
+            int const next = from_.peek();
+            if (next < 0 || next == '\n') break;
+            from_.take();
+            if (text.size() < keep) text.push_back(static_cast<char>(next));
+            else if (next != ' ' && next != '\t' && next != '\r') longer = true;
+        }
         if (from_.peek() == '\n') from_.take();
         was_read(name);
         separated_ = true;
@@ -276,7 +300,7 @@ public:
         int const here = from_.peek();
         if (here >= 0 && !is_blank(here)) return;
         if (here < 0 && !end_text_.empty()) refuse(name, end_text_);
-        if (here >= 0 && !last_value_.empty() && !separated_) missing_separator(name, where, here);
+        if (here >= 0 && (last_indexed_ || !last_value_.empty()) && !separated_) missing_separator(name, where, here);
         refuse(name, fmt("expected {}, found {}", expected, name_of(here)));
     }
 
@@ -284,7 +308,7 @@ public:
         char const* const call = found == '\n' ? "read_eoln()" : "read_space()";
         std::string message = fmt("{}: {}line {}", where_of(where), case_prefix(), from_.line());
         if (name.known()) message += fmt(", {}", name.text());
-        finish(3, message + fmt(": {} follows {}; read it with {}", name_of(found), last_value_, call));
+        finish(3, message + fmt(": {} follows {}; read it with {}", name_of(found), last_value(), call));
     }
 
     static long long constexpr longest_number = 4096;
@@ -294,20 +318,34 @@ public:
         if (lenient_) {
             std::string const word = take_word(name, where, expected, longest_number);
             if (word.empty()) refuse(name, fmt("expected {}, found nothing", expected));
+            if (from_.peek() >= 0 && !is_blank(from_.peek()))
+                refuse(name, fmt("expected {}, found a token longer than {} characters: \"{}\"", expected,
+                                 longest_number, shorten(word)));
             return word;
         }
         std::string token;
         if (from_.peek() == '-' || (relaxed_ && from_.peek() == '+'))
             token.push_back(static_cast<char>(from_.take()));
-        while (from_.peek() >= '0' && from_.peek() <= '9') token.push_back(static_cast<char>(from_.take()));
+        digits_into(token);
         if (with_a_point && from_.peek() == '.') {
             token.push_back(static_cast<char>(from_.take()));
-            while (from_.peek() >= '0' && from_.peek() <= '9') token.push_back(static_cast<char>(from_.take()));
+            digits_into(token);
         }
         if (token.empty() || token == "-" || token == "+")
             refuse(name, fmt("expected {}, found \"{}\"", expected, shorten(token + ahead_of_the_value())));
         was_read(name);
         return token;
+    }
+
+    void digits_into(std::string& token) {
+        while (from_.peek() >= '0' && from_.peek() <= '9') {
+            char const* const at = from_.window();
+            std::size_t const held = from_.held();
+            std::size_t run = 0;
+            while (run < held && at[run] >= '0' && at[run] <= '9') run++;
+            token.append(at, run);
+            from_.skip_plain(run);
+        }
     }
 
     std::string take_word(value_name const& name, site where, char const* expected, long long cap = 0) {
@@ -317,7 +355,13 @@ public:
             int const next = from_.peek();
             if (next < 0 || is_blank(next)) break;
             if (cap > 0 && static_cast<long long>(token.size()) >= cap) break;
-            token.push_back(static_cast<char>(from_.take()));
+            char const* const at = from_.window();
+            std::size_t held = from_.held();
+            if (cap > 0) held = std::min<std::size_t>(held, static_cast<std::size_t>(cap) - token.size());
+            std::size_t run = 0;
+            while (run < held && !is_blank(static_cast<unsigned char>(at[run]))) run++;
+            token.append(at, run);
+            from_.skip_plain(run);
         }
         was_read(name);
         return token;
@@ -325,26 +369,29 @@ public:
 
     void study(value_name const& name, long long low, long long high, stated bounds, long long type_low,
                long long type_high, char const* type_word, site where) {
-        if (name.absent())
+        if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
         if (bounds == stated::absent) {
-            warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
+            if (fresh(loose_code_, where))
+                warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
             return;
         }
         if (bounds != stated::yes) return;
-        if (low == type_low && high == type_high)
+        if (low == type_low && high == type_high && fresh("EO104", where))
             warn("EO104", fmt("the bounds are the whole range of {}", type_word),
                  "say eo::any if any value is allowed", where);
-        if (low < type_low || high > type_high)
+        if ((low < type_low || high > type_high) && fresh("EO105", where))
             warn("EO105", fmt("the bounds {}..{} do not fit {}", low, high, type_word), "read a wider type",
                  where);
-        if (nearly_round(high) || nearly_round(low))
+        if ((nearly_round(high) || nearly_round(low)) && fresh("EO106", where))
             note("EO106", fmt("the bounds {}..{} are one away from a round number", low, high),
                  "compare them with the statement", where);
     }
 
 private:
+    static bool fresh(char const* code, site where) { return !diagnostics::shared().again(code, where); }
+
     char const* verdict_word() const {
         if (whose_ == fault::wrong_answer) return "wrong answer: ";
         if (whose_ == fault::jury_error) return "jury error: ";
@@ -366,7 +413,10 @@ private:
     }
 
     void was_read(value_name const& name) {
-        last_value_ = name.known() ? name.text() : std::string("the value before");
+        if (name.known()) last_value_ = name.key();
+        else last_value_ = "the value before";
+        last_indexed_ = name.known() && name.indexed();
+        last_index_ = name.index();
         separated_ = false;
         read_anything_ = true;
     }
@@ -375,14 +425,19 @@ private:
     void remember(value_name const& name, char const* kind, Bound low, Bound high, bool at_low, bool at_high,
                   site where) {
         if (!name.known()) return;
-        auto const found = bounds_.find(name.key());
-        if (found == bounds_.end()) {
-            seen_bounds fresh{kind, fmt("{}", low), fmt("{}", high), at_low, at_high, where, true};
-            note_the_numbers(fresh, low, high);
-            bounds_.emplace(name.key(), std::move(fresh));
-            return;
+        if (last_bounds_ == nullptr || last_key_ != name.key()) {
+            auto const found = bounds_.find(name.key());
+            if (found == bounds_.end()) {
+                seen_bounds fresh{kind, fmt("{}", low), fmt("{}", high), at_low, at_high, where, true};
+                note_the_numbers(fresh, low, high);
+                last_bounds_ = &bounds_.emplace(name.key(), std::move(fresh)).first->second;
+                last_key_ = name.key();
+                return;
+            }
+            last_bounds_ = &found->second;
+            last_key_ = name.key();
         }
-        seen_bounds& known = found->second;
+        seen_bounds& known = *last_bounds_;
         if (known.kind == kind && same_numbers(known, low, high)) {
             if (at_low) known.reached_low = true;
             if (at_high) known.reached_high = true;
@@ -430,7 +485,11 @@ private:
     bool lenient_ = false;
     char const* loose_code_ = "EO102";
     std::string last_value_;
+    bool last_indexed_ = false;
+    long long last_index_ = 0;
     std::map<std::string, seen_bounds> bounds_;
+    std::string last_key_;
+    seen_bounds* last_bounds_ = nullptr;
     bool separated_ = true;
     bool read_anything_ = false;
     bool exponents_ = false;

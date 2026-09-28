@@ -83,6 +83,7 @@ func summarizeGroup(index int, mode string, runs []*RunResult) *GroupResult {
 	}
 
 	switch mode {
+	case "NO_SCORE":
 	case "BEST":
 		group.Score = scores[0]
 		for _, one := range scores {

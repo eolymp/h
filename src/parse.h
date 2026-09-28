@@ -68,7 +68,7 @@ struct real_read {
     number_problem problem = number_problem::none;
 };
 
-inline real_read parse_real(std::string_view text, bool allow_exponent) {
+inline real_read parse_real(std::string_view text, bool allow_exponent, bool negative_zero = false) {
     if (text.empty()) return {0, 0, number_problem::empty};
     std::size_t at = text[0] == '-' ? 1u : 0u;
     bool const negative = at == 1;
@@ -96,7 +96,8 @@ inline real_read parse_real(std::string_view text, bool allow_exponent) {
     std::string const buffer(text);
     double const value = std::strtod(buffer.c_str(), nullptr);
     if (!std::isfinite(value)) return {0, 0, number_problem::out_of_range};
-    if (negative && value == 0) return {0, 0, number_problem::redundant_minus};
+    if (negative && value == 0 && !negative_zero) return {0, 0, number_problem::redundant_minus};
+    if (value == 0) return {0, decimals, number_problem::none};
     return {value, decimals, number_problem::none};
 }
 

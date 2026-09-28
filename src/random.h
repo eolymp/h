@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <set>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -10,6 +10,7 @@
 
 #include "core.h"
 #include "fmt.h"
+#include "io.h"
 #include "read.h"
 
 namespace eo {
@@ -30,12 +31,14 @@ public:
         if (low > high) detail::library_error(fmt("uniform({}, {}) has no values in it", low, high));
         std::uint64_t const span = reach(low, high);
         if (span == 0) return static_cast<long long>(next());
-        return low + static_cast<long long>(below(span));
+        return static_cast<long long>(static_cast<std::uint64_t>(low) + below(span));
     }
 
     [[nodiscard]] double real(double low, double high) {
         double const fraction = static_cast<double>(next() >> 11) * (1.0 / 9007199254740992.0);
-        return low + fraction * (high - low);
+        double const span = high - low;
+        double volatile const part = fraction * span;
+        return low + part;
     }
 
     [[nodiscard]] bool chance(double odds) { return real(0, 1) < odds; }
@@ -55,6 +58,7 @@ public:
     }
 
     [[nodiscard]] std::vector<int> perm(int count, int first = 0) {
+        if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
         std::vector<int> values(static_cast<std::size_t>(count));
         for (int at = 0; at < count; at++) values[static_cast<std::size_t>(at)] = first + at;
         shuffle(values);
@@ -62,22 +66,22 @@ public:
     }
 
     [[nodiscard]] std::vector<long long> ints(long long count, long long low, long long high) {
-        std::vector<long long> values;
-        values.reserve(static_cast<std::size_t>(count));
+        if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
+        std::vector<long long> values = room_for(count);
         for (long long at = 0; at < count; at++) values.push_back(uniform(low, high));
         return values;
     }
 
     [[nodiscard]] std::vector<long long> distinct(long long count, long long low, long long high) {
         if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
+        if (count == 0) return {};
+        std::vector<long long> values = room_for(count);
         if (low > high) detail::library_error(fmt("distinct({}, {}) has no values in it", low, high));
         std::uint64_t const span = reach(low, high);
         std::uint64_t const wanted = static_cast<std::uint64_t>(count);
         if (span != 0 && wanted > span)
             detail::library_error(fmt("cannot draw {} different values from {}..{}", count, low, high));
 
-        std::vector<long long> values;
-        values.reserve(static_cast<std::size_t>(count));
         if (span != 0 && span <= 4 * wanted) {
             for (std::uint64_t at = 0; at < span && values.size() < wanted; at++) {
                 std::uint64_t const left = span - at;
@@ -86,9 +90,22 @@ public:
                     values.push_back(low + static_cast<long long>(at));
             }
         } else {
-            std::set<long long> picked;
-            while (picked.size() < wanted) picked.insert(uniform(low, high));
-            values.assign(picked.begin(), picked.end());
+            int bits = 4;
+            while ((std::uint64_t{1} << bits) < 2 * wanted) bits++;
+            std::size_t const mask = (std::size_t{1} << bits) - 1;
+            std::vector<long long> slots(mask + 1);
+            std::vector<unsigned char> taken(mask + 1, 0);
+            while (values.size() < wanted) {
+                long long const drawn = uniform(low, high);
+                std::uint64_t const mixed = static_cast<std::uint64_t>(drawn) * 0x9e3779b97f4a7c15ull;
+                std::size_t at = static_cast<std::size_t>(mixed >> (64 - bits));
+                while (taken[at] != 0 && slots[at] != drawn) at = (at + 1) & mask;
+                if (taken[at] != 0) continue;
+                taken[at] = 1;
+                slots[at] = drawn;
+                values.push_back(drawn);
+            }
+            std::sort(values.begin(), values.end());
         }
         shuffle(values);
         return values;
@@ -112,22 +129,28 @@ public:
 
     [[nodiscard]] std::vector<long long> partition(long long count, long long sum, long long least = 1) {
         if (count < 1) detail::library_error(fmt("a partition has at least one part, not {}", count));
-        if (least * count > sum)
+        long long need = 0;
+        bool const huge = __builtin_mul_overflow(least, count, &need);
+        if ((huge && least > 0) || (!huge && need > sum))
             detail::library_error(fmt("{} parts of at least {} cannot add up to {}", count, least, sum));
-        std::vector<long long> cuts = distinct(count - 1, 1, sum - least * count + count - 1);
+        long long high = 0;
+        if (huge || __builtin_sub_overflow(sum, need, &high) || __builtin_add_overflow(high, count - 1, &high))
+            detail::library_error(fmt("partition({}, {}, {}) spans more values than a long long holds", count, sum,
+                                      least));
+        std::vector<long long> cuts = distinct(count - 1, 1, high);
         std::sort(cuts.begin(), cuts.end());
-        std::vector<long long> parts;
-        parts.reserve(static_cast<std::size_t>(count));
+        std::vector<long long> parts = room_for(count);
         long long last = 0;
         for (long long const one : cuts) {
             parts.push_back(one - last + least - 1);
             last = one;
         }
-        parts.push_back(sum - least * count + count - 1 - last + least - 1 + 1);
+        parts.push_back(high - last + least);
         return parts;
     }
 
     [[nodiscard]] std::string letters(long long length, charset const& allowed) {
+        if (length < 0) detail::library_error(fmt("cannot draw {} letters", length));
         std::vector<char> choices;
         for (int one = 0; one < 256; one++)
             if (allowed.has(static_cast<char>(one))) choices.push_back(static_cast<char>(one));
@@ -139,6 +162,18 @@ public:
     }
 
 private:
+    static std::vector<long long> room_for(long long count) {
+        std::vector<long long> values;
+        if (static_cast<unsigned long long>(count) > values.max_size())
+            detail::library_error(fmt("cannot draw {} values: no vector holds that many", count));
+        try {
+            values.reserve(static_cast<std::size_t>(count));
+        } catch (std::bad_alloc const&) {
+            detail::library_error(fmt("cannot draw {} values: there is not enough memory for them", count));
+        }
+        return values;
+    }
+
     static std::uint64_t reach(long long low, long long high) {
         return static_cast<std::uint64_t>(high) - static_cast<std::uint64_t>(low) + 1;
     }
@@ -155,12 +190,23 @@ private:
 
 namespace detail {
 
+inline std::uint64_t constexpr seed_start = 0xcbf29ce484222325ull;
+
+inline std::uint64_t seed_step(std::uint64_t mixed, unsigned char one) {
+    return (mixed ^ static_cast<std::uint64_t>(one)) * 0x100000001b3ull;
+}
+
 inline std::uint64_t seed_of(std::string const& bytes) {
-    std::uint64_t mixed = 0xcbf29ce484222325ull;
-    for (char const one : bytes) {
-        mixed ^= static_cast<std::uint64_t>(static_cast<unsigned char>(one));
-        mixed *= 0x100000001b3ull;
-    }
+    std::uint64_t mixed = seed_start;
+    for (char const one : bytes) mixed = seed_step(mixed, static_cast<unsigned char>(one));
+    return mixed;
+}
+
+inline std::uint64_t seed_of_file(char const* path) {
+    source reading = source::over_file(path, true);
+    std::uint64_t mixed = seed_start;
+    for (int one = reading.take(); one >= 0; one = reading.take())
+        mixed = seed_step(mixed, static_cast<unsigned char>(one));
     return mixed;
 }
 

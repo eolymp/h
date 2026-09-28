@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <csignal>
 #include <cstdio>
 #include <exception>
@@ -108,6 +109,7 @@ private:
     std::string pending_;
     bool spoken_to_ = false;
     bool shut_ = false;
+    bool deaf_ = false;
 };
 
 class controller final : public detail::scorer, public detail::limits_keeper {
@@ -152,8 +154,12 @@ public:
         if (replies_ != nullptr) std::fclose(replies_);
         requests_ = nullptr;
         replies_ = nullptr;
-        if (std::uncaught_exceptions() == 0 && !delivered_)
-            fail_jury("the controller ended without a verdict");
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury("the controller ended without a verdict");
+#ifndef EOLYMP_TESTING
+        fail_jury("an exception left the controller before its verdict; catch it inside the controller's scope "
+                  "and give a verdict there, or let it end the program");
+#endif
     }
 
     stream input;
@@ -187,7 +193,7 @@ public:
         made->writes_ = ::open(to_them.c_str(), O_WRONLY);
         if (made->writes_ < 0) fail_jury(fmt("cannot write to instance {}", made->index_));
         std::string const named = fmt("instance {}", made->index_);
-        detail::source listening = detail::source::over_file(from_them.c_str(), false);
+        detail::source listening = detail::source::over_channel(from_them.c_str());
         made->reads_ = std::make_unique<stream>(std::move(listening), detail::fault::wrong_answer, named);
         made->reads_->inside().before_blocking(&controller::flush_from, this);
         made->reads_->inside().on_end(fmt("instance {} ended the dialogue early", made->index_));
@@ -195,22 +201,13 @@ public:
         return *team_.back();
     }
 
-    double cost() const final {
-        char const* const set = detail::environment("TEST_COST");
-        if (set == nullptr) return 100;
-        detail::real_read const parsed = detail::parse_real(set, true);
-        return parsed.problem == detail::number_problem::none ? parsed.value : 0;
-    }
+    double cost() const final { return detail::test_cost(); }
 
     void value(std::string name, double what) { held_.record(std::move(name), what); }
 
     eo::rng& rng() {
         if (!seeded_) {
-            detail::source reading = detail::source::over_file(paths_[0].c_str(), true);
-            std::string bytes;
-            for (int one = reading.take(); one >= 0; one = reading.take())
-                bytes.push_back(static_cast<char>(one));
-            dice_ = eo::rng(detail::seed_of(bytes));
+            dice_ = eo::rng(detail::seed_of_file(paths_[0].c_str()));
             seeded_ = true;
         }
         return dice_;
@@ -222,14 +219,11 @@ public:
     void spent_a_budget() final { budget_spent_ = true; }
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
-        held_.set_fraction(fraction);
+        held_.set_fraction(std::min(fraction, 1.0));
         held_.set_message(message);
-        std::string const text = held_.written();
-        std::FILE* const file = std::fopen(paths_[1].c_str(), "wb");
-        if (file == nullptr) detail::library_error(fmt("cannot write the summary to {}", paths_[1]));
-        std::fwrite(text.data(), 1, text.size(), file);
-        std::fclose(file);
+        detail::write_file(paths_[1], held_.written(), "summary");
         deliver(0, message.empty() ? "ok" : "ok " + message);
     }
 
@@ -344,16 +338,18 @@ private:
 inline void channel::flush() {
     if (pending_.empty() || shut_) return;
     spoken_to_ = true;
-    bool broken = false;
-    detail::write_all(writes_, pending_.data(), pending_.size(), broken);
+    if (!deaf_)
+        detail::write_while_absorbing(writes_, pending_, reads_->inside(), deaf_, fmt("instance {}", index_),
+                                      "controller",
+                                      "read the instances' answers between sends instead of sending everything "
+                                      "first");
     owner_->sent_bytes_ += static_cast<long long>(pending_.size());
     pending_.clear();
-    if (broken) owner_->fail_run(fmt("instance {} stopped reading", index_));
 }
 
 inline void channel::hand_over() {
-    if (pending_.empty() || shut_) return;
-    detail::write_without_waiting(writes_, pending_);
+    if (pending_.empty() || shut_ || deaf_) return;
+    detail::write_while_read(writes_, pending_, detail::last_words_patience_ms, detail::last_words_deadline_ms);
     pending_.clear();
 }
 

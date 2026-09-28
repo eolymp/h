@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 #include "core.h"
 #include "diag.h"
@@ -78,15 +80,37 @@ private:
     reader* before_;
 };
 
-inline double clamped(double fraction) {
+struct scored {
+    double value;
+    site where;
+
+    template <class T, class = std::enable_if_t<std::is_convertible_v<T, double>>>
+    scored(T&& what, char const* file = __builtin_FILE(), int line = __builtin_LINE())
+        : value(static_cast<double>(std::forward<T>(what))), where{file, line} {}
+};
+
+[[noreturn]] inline void refuse_a_score(std::string const& what) {
+    library_error(fmt("{} is not a number the judge can pay; look for zero divided by zero, or an infinity "
+                      "less an infinity, in the formula", what));
+}
+
+inline double clamped(double fraction, site where) {
+    if (std::isnan(fraction)) refuse_a_score(fmt("a score of {}", fraction));
+    if (fraction >= 2 && std::isfinite(fraction)) {
+        warn("EO205", fmt("a score of {} was clamped to 1; it looks like a percentage or points, and eo::score "
+                          "takes a fraction of the test", fraction),
+             "use eo::ratio(a, b) for a out of b, or eo::points for points", where);
+        return 1.0;
+    }
     if (fraction < 0 || fraction > 1) {
         warn("EO205", fmt("a score of {} was clamped into 0..1", fraction), "keep the formula inside the test",
-             site::here());
+             where);
         return fraction < 0 ? 0.0 : 1.0;
     }
     if (fraction > 0 && fraction < 1 && fraction > 1 - 1e-9)
-        warn("EO206", fmt("a score of {} is a hair below full marks", fraction),
-             "use eo::ratio(a, b), which is exact", site::here());
+        warn("EO206", fmt("a score of {} is a hair below full marks, which the judge may read as full marks",
+                          fraction),
+             "use eo::ratio(a, b), which is exact", where);
     return fraction;
 }
 
@@ -101,7 +125,25 @@ inline std::string format_points(double value) {
     return std::string(buffer, static_cast<std::size_t>(written));
 }
 
+inline double test_cost() {
+    char const* const set = environment("TEST_COST");
+    if (set == nullptr) {
+        if (on_judge() && !diagnostics::shared().raised_already("EO213"))
+            warn("EO213", "TEST_COST is not set, so this test is taken to be worth 100 points",
+                 "points and partial scores follow from the cost; report the judge's configuration", site::here());
+        return 100;
+    }
+    real_read const parsed = parse_real(set, true);
+    if (parsed.problem == number_problem::none) return parsed.value;
+    if (on_judge() && !diagnostics::shared().raised_already("EO213"))
+        warn("EO213", fmt("TEST_COST is \"{}\", which is not a number, so this test is taken to be worth 0 points",
+                          shorten(set)),
+             "points and partial scores follow from the cost; report the judge's configuration", site::here());
+    return 0;
+}
+
 inline double rounded(double value, int digits) {
+    if (digits > 15) return value;
     double scale = 1;
     for (int at = 0; at < digits; at++) scale *= 10;
     return std::round(value * scale) / scale;
@@ -112,6 +154,9 @@ inline double rounded(double value, int digits) {
 class budget {
 public:
     template <class Owner>
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     budget(Owner& owner, long long limit, std::string name)
         : keeper_(&owner), judge_(&owner), limit_(limit), name_(std::move(name)) {
         keeper_->declare_budget();
@@ -146,13 +191,13 @@ private:
 };
 
 template <class... Args>
-[[noreturn]] inline void accept(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void accept(detail::pattern pattern = "", Args const&... args) {
     detail::judging().pass(1, fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void wrong(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void wrong(detail::pattern pattern = "", Args const&... args) {
     std::string const message = fmt(pattern, args...);
     if (detail::blaming() != nullptr) detail::blaming()->refuse(detail::value_name(unnamed), message);
     detail::judging().fail_run(message);
@@ -160,38 +205,45 @@ template <class... Args>
 }
 
 template <class... Args>
-[[noreturn]] inline void jury_error(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void jury_error(detail::pattern pattern = "", Args const&... args) {
     detail::judging().fail_jury(fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(double fraction, std::string_view pattern = "", Args const&... args) {
-    detail::judging().pass(detail::clamped(fraction), fmt(pattern, args...));
+[[noreturn]] inline void score(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
+    detail::judging().pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(double fraction, rounding how, std::string_view pattern = "",
+[[noreturn]] inline void score(detail::scored fraction, rounding how, detail::pattern pattern = "",
                                Args const&... args) {
     detail::scorer& one = detail::judging();
-    double const paid = detail::rounded(detail::clamped(fraction) * one.cost(), how.digits);
+    double const paid = detail::rounded(detail::clamped(fraction.value, fraction.where) * one.cost(), how.digits);
     one.pass(one.cost() > 0 ? paid / one.cost() : 0, fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void points(double paid, std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void points(detail::scored given, detail::pattern pattern = "", Args const&... args) {
     detail::scorer& one = detail::judging();
+    double paid = given.value;
+    if (std::isnan(paid)) detail::refuse_a_score(fmt("{} points", paid));
+    if (paid < 0) {
+        detail::warn("EO205", fmt("{} points was clamped to 0", paid), "keep the formula inside the test",
+                     given.where);
+        paid = 0;
+    }
     if (paid > one.cost())
         detail::warn("EO207", fmt("{} points is more than the test's {}", paid, one.cost()),
-                     "the judge clamps it", detail::site::here());
+                     "the judge clamps it", given.where);
     one.pass(one.cost() > 0 ? paid / one.cost() : 0, fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-inline void log(std::string_view pattern, Args const&... args) {
+inline void log(detail::pattern pattern, Args const&... args) {
     detail::log_line(fmt(pattern, args...));
 }
 

@@ -76,6 +76,19 @@ EO_TEST(reals_follow_the_strict_syntax) {
     EO_CHECK(real_problem("+1.5") == number_problem::missing_digits);
 }
 
+EO_TEST(a_lenient_read_takes_negative_zero_as_zero) {
+    using eo::detail::number_problem;
+    eo::detail::real_read const printed = eo::detail::parse_real("-0.000000", false, true);
+    EO_CHECK(printed.problem == number_problem::none);
+    EO_CHECK(printed.value == 0 && !std::signbit(printed.value));
+    EO_CHECK_EQ(printed.decimals, 6);
+    eo::detail::real_read const tiny = eo::detail::parse_real("-1e-400", true, true);
+    EO_CHECK(tiny.problem == number_problem::none);
+    EO_CHECK(tiny.value == 0 && !std::signbit(tiny.value));
+    EO_CHECK(eo::detail::parse_real("-1e-400", true).problem == number_problem::redundant_minus);
+    EO_CHECK(eo::detail::parse_real("-0.5", false, true).value == -0.5);
+}
+
 EO_TEST(exponents_are_a_choice) {
     using eo::detail::number_problem;
     EO_CHECK(real_problem("1e5") == number_problem::bad_character);

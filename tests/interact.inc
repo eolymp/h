@@ -26,6 +26,30 @@ struct swapped_descriptors {
     }
 };
 
+class file_size_limit {
+public:
+    file_size_limit() {
+        ::getrlimit(RLIMIT_FSIZE, &before_);
+        std::signal(SIGXFSZ, SIG_IGN);
+    }
+
+    file_size_limit(file_size_limit const&) = delete;
+
+    void cap(rlim_t bytes) {
+        rlimit capped = before_;
+        capped.rlim_cur = bytes;
+        ::setrlimit(RLIMIT_FSIZE, &capped);
+    }
+
+    ~file_size_limit() {
+        ::setrlimit(RLIMIT_FSIZE, &before_);
+        std::signal(SIGXFSZ, SIG_DFL);
+    }
+
+private:
+    rlimit before_{};
+};
+
 std::string slurp(std::string const& path) {
     std::FILE* const reading = std::fopen(path.c_str(), "rb");
     if (reading == nullptr) return {};
@@ -116,6 +140,30 @@ EO_TEST(an_interactor_answers_and_accepts) {
     EO_CHECK_IN(result.log, "round trips");
 }
 
+EO_TEST(an_interactor_refuses_a_score_that_is_not_a_number) {
+    chat const result = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        it.pass(std::nan(""), "degenerate");
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "a score of nan is not a number the judge can pay");
+    EO_CHECK_EQ(result.summary, std::string());
+}
+
+EO_TEST(a_summary_that_cannot_be_written_whole_is_a_jury_error) {
+    file_size_limit disk;
+    chat const result = talk("1\n", "5\n", [&](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        disk.cap(27);
+        eo::score(0.00001, "almost nothing");
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "eolymp.h: the summary could not be written to ");
+    EO_CHECK_EQ(result.summary, std::string("eolymp-summary 1\nfraction 1"));
+}
+
 EO_TEST(an_interactor_can_award_part_of_the_test) {
     chat const half = talk("1\n", "5\n", [](eo::interactor& it) {
         it.input.read_int(1, 9, "n");
@@ -134,6 +182,55 @@ EO_TEST(an_interactor_can_award_part_of_the_test) {
         eo::points(10, "ten points");
     });
     EO_CHECK_IN(absolute.summary, "fraction 0.25");
+}
+
+EO_TEST(a_summary_carries_only_numbers_the_checker_reads_back) {
+    chat const zero = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        it.value("loss", -0.0);
+        eo::score(-0.0, "nothing");
+    });
+    EO_CHECK_EQ(zero.summary, std::string("eolymp-summary 1\nfraction 0\nvalue loss 0\nmessage nothing\n"));
+    for (double const value : {std::numeric_limits<double>::infinity(), std::nan("")}) {
+        chat const odd = talk("1\n", "5\n", [&](eo::interactor& it) {
+            it.input.read_int(1, 9, "n");
+            it.contestant.read_int(1, 9, "x");
+            it.value("ratio", value);
+            eo::accept();
+        });
+        EO_CHECK_EQ(odd.code, 3);
+        EO_CHECK_IN(odd.text, "eolymp.h: the value \"ratio\" is ");
+        EO_CHECK_IN(odd.text, "which a summary cannot carry");
+    }
+    for (char const* name : {"", "two words", "line\nbreak", "tab\there", "del\x7f"}) {
+        chat const named = talk("1\n", "5\n", [&](eo::interactor& it) {
+            it.input.read_int(1, 9, "n");
+            it.contestant.read_int(1, 9, "x");
+            it.value(name, 1);
+            eo::accept();
+        });
+        EO_CHECK_EQ(named.code, 3);
+        EO_CHECK_IN(named.text, "is not one word; a summary needs a name with no spaces or line breaks in it");
+    }
+    chat const escaped = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        it.value("line\nbreak", 1);
+        eo::accept();
+    });
+    EO_CHECK_IN(escaped.text, "the value name \"line\\x0abreak\"");
+}
+
+EO_TEST(points_above_the_cost_are_full_marks_in_the_summary) {
+    chat const result = talk("1\n", "5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.contestant.read_int(1, 9, "x");
+        eo::points(50, "more than the test");
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_EQ(result.summary, std::string("eolymp-summary 1\nfraction 1\nmessage more than the test\n"));
+    EO_CHECK_IN(checker_warnings(), "warning EO207: 50 points is more than the test's 40");
 }
 
 EO_TEST(an_interactor_refuses_what_the_solution_sends) {
@@ -416,11 +513,14 @@ void drain_the_pipe(int) {
 
 }  // namespace
 
-EO_TEST(a_solution_that_stops_reading_is_a_wrong_answer) {
+namespace {
+
+template <class Body>
+chat talk_to_the_deaf(std::string const& from_solution, Body&& body) {
     eo::detail::diagnostics::shared().forget_everything();
     forget_the_environment();
     scratch_file input("1\n");
-    scratch_file said("5\n");
+    scratch_file said(from_solution);
     std::string const out_path = temporary_path();
     chat result;
     {
@@ -438,10 +538,7 @@ EO_TEST(a_solution_that_stops_reading_is_a_wrong_answer) {
                                      const_cast<char*>(out_path.c_str())};
         try {
             eo::interactor it(static_cast<int>(arguments.size()), arguments.data());
-            it.input.read_int(1, 9, "n");
-            it.send("are you there");
-            it.flush();
-            eo::accept("never reached");
+            body(it);
         } catch (eo::detail::stop const& reached) {
             result.stopped = true;
             result.code = reached.code;
@@ -453,8 +550,173 @@ EO_TEST(a_solution_that_stops_reading_is_a_wrong_answer) {
     }
     ::unlink(out_path.c_str());
     forget_the_environment();
+    return result;
+}
+
+}  // namespace
+
+EO_TEST(a_solution_that_stopped_reading_is_judged_by_what_it_said) {
+    chat const finished = talk_to_the_deaf("5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.send("are you there");
+        it.flush();
+        EO_CHECK_EQ(it.contestant.read_int(1, 9, "x"), 5);
+        it.send("OK");
+        if (!it.contestant.at_eof()) eo::wrong("extra output");
+        eo::accept("heard 5");
+    });
+    EO_CHECK_EQ(finished.code, 0);
+    EO_CHECK_EQ(finished.text, std::string("ok heard 5"));
+    chat const early = talk_to_the_deaf("5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.send("first");
+        it.contestant.read_int(1, 9, "x");
+        it.send("second");
+        it.contestant.read_int(1, 9, "y");
+        eo::accept("never reached");
+    });
+    EO_CHECK_EQ(early.code, 1);
+    EO_CHECK_EQ(early.text,
+                std::string("wrong answer: the solution, line 2, y: the solution ended the dialogue early"));
+    chat const verdict = talk_to_the_deaf("5\n", [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        it.send("the last line");
+        it.contestant.read_int(1, 9, "x");
+        it.send("never written");
+        eo::wrong("a verdict with output still waiting");
+    });
+    EO_CHECK_EQ(verdict.code, 1);
+    EO_CHECK_EQ(verdict.text, std::string("wrong answer a verdict with output still waiting"));
+}
+
+namespace {
+
+template <class Body>
+chat against_a_forked_solution(std::string const& test, void (*solve)(std::FILE*, std::FILE*), Body&& body) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    scratch_file input(test);
+    std::string const out_path = temporary_path();
+    std::string const log_path = temporary_path();
+    int towards[2] = {-1, -1};
+    int back[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(towards), 0);
+    EO_CHECK_EQ(::pipe(back), 0);
+    pid_t const solution = ::fork();
+    if (solution == 0) {
+        ::close(towards[1]);
+        ::close(back[0]);
+        solve(::fdopen(towards[0], "r"), ::fdopen(back[1], "w"));
+        ::_exit(0);
+    }
+    ::close(towards[0]);
+    ::close(back[1]);
+    chat result;
+    {
+        swapped_descriptors kept;
+        int const quiet = ::open(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        ::dup2(back[0], 0);
+        ::dup2(towards[1], 1);
+        ::dup2(quiet, 2);
+        ::close(back[0]);
+        ::close(towards[1]);
+        std::string program = "interactor.cpp";
+        std::vector<char*> arguments{program.data(), const_cast<char*>(input.path.c_str()),
+                                     const_cast<char*>(out_path.c_str())};
+        ::alarm(20);
+        try {
+            eo::interactor it(static_cast<int>(arguments.size()), arguments.data());
+            body(it);
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+            result.code = reached.code;
+            result.text = reached.text;
+        }
+        ::alarm(0);
+        std::fflush(stdout);
+        ::close(quiet);
+        ::close(0);
+        ::close(1);
+    }
+    int status = 0;
+    ::waitpid(solution, &status, 0);
+    ::unlink(out_path.c_str());
+    result.log = slurp(log_path);
+    ::unlink(log_path.c_str());
+    forget_the_environment();
+    return result;
+}
+
+void answer_each_line(std::FILE* questions, std::FILE* answers) {
+    long long x = 0;
+    while (std::fscanf(questions, "%lld", &x) == 1) {
+        std::fprintf(answers, "%lld\n", x + 1);
+        std::fflush(answers);
+    }
+}
+
+void add_slowly(std::FILE* numbers, std::FILE* answers) {
+    long long count = 0;
+    long long sum = 0;
+    long long x = 0;
+    if (std::fscanf(numbers, "%lld", &count) != 1) return;
+    for (long long at = 0; at < count && std::fscanf(numbers, "%lld", &x) == 1; at++) {
+        sum += x;
+        if (at % 20000 == 0) ::usleep(20000);
+    }
+    std::fprintf(answers, "%lld\n", sum);
+    std::fflush(answers);
+}
+
+void flood_without_reading(std::FILE*, std::FILE* answers) {
+    ::alarm(3);
+    std::string const block(1 << 16, '7');
+    for (int at = 0; at < 17 * 16; at++) std::fwrite(block.data(), 1, block.size(), answers);
+    std::fflush(answers);
+    ::pause();
+}
+
+}  // namespace
+
+EO_TEST(an_interactor_stops_taking_in_answers_at_16_mb) {
+    chat const result = against_a_forked_solution("1\n", &flood_without_reading, [](eo::interactor& it) {
+        it.input.read_int(1, 9, "n");
+        for (int at = 0; at < 100000; at++) it.send(at);
+        it.flush();
+        eo::wrong("the solution never read");
+    });
     EO_CHECK_EQ(result.code, 1);
-    EO_CHECK_EQ(result.text, std::string("wrong answer the solution stopped reading"));
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(),
+                "warning EO409: the solution sent more than 16 MB while the interactor was still writing to it");
+    EO_CHECK_IN(result.log, " the solution sent more than 16 MB while the interactor was still writing to it");
+    EO_CHECK_EQ(result.log.rfind("warning EO409 ", 0), std::size_t{0});
+}
+
+EO_TEST(an_interactor_that_sends_a_lot_hears_the_answers_meanwhile) {
+    chat const result = against_a_forked_solution("100000\n", &answer_each_line, [](eo::interactor& it) {
+        int const n = it.input.read_int(1, 100000, "n");
+        for (int at = 1; at <= n; at++) it.send(at);
+        it.flush();
+        for (int at = 1; at <= n; at++)
+            if (it.contestant.read_long(eo::any, "y") != at + 1) eo::wrong("answer {} is off", at);
+        eo::accept("{} answers", n);
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_EQ(result.text, std::string("ok 100000 answers"));
+}
+
+EO_TEST(an_interactor_that_prints_on_its_own_still_reaches_a_slow_reader) {
+    chat const result = against_a_forked_solution("100000\n", &add_slowly, [](eo::interactor& it) {
+        int const n = it.input.read_int(1, 100000, "n");
+        std::printf("%d\n", n);
+        for (int at = 1; at <= n; at++) std::printf("%d\n", at);
+        std::fflush(stdout);
+        long long const sum = it.contestant.read_long(eo::any, "sum");
+        if (sum != 5000050000LL) eo::wrong("the sum is {}", sum);
+        eo::accept("the sum is right");
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_EQ(result.text, std::string("ok the sum is right"));
 }
 
 EO_TEST(a_write_cut_short_by_a_signal_is_resumed) {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <algorithm>
-#include <set>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -28,9 +28,49 @@ inline void room_for(int n, long long m, long long least, char const* what) {
             fmt("{} on {} vertices has {}..{} edges, not {}", what, n, least, most, m));
 }
 
+class pair_set {
+public:
+    explicit pair_set(std::size_t most) {
+        while ((std::size_t{1} << bits_) < 2 * most + 2) bits_++;
+        slots_.assign(std::size_t{1} << bits_, empty);
+    }
+
+    bool insert(int u, int v) {
+        std::uint64_t const key = pack(u, v);
+        std::size_t at = home(key);
+        while (slots_[at] != empty) {
+            if (slots_[at] == key) return false;
+            at = (at + 1) & (slots_.size() - 1);
+        }
+        slots_[at] = key;
+        return true;
+    }
+
+    bool contains(int u, int v) const {
+        std::uint64_t const key = pack(u, v);
+        for (std::size_t at = home(key); slots_[at] != empty; at = (at + 1) & (slots_.size() - 1))
+            if (slots_[at] == key) return true;
+        return false;
+    }
+
+private:
+    static std::uint64_t constexpr empty = ~std::uint64_t{0};
+
+    static std::uint64_t pack(int u, int v) {
+        return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(u)) << 32) | static_cast<std::uint32_t>(v);
+    }
+
+    std::size_t home(std::uint64_t key) const {
+        return static_cast<std::size_t>((key * 0x9e3779b97f4a7c15ull) >> (64 - bits_));
+    }
+
+    int bits_ = 4;
+    std::vector<std::uint64_t> slots_;
+};
+
 inline std::vector<edge> filled_sparsely(rng& draw, int n, long long m, std::vector<edge> have) {
-    std::set<std::pair<int, int>> seen;
-    for (edge const& one : have) seen.emplace(std::min(one.u, one.v), std::max(one.u, one.v));
+    pair_set seen(static_cast<std::size_t>(m));
+    for (edge const& one : have) seen.insert(std::min(one.u, one.v), std::max(one.u, one.v));
     long long const given = static_cast<long long>(have.size());
     long long tries = 0;
     long long const most = 32 * m + 1000;
@@ -39,7 +79,7 @@ inline std::vector<edge> filled_sparsely(rng& draw, int n, long long m, std::vec
         int const u = static_cast<int>(draw.uniform(1, n));
         int const v = static_cast<int>(draw.uniform(1, n));
         if (u == v) continue;
-        if (!seen.emplace(std::min(u, v), std::max(u, v)).second) continue;
+        if (!seen.insert(std::min(u, v), std::max(u, v))) continue;
         have.push_back(edge{u, v});
     }
     kept_of(m - given, tries, "a graph with that many edges", eo::detail::site::here());
@@ -47,12 +87,12 @@ inline std::vector<edge> filled_sparsely(rng& draw, int n, long long m, std::vec
 }
 
 inline std::vector<edge> filled_densely(rng& draw, int n, long long m, std::vector<edge> have) {
-    std::set<std::pair<int, int>> seen;
-    for (edge const& one : have) seen.emplace(std::min(one.u, one.v), std::max(one.u, one.v));
+    pair_set seen(have.size());
+    for (edge const& one : have) seen.insert(std::min(one.u, one.v), std::max(one.u, one.v));
     std::vector<edge> spare;
     for (int u = 1; u <= n; u++)
         for (int v = u + 1; v <= n; v++)
-            if (seen.find({u, v}) == seen.end()) spare.push_back(edge{u, v});
+            if (!seen.contains(u, v)) spare.push_back(edge{u, v});
     draw.shuffle(spare);
     for (edge const& one : spare) {
         if (static_cast<long long>(have.size()) >= m) break;
@@ -133,14 +173,14 @@ inline std::vector<edge> filled(rng& draw, int n, long long m, std::vector<edge>
         spare.resize(static_cast<std::size_t>(m));
         edges = std::move(spare);
     } else {
-        std::set<std::pair<int, int>> seen;
+        detail::pair_set seen(static_cast<std::size_t>(m));
         long long tries = 0;
         long long const ceiling = 32 * m + 1000;
         while (static_cast<long long>(edges.size()) < m) {
             detail::still_trying(tries, ceiling, "a bipartite graph with that many edges");
             int const u = static_cast<int>(draw.uniform(1, left));
             int const v = static_cast<int>(draw.uniform(1, right));
-            if (!seen.emplace(u, v).second) continue;
+            if (!seen.insert(u, v)) continue;
             edges.push_back(edge{u, left + v});
         }
         detail::kept_of(m, tries, "a bipartite graph with that many edges", eo::detail::site::here());
@@ -185,14 +225,14 @@ inline std::vector<edge> filled(rng& draw, int n, long long m, std::vector<edge>
         spare.resize(static_cast<std::size_t>(m));
         edges = std::move(spare);
     } else {
-        std::set<std::pair<int, int>> seen;
+        detail::pair_set seen(static_cast<std::size_t>(m));
         long long tries = 0;
         long long const most = 32 * m + 1000;
         while (static_cast<long long>(edges.size()) < m) {
             detail::still_trying(tries, most, "a dag with that many edges");
             int const i = static_cast<int>(draw.uniform(0, n - 2));
             int const j = static_cast<int>(draw.uniform(i + 1, n - 1));
-            if (!seen.emplace(i, j).second) continue;
+            if (!seen.insert(i, j)) continue;
             edges.push_back(edge{order[static_cast<std::size_t>(i)], order[static_cast<std::size_t>(j)]});
         }
         detail::kept_of(m, tries, "a dag with that many edges", eo::detail::site::here());

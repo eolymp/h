@@ -98,6 +98,23 @@ inline outcome run_until_stop(Body&& body) {
     return result;
 }
 
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define EOT_ADDRESS_SANITIZER 1
+#endif
+#endif
+#if defined(__SANITIZE_ADDRESS__)
+#define EOT_ADDRESS_SANITIZER 1
+#endif
+
+inline bool sanitized() {
+#ifdef EOT_ADDRESS_SANITIZER
+    return true;
+#else
+    return false;
+#endif
+}
+
 inline bool contains(std::string const& text, char const* part) {
     return text.find(part) != std::string::npos;
 }

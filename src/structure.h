@@ -1,6 +1,7 @@
 #pragma once
 
-#include <map>
+#include <algorithm>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -37,16 +38,45 @@ private:
     std::string complaint_;
 };
 
+namespace detail {
+
+struct first_repeat {
+    std::size_t first;
+    std::size_t second;
+};
+
+template <class T>
+inline first_repeat earliest_repeat(std::vector<std::pair<T, std::size_t>> placed) {
+    std::less<T> const before;
+    std::sort(placed.begin(), placed.end(), [&](auto const& left, auto const& right) {
+        if (before(left.first, right.first)) return true;
+        if (before(right.first, left.first)) return false;
+        return left.second < right.second;
+    });
+    first_repeat found{placed.size(), placed.size()};
+    std::size_t group = 0;
+    for (std::size_t at = 1; at < placed.size(); at++) {
+        if (before(placed[at - 1].first, placed[at].first)) {
+            group = at;
+            continue;
+        }
+        if (at == group + 1 && placed[at].second < found.second)
+            found = {placed[group].second, placed[at].second};
+    }
+    return found;
+}
+
+}  // namespace detail
+
 template <class T>
 [[nodiscard]] inline check_result all_distinct(std::vector<T> const& values) {
-    std::map<T, std::size_t> seen;
-    for (std::size_t at = 0; at < values.size(); at++) {
-        auto const found = seen.find(values[at]);
-        if (found != seen.end())
-            return check_result(fmt("elements {} and {} are both {}", found->second + 1, at + 1, values[at]));
-        seen.emplace(values[at], at);
-    }
-    return {};
+    std::vector<std::pair<T, std::size_t>> placed;
+    placed.reserve(values.size());
+    for (std::size_t at = 0; at < values.size(); at++) placed.emplace_back(values[at], at);
+    detail::first_repeat const found = detail::earliest_repeat(std::move(placed));
+    if (found.second == values.size()) return {};
+    return check_result(
+        fmt("elements {} and {} are both {}", found.first + 1, found.second + 1, values[found.second]));
 }
 
 template <class T>
@@ -97,17 +127,19 @@ inline int root_of(std::vector<int>& parent, int vertex) {
 
 [[nodiscard]] inline check_result is_simple_graph(int n, std::vector<edge> const& edges) {
     if (check_result inside = detail::vertices_are_inside(n, edges); !inside) return inside;
-    std::map<std::pair<int, int>, std::size_t> seen;
-    for (std::size_t at = 0; at < edges.size(); at++) {
-        edge const& one = edges[at];
-        if (one.u == one.v) return check_result(fmt("edge {} is a loop at vertex {}", at + 1, one.u));
-        std::pair<int, int> const key{std::min(one.u, one.v), std::max(one.u, one.v)};
-        auto const found = seen.find(key);
-        if (found != seen.end())
-            return check_result(
-                fmt("edges {} and {} are both ({}, {})", found->second + 1, at + 1, key.first, key.second));
-        seen.emplace(key, at);
+    std::size_t loop = 0;
+    while (loop < edges.size() && edges[loop].u != edges[loop].v) loop++;
+    std::vector<std::pair<std::pair<int, int>, std::size_t>> placed;
+    placed.reserve(loop);
+    for (std::size_t at = 0; at < loop; at++)
+        placed.push_back({{std::min(edges[at].u, edges[at].v), std::max(edges[at].u, edges[at].v)}, at});
+    detail::first_repeat const found = detail::earliest_repeat(std::move(placed));
+    if (found.second < loop) {
+        edge const& one = edges[found.second];
+        return check_result(fmt("edges {} and {} are both ({}, {})", found.first + 1, found.second + 1,
+                                std::min(one.u, one.v), std::max(one.u, one.v)));
     }
+    if (loop < edges.size()) return check_result(fmt("edge {} is a loop at vertex {}", loop + 1, edges[loop].u));
     return {};
 }
 

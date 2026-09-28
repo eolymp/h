@@ -203,8 +203,9 @@ so it is silent when stdout is a pipe rather than a file.
 ## Warnings
 
 The rules are those of every eolymp.h program: a warning never changes the output except in
-strict mode (`EOLYMP_STRICT=1`); each carries a stable code, the line of your source and a
-fix; `eo::allow quiet("EO507", "why")` silences one code in a scope. They go to stderr, which
+strict mode (`EOLYMP_STRICT=1`); each carries a stable code and a fix, and the line of your
+source when it is about a call; EO501, EO502, EO503 and EO507 are about the whole run and
+name only the generator; `eo::allow quiet("EO507", "why")` silences one code in a scope. They go to stderr, which
 Eolymp keeps for stress runs.
 
 | Code | Fires when |

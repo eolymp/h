@@ -26,14 +26,17 @@ int main(int argc, char** argv) {
 [generator.md](generator.md) and [controller.md](controller.md) are the guides, one per kind
 of jury program. [shapes.md](shapes.md) is the test shapes, [judge.md](judge.md) is the
 emulator, and [warnings.md](warnings.md) is every warning code, one self-contained row each —
-that is the page to look a code up in.
+that is the page to look a code up in. [testlib.md](testlib.md) puts each testlib call beside
+its eolymp.h counterpart, for a problem moving over.
 
 ## What it gives you
 
-- **A score is a fraction of the test, so it cannot be a percentage by accident.** Points on
-  Eolymp are absolute and clamped to the test's cost, so a checker that reports a percentage
+- **A score is a fraction of the test, and a percentage is caught while you prepare.** Points
+  on Eolymp are absolute and clamped to the test's cost, so a checker that reports a percentage
   overpays a cheap test to full marks and underpays an expensive one. `eo::score` takes the
-  fraction and the library multiplies; a full score leaves through exit 0, not the exit 7
+  fraction and the library multiplies; a score of 2 or more is clamped to full marks with
+  warning EO205, which calls it a likely percentage, and `EOLYMP_STRICT=1` or
+  `eo-judge --strict` makes that fatal. A full score leaves through exit 0, not the exit 7
   that is not an accept.
 - **The verdict line is written before anything the checker printed.** The judge's parser
   gives up if any line before `points` ends in whitespace, so one debug `printf` with a
@@ -48,12 +51,15 @@ that is the page to look a code up in.
 - **It says what is wrong with the validator, not with the test.** Leave out a separator and
   the message names the value, the line of your source and the fix:
   `validator.cpp:18: line 2, k: a space follows n; read it with read_space()`.
-- **It reads in constant memory.** The reader holds a fixed buffer and a window of recent
-  bytes, whatever the input's size, so a 49 MB test costs the same as a small one. A token or
-  a line read with a stated maximum stops one character past it rather than holding the rest.
-- **It compiles quickly.** A minimal validator takes **0.76 s** and leaves a 61 KB object
-  (Apple clang 17, `-O2`, three runs, best of each). The judge compiles the validator again
-  for every run that needs it.
+- **It reads in constant memory.** The reader holds one fixed buffer, 1 MB, whatever the
+  input's size, so a 49 MB test costs the same as a small one. A token or a line read with a
+  stated maximum stops one character past it rather than holding the rest.
+- **It compiles in about two seconds.** The validator above builds with `-O2` in about 2 s and
+  leaves an object of about 166 KB, and the first checker in [checker.md](checker.md) is about
+  the same (g++ 12 and clang 14 on Linux; the standard headers alone take 0.4 s). `make budget`
+  measures the compiler's CPU time for both on every run of the gate, against the standard
+  headers built in the same run, and fails when either takes more than 9 times as much. The judge compiles the
+  validator again for every run that needs it.
 - **It cannot collide with your code.** Everything is inside `namespace eo`, with no global
   names and no macros beyond the include guard and the version. `make check` builds the
   header after `<bits/stdc++.h>` with `using namespace std`, and beside globals named `OK`,
@@ -83,9 +89,12 @@ runtime's tag names the image; rebuilding that runtime moves every program on th
 the release it then carries, so the library is upgraded for a whole judge at once rather than
 one problem at a time.
 
-Locally, put both headers next to the source and point the compiler at them:
+Locally, download both headers from the latest release, put them next to the source and
+point the compiler at them:
 
 ```bash
+curl -LO https://github.com/eolymp/h/releases/latest/download/eolymp.h
+curl -LO https://github.com/eolymp/h/releases/latest/download/eolymp-shapes.h
 g++ -std=c++17 -O2 -I. -o validator validator.cpp
 ```
 
@@ -95,8 +104,12 @@ GCC and clang, on glibc, on musl — the judge's own libc — and on macOS with 
 ## How a warning reaches you
 
 A warning is raised where it is noticed and kept once per code and line with a count, so a
-read inside a loop is reported once. A warning about a call carries the line of *your* source,
-found without a macro; one about the state a run ended in carries the header's own line. What
+read inside a loop is reported once. A warning about a read, a bound or a clamped score
+carries the line of *your* source, found without a macro. One about how the run ended — the
+answer file left unread, a verdict with no message, points the judge rounds up, a test worth
+nothing (EO201–EO204, EO206's rounding, EO208, EO210, EO212, the EO40x end-of-run checks) —
+carries the header's own line, and a validator's or a generator's run-level warning names
+only the program. What
 happens to it when the program ends depends on one thing: whether `EOLYMP` is set in the
 environment. That is how the header tells a local build from the judge.
 
@@ -131,11 +144,13 @@ get between the judge's parser and the score it is looking for:
 
 ```
 points 25 matched 10 of 40
-eolymp.h 1.0.0
-warning EO203 ./eolymp.h:2717 the answer file still holds "40" when the checker finished
+eolymp.h 2.0.0
+warning EO203 ./eolymp.h:NNNN the answer file still holds "40" when the checker finished
 note EO106 checker.cpp:4 the bounds 1..200001 are one away from a round number
-eo-report {"version":1,"warnings":[{"code":"EO106","at":"checker.cpp:4","count":1},{"code":"EO203","at":"./eolymp.h:2717","count":1}]}
+eo-report {"version":1,"warnings":[{"code":"EO106","at":"checker.cpp:4","count":1},{"code":"EO203","at":"./eolymp.h:NNNN","count":1}]}
 ```
+
+`NNNN` is a line of the header itself, which moves from one release to the next.
 
 **A warning never changes a verdict.** It cannot make a test invalid or an answer wrong. Two
 things change that deliberately: `EOLYMP_STRICT=1` makes the first warning fatal, which is
@@ -173,7 +188,7 @@ validator:
 | `core.h` | the environment the judge sets, and the single exit every verdict leaves through |
 | `fmt.h` | `eo::fmt`, the `{}` messages the API takes everywhere |
 | `parse.h` | the strict number syntax |
-| `io.h` | the reader: a fixed buffer, no copy of what it has read, `read()` refills so a pipe cannot deadlock it, and the line and column a message needs |
+| `io.h` | the reader: one buffer of a fixed size, grown only to hold what an interactor takes in while a large send waits, no copy of what it has read, `read()` refills so a pipe cannot deadlock it, and the line and column a message needs |
 | `diag.h` | the warnings: codes, call sites, counts, the report, strict mode, `eo::allow` |
 | `read.h` | `eo::charset`, names, and the vocabulary the readers share |
 | `structure.h` | `all_distinct`, `is_sorted`, `is_permutation`, `is_tree`, `is_connected`, `is_simple_graph` |
@@ -204,12 +219,15 @@ clang++, musl and macOS. Each part answers a question:
 | `amalgamation-check` | the committed `eolymp.h` and `eolymp-shapes.h` are what `src/` generates |
 | `test` | the suite passes |
 | `coverage` | every line of both headers runs at least once, and fails the build if one does not |
-| `standards` | it compiles and passes as C++17, C++20 and C++23, under `-Wall -Wextra -Wshadow -Werror` |
+| `standards` | it compiles and passes as C++17, C++20 and C++23, at `-O2` under `-Wall -Wextra -Wshadow -Werror`, which is where GCC's flow warnings such as `-Wstringop-overflow` appear; the suite calls every role and every shape |
 | `e2e` | a real compiled validator gives the judge's exit codes and messages, through the exit path the tests cannot reach |
 | `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals |
 | `codes` | every warning code the sources raise has a row in `docs/warnings.md` |
 | `mutants` | a changed operator or bound in either header makes the suite fail; run with `make mutants` |
-| `budget` | what including the header costs a translation unit |
+| `sanitize` | the suite and the end-to-end programs pass under ASan and UBSan; run with `make sanitize` |
+| `fuzz` | six libFuzzer harnesses find no crash, sanitizer report or broken property in 45 s each (30 minutes each nightly); needs clang++, and `FUZZER` and `FUZZ_SECONDS` pick one harness and the time; run with `make fuzz` |
+| `version` | a change to the headers or to eo-judge raises `EOLYMP_H_VERSION`, and eo-judge's version is the same number; CI runs `make version` on every pull request |
+| `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
 | `examples` | every example in `docs/` compiles |
 
 Set `CXX` and `CXXSTD` to choose a toolchain, and `GCOV` to the matching coverage tool:
@@ -231,7 +249,11 @@ print each test as it runs.
 
 Semantic versioning, with one promise: nothing that changes a verdict changes within a major
 version. Warnings can be added in a minor version, because they never change a verdict on
-their own. `eo::version()` and `EOLYMP_H_VERSION` say which release you have.
+their own. `eo::version()` and `EOLYMP_H_VERSION` say which release you have, as a string
+such as `"2.0.0"`; `EOLYMP_H_VERSION_MAJOR`, `EOLYMP_H_VERSION_MINOR` and
+`EOLYMP_H_VERSION_PATCH` are the same numbers for the preprocessor, as in
+`#if EOLYMP_H_VERSION_MAJOR >= 2`. [CHANGELOG.md](../CHANGELOG.md) lists every verdict a
+release changes.
 
 ## Licence
 

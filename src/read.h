@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -58,21 +59,24 @@ public:
 
     bool known() const { return state_ == stated::yes; }
     bool absent() const { return state_ == stated::absent; }
-    std::string const& text() const { return text_; }
+    std::string text() const { return indexed_ ? fmt("{}[{}]", text_, index_) : text_; }
+    std::string const& key() const { return text_; }
+    bool indexed() const { return indexed_; }
+    long long index() const { return index_; }
 
     value_name at(long long index) const {
         if (!known()) return *this;
-        value_name made(fmt("{}[{}]", text_, index));
-        made.key_ = text_;
+        value_name made(indexed_ ? text() : text_);
+        made.indexed_ = true;
+        made.index_ = index;
         return made;
     }
 
-    std::string const& key() const { return key_.empty() ? text_ : key_; }
-
 private:
     std::string text_;
-    std::string key_;
     stated state_;
+    bool indexed_ = false;
+    long long index_ = 0;
 };
 
 inline bool is_round(long long value) {
@@ -82,12 +86,62 @@ inline bool is_round(long long value) {
 }
 
 inline bool nearly_round(long long value) {
+    if (value == std::numeric_limits<long long>::min() || value == std::numeric_limits<long long>::max())
+        return false;
     return !is_round(value) && (is_round(value - 1) || is_round(value + 1));
 }
 
+inline unsigned char byte_at(std::string const& text, std::size_t at) { return static_cast<unsigned char>(text[at]); }
+
+inline std::size_t utf8_length(std::string const& text, std::size_t at) {
+    unsigned char const lead = byte_at(text, at);
+    std::size_t length = 4;
+    unsigned char low = 0x80;
+    unsigned char high = 0xBF;
+    if (lead < 0xC2 || lead > 0xF4) return 0;
+    if (lead < 0xE0) length = 2;
+    else if (lead < 0xF0) length = 3;
+    if (lead == 0xE0) low = 0xA0;
+    if (lead == 0xED) high = 0x9F;
+    if (lead == 0xF0) low = 0x90;
+    if (lead == 0xF4) high = 0x8F;
+    if (text.size() - at < length) return 0;
+    for (std::size_t next = 1; next < length; next++) {
+        unsigned char const byte = byte_at(text, at + next);
+        if (byte < low || byte > high) return 0;
+        low = 0x80;
+        high = 0xBF;
+    }
+    return length;
+}
+
+inline std::string escaped(std::string const& text) {
+    std::string out;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        unsigned char const byte = byte_at(text, at);
+        std::size_t length = 1;
+        if (byte >= 0x80) length = utf8_length(text, at);
+        else if (byte < 0x20 || byte == 0x7F) length = 0;
+        if (length > 0) {
+            out.append(text, at, length);
+            at += length;
+            continue;
+        }
+        out += "\\x";
+        out += "0123456789abcdef"[byte >> 4];
+        out += "0123456789abcdef"[byte & 15];
+        at++;
+    }
+    return out;
+}
+
 inline std::string shorten(std::string const& text, std::size_t limit = 40) {
-    if (text.size() <= limit) return text;
-    return text.substr(0, limit) + "...";
+    if (text.size() <= limit) return escaped(text);
+    std::size_t lead = limit;
+    while (lead > 0 && limit - lead < 3 && (byte_at(text, lead) & 0xC0) == 0x80) lead--;
+    std::size_t const cut = lead + utf8_length(text, lead) > limit ? lead : limit;
+    return escaped(text.substr(0, cut)) + "...";
 }
 
 inline char const* name_of(int character) {

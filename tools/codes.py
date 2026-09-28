@@ -17,7 +17,7 @@ def raised(root: pathlib.Path) -> set:
     codes = set()
     for path in sorted(root.glob("src/**/*.h")):
         text = path.read_text()
-        codes |= set(re.findall(r'\b(?:detail::)?(?:warn|note)\("(EO\d{3})"', text))
+        codes |= set(re.findall(r'\b(?:detail::)?(?:warn|note|warn_at_once)\(\s*"(EO\d{3})"', text))
         codes |= set(re.findall(r'\bstart_the_clock\("(EO\d{3})"', text))
         for found in re.finditer(r'\[\[deprecated\("eolymp (EO\d{3})(?: and (EO\d{3}))?', text):
             codes.add(found.group(1))

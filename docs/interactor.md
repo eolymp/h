@@ -153,9 +153,19 @@ it.send(values);
   the solution, and at exit. Several replies between two reads cost one system call, and a
   reply can never sit in a buffer while both programs wait for each other. `it.flush()`
   exists but is rarely needed.
-- **The solution may have stopped reading.** A write to a closed pipe is a wrong answer,
-  "the solution stopped reading". `SIGPIPE` is ignored, so the interactor is never killed by
-  it.
+- **A large batch cannot deadlock either.** When the interactor sends more than the pipe
+  holds, about 64 KB, to a solution that answers each line as it reads it, the solution's
+  answers fill the other pipe while the interactor is still writing. The library keeps
+  taking them in while it waits for room, up to 16 MB, and they are read from there as
+  usual; past that it stops, says so with warning EO409, and the two can wait for each
+  other until the time limit. EO409 goes to stderr the moment it is raised, since a run
+  killed at the limit never writes its report.
+- **The solution may have stopped reading.** A correct solution often exits right after its
+  last answer, before the interactor's last line reaches it. A write to a closed pipe is
+  therefore not a verdict: the library drops what could not be written, stops writing to the
+  solution, and lets the next read decide — a read past the end of what the solution said is
+  "the solution ended the dialogue early". `SIGPIPE` is ignored, so the interactor is never
+  killed by it.
 
 ## Limiting queries
 
@@ -191,7 +201,7 @@ declared gets warning EO402; a budget declared and never spent gets EO403.
 
 `eo::ratio(a, b)` gives an exact fraction and `eo::round_to(d)` rounds the points, exactly as
 in a checker. `it.value("quality", q)` records a named number in the summary for a checker
-that wants to do its own mapping. Returning from `main` without a verdict is a jury error.
+that wants to do its own mapping; the name is one word and the number is finite. Returning from `main` without a verdict is a jury error.
 
 The summary is a small text file the library writes and the stock checker reads. You never
 write it or read it yourself.
@@ -327,8 +337,9 @@ that a run may receive no input.
 ## Warnings
 
 The rules are those of every eolymp.h program: a warning never changes a verdict except in
-strict mode (`EOLYMP_STRICT=1`); each carries a stable code, the line of your source and a
-fix; each is counted once per call site; `eo::allow quiet("EO402", "why")` silences one code
+strict mode (`EOLYMP_STRICT=1`); each carries a stable code, a line and a fix, the line
+of your source for a read, a bound or a clamped score and the header's own line for how the
+run ended (EO204, EO402–EO406); each is counted once per call site; `eo::allow quiet("EO402", "why")` silences one code
 in a scope, with a reason the report prints. They appear on stderr, which on the judge is
 `interactor.log`.
 
@@ -339,7 +350,8 @@ in a scope, with a reason the report prints. They appear on stderr, which on the
 | EO104, EO105, EO106, EO107 | bounds that look wrong, as in a checker |
 | EO111 | a token over 1 MB from the solution was held in memory (a note) |
 | EO204 | `eo::wrong` carries no message |
-| EO205 | a fraction outside [0, 1] was clamped |
+| EO205 | a fraction outside [0, 1], or negative points, was clamped |
+| EO213 | on the judge, `TEST_COST` is missing or not a number, so the cost of `eo::points` is a guess |
 | EO401 | more than 100,000 round trips (a note), or more than 500,000 (a warning) |
 | EO402 | more than 10,000 round trips with no `eo::budget` declared |
 | EO403 | a budget was declared and never spent |
@@ -347,6 +359,7 @@ in a scope, with a reason the report prints. They appear on stderr, which on the
 | EO405 | the interactor accepted without reading anything from the solution |
 | EO406 | an answer file was passed and never read (a note) |
 | EO407 | a phase handoff exceeded 64 MB |
+| EO409 | the solution sent more than 16 MB while the interactor was still writing to it |
 
 ## Testing an interactor locally
 
@@ -359,8 +372,8 @@ prints, and type the solution's lines.
 
 When it ends, `output.txt` holds the summary and the exit code is the one the judge would
 see. To run a real solution against it, connect the two with pipes the way the judge does;
-`tests/e2e/play.cpp` in this repository is thirty lines that do exactly that, and the
-repository's own gate uses it to run a correct solution, a two-phase chain, and six badly
+`tests/e2e/play.cpp` in this repository is a short program that does exactly that, and the
+repository's own gate uses it to run a correct solution, a two-phase chain, and seven badly
 behaved solutions on every build.
 
 ## Not here yet

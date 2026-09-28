@@ -1,11 +1,15 @@
 #pragma once
 
+#include <algorithm>
+#include <cerrno>
+#include <climits>
 #include <csignal>
 #include <cstdio>
 #include <exception>
 #include <string>
 #include <vector>
 
+#include <poll.h>
 #include <unistd.h>
 
 #include "check.h"
@@ -72,8 +76,12 @@ public:
         detail::live_interactor() = nullptr;
         detail::live_scorer() = nullptr;
         detail::current_case() = 0;
-        if (std::uncaught_exceptions() == 0 && !delivered_)
-            fail_jury("the interactor ended without a verdict");
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury("the interactor ended without a verdict");
+#ifndef EOLYMP_TESTING
+        fail_jury("an exception left the interactor before its verdict; catch it inside the interactor's scope "
+                  "and give a verdict there, or let it end the program");
+#endif
     }
 
     stream input;
@@ -97,25 +105,18 @@ public:
         if (pending_.empty()) return;
         if (waiting_) round_trips_++;
         waiting_ = false;
-        bool broken = false;
-        detail::write_all(1, pending_.data(), pending_.size(), broken);
+        if (!deaf_) write_while_listening();
         pending_.clear();
-        if (broken) fail_run("the solution stopped reading");
     }
 
-    double cost() const final {
-        char const* const set = detail::environment("TEST_COST");
-        if (set == nullptr) return 100;
-        detail::real_read const parsed = detail::parse_real(set, true);
-        return parsed.problem == detail::number_problem::none ? parsed.value : 0;
-    }
+    double cost() const final { return detail::test_cost(); }
 
     void value(std::string name, double what) { held_.record(std::move(name), what); }
 
     eo::rng& rng() {
         if (!seeded_) {
-            std::string const bytes = kept_test_.empty() ? whole_input() : kept_test_;
-            dice_ = eo::rng(detail::seed_of(bytes));
+            dice_ = eo::rng(kept_test_.empty() ? detail::seed_of_file(paths_[0].c_str())
+                                               : detail::seed_of(kept_test_));
             seeded_ = true;
         }
         return dice_;
@@ -125,8 +126,9 @@ public:
 
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
-        held_.set_fraction(fraction);
+        held_.set_fraction(std::min(fraction, 1.0));
         held_.set_message(message);
         put_the_summary_down();
         deliver(0, message.empty() ? "ok" : "ok " + message);
@@ -160,10 +162,7 @@ private:
     }
 
     [[noreturn]] void hand_the_file_on(std::string const& bytes) {
-        std::FILE* const file = std::fopen(paths_[1].c_str(), "wb");
-        if (file == nullptr) detail::library_error(fmt("cannot write the handoff to {}", paths_[1]));
-        std::fwrite(bytes.data(), 1, bytes.size(), file);
-        std::fclose(file);
+        detail::write_file(paths_[1], bytes, "handoff");
         deliver(0, "ok handed on to the next phase");
     }
 
@@ -181,6 +180,12 @@ private:
         std::fputc('\n', stderr);
         if (detail::live_interactor() != nullptr) detail::live_interactor()->report_traffic();
         std::fflush(stderr);
+    }
+
+    void write_while_listening() {
+        detail::write_while_absorbing(1, pending_, contestant.inside(), deaf_, "the solution", "interactor",
+                                      "read the solution's answers between sends instead of sending everything "
+                                      "first");
     }
 
     void waiting_and_flush() {
@@ -224,16 +229,13 @@ public:
 private:
 
     void put_the_summary_down() {
-        std::string const text = held_.written();
-        std::FILE* const file = std::fopen(paths_[1].c_str(), "wb");
-        if (file == nullptr) detail::library_error(fmt("cannot write the summary to {}", paths_[1]));
-        std::fwrite(text.data(), 1, text.size(), file);
-        std::fclose(file);
+        detail::write_file(paths_[1], held_.written(), "summary");
     }
 
     [[noreturn]] void deliver(int code, std::string text) {
         delivered_ = true;
-        detail::write_without_waiting(1, pending_);
+        if (!deaf_) detail::write_while_read(1, pending_, detail::last_words_patience_ms,
+                                                detail::last_words_deadline_ms);
         pending_.clear();
         detail::finish(code, text);
     }
@@ -245,6 +247,7 @@ private:
     eo::rng dice_{0};
     bool seeded_ = false;
     bool delivered_ = false;
+    bool deaf_ = false;
     bool reported_ = false;
     bool waiting_ = false;
     bool budget_spent_ = false;

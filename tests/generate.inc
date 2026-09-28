@@ -49,6 +49,73 @@ made generate(std::vector<char const*> given, Body&& body) {
 
 }  // namespace
 
+EO_TEST(a_generator_that_cannot_write_its_test_fails) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    std::string const log_path = temporary_path();
+    made result;
+    {
+        swapped_descriptors kept;
+        int const grumbles = ::open(log_path.c_str(), O_WRONLY | O_TRUNC);
+        ::dup2(grumbles, 2);
+        ::close(1);
+        std::string program = "gen.cpp";
+        std::vector<char*> arguments{program.data()};
+        try {
+            eo::generator g(static_cast<int>(arguments.size()), arguments.data());
+            g.out.line(std::string(100, 'x'));
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+            result.code = reached.code;
+            result.text = reached.text;
+        }
+        std::clearerr(stdout);
+        std::fflush(stderr);
+        ::close(grumbles);
+    }
+    result.log = slurp(log_path);
+    ::unlink(log_path.c_str());
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "the test could not be written: ");
+    EO_CHECK_IN(result.log, "the test could not be written: ");
+}
+
+EO_TEST(a_generator_whose_earlier_write_failed_fails_too) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    std::string const test_path = temporary_path();
+    std::string const log_path = temporary_path();
+    made result;
+    {
+        swapped_descriptors kept;
+        int const to = ::open(test_path.c_str(), O_WRONLY | O_TRUNC);
+        int const grumbles = ::open(log_path.c_str(), O_WRONLY | O_TRUNC);
+        ::dup2(grumbles, 2);
+        std::string program = "gen.cpp";
+        std::vector<char*> arguments{program.data()};
+        try {
+            eo::generator g(static_cast<int>(arguments.size()), arguments.data());
+            ::close(1);
+            std::fputs("lost", stdout);
+            EO_CHECK(std::fflush(stdout) != 0);
+            ::dup2(to, 1);
+            g.out.line(1);
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+            result.code = reached.code;
+            result.text = reached.text;
+        }
+        std::clearerr(stdout);
+        std::fflush(stderr);
+        ::close(to);
+        ::close(grumbles);
+    }
+    ::unlink(test_path.c_str());
+    ::unlink(log_path.c_str());
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_EQ(result.text, std::string("the test could not be written: an earlier write to stdout failed"));
+}
+
 EO_TEST(a_generator_writes_a_test_from_its_options) {
     made const result = generate({"-n=5", "-max=9"}, [](eo::generator& g) {
         int const n = g.option<int>("n", 1, 200000);
@@ -221,6 +288,34 @@ EO_TEST(writing_around_the_writer_is_reported) {
     EO_CHECK_IN(checker_warnings(), "warning EO503: 6 bytes reached stdout without going through g.out");
 }
 
+EO_TEST(a_test_sent_nowhere_is_not_counted_as_stray_bytes) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    std::string const log_path = temporary_path();
+    made result;
+    {
+        swapped_descriptors kept;
+        int const nowhere = ::open("/dev/null", O_WRONLY);
+        int const grumbles = ::open(log_path.c_str(), O_WRONLY | O_TRUNC);
+        ::dup2(nowhere, 1);
+        ::dup2(grumbles, 2);
+        std::string program = "gen.cpp";
+        std::vector<char*> arguments{program.data()};
+        try {
+            eo::generator g(static_cast<int>(arguments.size()), arguments.data());
+            g.out.line(1, 2, 3);
+        } catch (eo::detail::stop const& reached) {
+            result.stopped = true;
+        }
+        std::fflush(stdout);
+        ::close(nowhere);
+        ::close(grumbles);
+    }
+    ::unlink(log_path.c_str());
+    EO_CHECK(!result.stopped);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO503"));
+}
+
 EO_TEST(a_test_too_big_to_store_is_reported) {
     made const result = generate({}, [](eo::generator& g) {
         std::string const wide(1024 * 1024 - 1, 'x');
@@ -228,6 +323,31 @@ EO_TEST(a_test_too_big_to_store_is_reported) {
     });
     EO_CHECK(!result.stopped);
     EO_CHECK_IN(checker_warnings(), "warning EO502: this test is 68157440 bytes");
+}
+
+EO_TEST(a_range_wider_than_half_a_long_long_draws_the_same_values) {
+    eo::rng r(1);
+    long long mixed = 0;
+    bool inside = true;
+    for (int at = 0; at < 1000; at++) {
+        long long const drawn = r.uniform(-5000000000000000000LL, 5000000000000000000LL);
+        inside = inside && drawn >= -5000000000000000000LL && drawn <= 5000000000000000000LL;
+        mixed ^= drawn;
+    }
+    EO_CHECK(inside);
+    EO_CHECK_EQ(mixed, -4525108027791797183LL);
+}
+
+EO_TEST(a_real_draw_rounds_the_product_before_the_sum) {
+    eo::rng r(42);
+    std::uint64_t mixed = 1469598103934665603ull;
+    for (int at = 0; at < 1000; at++) {
+        double const drawn = r.real(-1.3, 7.7);
+        std::uint64_t bits = 0;
+        std::memcpy(&bits, &drawn, sizeof(bits));
+        mixed = (mixed ^ bits) * 1099511628211ull;
+    }
+    EO_CHECK_EQ(mixed, 14174797998470170970ull);
 }
 
 EO_TEST(the_random_stream_draws_what_a_generator_needs) {
@@ -273,6 +393,16 @@ EO_TEST(the_random_stream_draws_what_a_generator_needs) {
     EO_CHECK_EQ(r.distinct(3, 1, 3).size(), static_cast<std::size_t>(3));
 }
 
+EO_TEST(a_partition_into_one_part_is_the_sum_itself) {
+    eo::rng r(1);
+    EO_CHECK(r.partition(1, 1) == std::vector<long long>{1});
+    EO_CHECK(r.partition(1, 0, 0) == std::vector<long long>{0});
+    EO_CHECK(r.partition(1, 5, 5) == std::vector<long long>{5});
+    EO_CHECK(r.distinct(0, 1, 0).empty());
+    eo::rng same(1);
+    EO_CHECK_EQ(r.uniform(1, 1000000000), same.uniform(1, 1000000000));
+}
+
 EO_TEST(the_random_stream_refuses_what_it_cannot_draw) {
     eo::rng r(1);
     eot::outcome const backwards = eot::run_until_stop([&] { (void)r.uniform(9, 1); });
@@ -286,8 +416,36 @@ EO_TEST(the_random_stream_refuses_what_it_cannot_draw) {
     EO_CHECK_IN(empty.text, "pick needs something to pick from");
     eot::outcome const none = eot::run_until_stop([&] { (void)r.partition(0, 10); });
     EO_CHECK_IN(none.text, "a partition has at least one part, not 0");
+    long long const top = std::numeric_limits<long long>::max();
+    eot::outcome const halves = eot::run_until_stop([&] { (void)r.partition(3, top, top / 2); });
+    EO_CHECK_IN(halves.text, "3 parts of at least 4611686018427387903 cannot add up to 9223372036854775807");
+    eot::outcome const wide = eot::run_until_stop([&] { (void)r.partition(2, top, 0); });
+    EO_CHECK_IN(wide.text, "partition(2, 9223372036854775807, 0) spans more values than a long long holds");
+    eot::outcome const deep = eot::run_until_stop([&] { (void)r.partition(3, 10, -top); });
+    EO_CHECK_IN(deep.text, "spans more values than a long long holds");
+    eot::outcome const below = eot::run_until_stop([&] { (void)r.partition(2, top, -2); });
+    EO_CHECK_IN(below.text, "spans more values than a long long holds");
+    eot::outcome const endless = eot::run_until_stop([&] { (void)r.partition(top, top, 1); });
+    EO_CHECK_EQ(endless.text,
+                std::string("eolymp.h: cannot draw 9223372036854775806 values: no vector holds that many"));
+    if (!eot::sanitized()) {
+        eot::outcome const vast = eot::run_until_stop([&] { (void)r.partition(1LL << 56, top, 1); });
+        EO_CHECK_EQ(vast.text, std::string("eolymp.h: cannot draw 72057594037927935 values: there is not enough "
+                                           "memory for them"));
+    }
+    eot::outcome const many = eot::run_until_stop([&] { (void)r.ints(top, 1, 9); });
+    EO_CHECK_IN(many.text, "cannot draw 9223372036854775807 values: no vector holds that many");
+    std::vector<long long> const edge = r.partition(2, top, top / 2);
+    EO_CHECK(edge.size() == 2 && edge[0] >= top / 2 && edge[1] >= top / 2 && edge[0] == top - edge[1]);
     eot::outcome const tight = eot::run_until_stop([&] { (void)r.partition(5, 10, 3); });
     EO_CHECK_IN(tight.text, "5 parts of at least 3 cannot add up to 10");
+    eot::outcome const negative = eot::run_until_stop([&] { (void)r.perm(-1); });
+    EO_CHECK_EQ(negative.text, std::string("eolymp.h: cannot draw -1 values"));
+    eot::outcome const fewer = eot::run_until_stop([&] { (void)r.ints(-2, 1, 9); });
+    EO_CHECK_EQ(fewer.text, std::string("eolymp.h: cannot draw -2 values"));
+    eot::outcome const unwritten = eot::run_until_stop([&] { (void)r.letters(-3, eo::charset("a")); });
+    EO_CHECK_EQ(unwritten.text, std::string("eolymp.h: cannot draw -3 letters"));
+    EO_CHECK(r.perm(0).empty() && r.ints(0, 1, 9).empty() && r.letters(0, eo::charset("a")).empty());
     eot::outcome const blank = eot::run_until_stop([&] { (void)r.letters(3, eo::charset("")); });
     EO_CHECK_IN(blank.text, "holds no characters");
 }

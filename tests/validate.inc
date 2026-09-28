@@ -107,6 +107,51 @@ EO_TEST(every_separator_is_read_by_the_validator) {
         v.read_char(':');
     });
     EO_CHECK_EQ(other.text, std::string("line 1: expected \":\" after hour, found \"x\""));
+    eot::outcome const nul = validate(std::string("12\0" "30\n", 6), [](eo::validator& v) {
+        v.read_int(1, 99, "hour");
+        v.read_char(':');
+    });
+    EO_CHECK_EQ(nul.text, std::string("line 1: expected \":\" after hour, found \"\\x00\""));
+}
+
+EO_TEST(a_warning_repeated_at_one_line_is_counted_once) {
+    eot::outcome const counted = validate("1 2 3\n", [](eo::validator& v) {
+        for (int at = 0; at < 3; at++) {
+            if (at > 0) v.read_space();
+            v.read_int(1, 200001, "x");
+        }
+        v.read_eoln();
+    });
+    EO_CHECK(!counted.stopped);
+    EO_CHECK_IN(warnings_of_last_run(),
+                "note EO106: the bounds 1..200001 are one away from a round number (3 times)");
+    eot::outcome const silenced = validate("1 2 3\n", [](eo::validator& v) {
+        eo::allow quiet("EO106", "the statement says 200001");
+        for (int at = 0; at < 3; at++) {
+            if (at > 0) v.read_space();
+            v.read_int(1, 200001, "x");
+        }
+        v.read_eoln();
+    });
+    EO_CHECK(!silenced.stopped);
+    EO_CHECK_IN(warnings_of_last_run(), "silenced EO106 (3 times): the statement says 200001");
+}
+
+EO_TEST(an_element_of_an_element_is_named_in_full) {
+    eot::outcome const nested = validate("1 2 30\n", [](eo::validator& v) {
+        v.read_ints(3, 1, 9, eo::element("m", 4));
+    });
+    EO_CHECK_EQ(nested.text, std::string("line 1, m[4][3]: 30 is above 9"));
+    eot::outcome const glued = validate("1 2\n", [](eo::validator& v) {
+        v.read_int(1, 9, eo::element("a", 7));
+        v.read_int(1, 9, "b");
+    });
+    EO_CHECK_IN(glued.text, "line 1, b: a space follows a[7]; read it with read_space()");
+    eot::outcome const empty = validate("1 2\n", [](eo::validator& v) {
+        v.read_int(1, 9, "");
+        v.read_int(1, 9, "b");
+    });
+    EO_CHECK_EQ(empty.text, std::string("line 1, b: expected an integer, found a space"));
 }
 
 EO_TEST(a_separator_left_out_of_the_validator_blames_the_validator) {
@@ -166,6 +211,14 @@ EO_TEST(numbers_are_read_with_their_digits_declared) {
     EO_CHECK(!good.stopped);
     eot::outcome const digits = validate("0.5\n", [](eo::validator& v) { v.read_real(0.0, 1.0, 2, 2, "p"); });
     EO_CHECK_EQ(digits.text, std::string("line 1, p: 0.5 has 1 digits after the point, not 2..2"));
+    eot::outcome const negative_zero =
+        validate("-0.0\n", [](eo::validator& v) { v.read_real(-1.0, 1.0, 1, 1, "p"); });
+    EO_CHECK_EQ(negative_zero.text,
+                std::string("line 1, p: expected a number, found \"-0.0\": it is zero written with a minus"));
+    eot::outcome const many = validate("0." + std::string(100, '5') + "\n", [](eo::validator& v) {
+        v.read_real(0.0, 1.0, 2, 2, "p");
+    });
+    EO_CHECK_EQ(many.text, "line 1, p: 0." + std::string(38, '5') + "... has 100 digits after the point, not 2..2");
     eot::outcome const below = validate("2.5\n", [](eo::validator& v) { v.read_real(0.0, 1.0, 1, 1, "p"); });
     EO_CHECK_EQ(below.text, std::string("line 1, p: 2.5 is above 1"));
     eot::outcome const under = validate("-2.5\n", [](eo::validator& v) { v.read_real(0.0, 1.0, 1, 1, "p"); });
@@ -191,6 +244,9 @@ EO_TEST(tokens_are_read_with_a_length_and_a_charset) {
     eot::outcome const stranger =
         validate("abQ\n", [](eo::validator& v) { v.read_token(1, 5, eo::charset("a-z"), "s"); });
     EO_CHECK_EQ(stranger.text, std::string("line 1, s: \"abQ\" holds \"Q\", which is not in \"a-z\""));
+    eot::outcome const control =
+        validate("ab\x7f\n", [](eo::validator& v) { v.read_token(1, 5, eo::charset("a-z"), "s"); });
+    EO_CHECK_EQ(control.text, std::string("line 1, s: \"ab\\x7f\" holds \"\\x7f\", which is not in \"a-z\""));
     eot::outcome const loose = validate("abc\n", [](eo::validator& v) {
         v.read_token(eo::any, "s");
         v.read_eoln();
@@ -214,6 +270,9 @@ EO_TEST(a_line_is_read_with_its_line_break) {
     eot::outcome const stranger =
         validate("helLo\n", [](eo::validator& v) { v.read_line(1, 9, eo::charset("a-z"), "title"); });
     EO_CHECK_IN(stranger.text, "the line holds \"L\"");
+    eot::outcome const bell =
+        validate("he\x07o\n", [](eo::validator& v) { v.read_line(1, 9, eo::charset("a-z"), "title"); });
+    EO_CHECK_IN(bell.text, "the line holds \"\\x07\"");
 }
 
 EO_TEST(a_choice_is_one_of_the_words_given) {
@@ -660,6 +719,31 @@ EO_TEST(bounds_that_look_wrong_are_pointed_out) {
     EO_CHECK_IN(said, "warning EO107: \"twice\" is read as 1..8 here and as 1..9 elsewhere");
 }
 
+EO_TEST(bounds_at_the_ends_of_a_long_long_are_not_near_a_round_number) {
+    EO_CHECK(!eo::detail::nearly_round(std::numeric_limits<long long>::max()));
+    EO_CHECK(!eo::detail::nearly_round(std::numeric_limits<long long>::min()));
+    EO_CHECK(eo::detail::nearly_round(1000001));
+    eot::outcome const result = validate("5 -5\n", [](eo::validator& v) {
+        v.read_long(1, std::numeric_limits<long long>::max(), "top");
+        v.read_space();
+        v.read_long(std::numeric_limits<long long>::min(), 0, "bottom");
+        v.read_eoln();
+    });
+    EO_CHECK(!result.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO106"));
+}
+
+EO_TEST(a_length_bound_may_be_the_largest_long_long) {
+    eot::outcome const result = validate("abc\nhello world\n", [](eo::validator& v) {
+        EO_CHECK_EQ(v.read_token(1, std::numeric_limits<long long>::max(), eo::charset("a-z"), "word"),
+                    std::string("abc"));
+        v.read_eoln();
+        EO_CHECK_EQ(v.read_line(1, std::numeric_limits<long long>::max(), eo::charset("a-z "), "line"),
+                    std::string("hello world"));
+    });
+    EO_CHECK(!result.stopped);
+}
+
 EO_TEST(a_token_or_a_number_read_loosely_is_pointed_out) {
     eot::outcome const result = validate("abc 0.5 hello\n", [](eo::validator& v) {
         v.read_token(1, 5, "s");
@@ -693,6 +777,33 @@ EO_TEST(a_warning_points_at_the_line_that_raised_it) {
     });
     EO_CHECK(!result.stopped);
     EO_CHECK_IN(warnings_of_last_run(), eo::fmt("validate.inc:{}: note EO106", wanted).c_str());
+}
+
+EO_TEST(a_message_keeps_valid_utf8_and_escapes_the_rest) {
+    using eo::detail::escaped;
+    EO_CHECK_EQ(escaped("привіт, €5 😀"), std::string("привіт, €5 😀"));
+    EO_CHECK_EQ(escaped("\x7f\t\x1f "), std::string("\\x7f\\x09\\x1f "));
+    EO_CHECK_EQ(escaped("\x80"), std::string("\\x80"));
+    EO_CHECK_EQ(escaped("\xc1\xbf"), std::string("\\xc1\\xbf"));
+    EO_CHECK_EQ(escaped("\xc2\x80"), std::string("\xc2\x80"));
+    EO_CHECK_EQ(escaped("\xdf\xbf"), std::string("\xdf\xbf"));
+    EO_CHECK_EQ(escaped("\xe0\x80\xaf"), std::string("\\xe0\\x80\\xaf"));
+    EO_CHECK_EQ(escaped("\xe0\xa0\x80"), std::string("\xe0\xa0\x80"));
+    EO_CHECK_EQ(escaped("\xed\xa0\x80"), std::string("\\xed\\xa0\\x80"));
+    EO_CHECK_EQ(escaped("\xed\x9f\xbf"), std::string("\xed\x9f\xbf"));
+    EO_CHECK_EQ(escaped("\xef\xbf\xbf"), std::string("\xef\xbf\xbf"));
+    EO_CHECK_EQ(escaped("\xf0\x8f\xbf\xbf"), std::string("\\xf0\\x8f\\xbf\\xbf"));
+    EO_CHECK_EQ(escaped("\xf0\x90\x80\x80"), std::string("\xf0\x90\x80\x80"));
+    EO_CHECK_EQ(escaped("\xf4\x8f\xbf\xbf"), std::string("\xf4\x8f\xbf\xbf"));
+    EO_CHECK_EQ(escaped("\xf4\x90\x80\x80"), std::string("\\xf4\\x90\\x80\\x80"));
+    EO_CHECK_EQ(escaped("\xf5\x80\x80\x80"), std::string("\\xf5\\x80\\x80\\x80"));
+    EO_CHECK_EQ(escaped("\xd0"), std::string("\\xd0"));
+    EO_CHECK_EQ(escaped("\xe2\x82"), std::string("\\xe2\\x82"));
+    EO_CHECK_EQ(escaped("\xe2\x82x"), std::string("\\xe2\\x82x"));
+    EO_CHECK_EQ(eo::detail::shorten("\x80\x80\x80\x80\x80", 2), std::string("\\x80\\x80..."));
+    EO_CHECK_EQ(eo::detail::shorten("ab\x80\x80\x80\x80", 3), std::string("ab\\x80..."));
+    EO_CHECK_EQ(eo::detail::shorten("abcd\xf0\x9f\x98\x80", 7), std::string("abcd..."));
+    EO_CHECK_EQ(eo::detail::shorten("abcd\xf0\x9f\x98\x80z", 8), std::string("abcd😀..."));
 }
 
 EO_TEST(a_long_value_is_shortened_in_the_message) {

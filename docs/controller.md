@@ -136,7 +136,12 @@ wrong answer: instance 1, line 1, message: instance 1 ended the dialogue early
 **Flushing.** Whatever the controller sends to any channel is buffered. Before it waits on
 *any* channel, the library flushes *every* channel — so an instance can never sit waiting for
 a line that is still in the controller's buffer. A write to an instance that stopped reading
-is a wrong answer, and `SIGPIPE` is ignored.
+is not a verdict: what could not be written is dropped, nothing more is written to that
+instance, and the next read from it decides, so sending a last line and closing a channel
+is safe. `SIGPIPE` is ignored. Unlike an interactor, a controller does not take in an
+instance's answers while it waits to write: sending one instance more than a pipe holds,
+about 64 KB, before reading its answers, while that instance answers each line as it reads
+it, leaves both waiting. Read the answers in between, or send less at a time.
 
 **Read the channels in an order your code fixes**, such as instance 1, then 2, then 3. Never
 let the dialogue depend on which instance happens to answer first: that depends on the
@@ -162,7 +167,8 @@ The rules are those of every eolymp.h program, and the codes are the interactor'
 | --- | --- |
 | EO101, EO103, EO104, EO105, EO107, EO111 | reads without a name or bounds, as everywhere |
 | EO204 | `eo::wrong` carries no message |
-| EO205 | a fraction outside [0, 1] was clamped |
+| EO205 | a fraction outside [0, 1], or negative points, was clamped |
+| EO213 | on the judge, `TEST_COST` is missing or not a number, so the cost of `eo::points` is a guess |
 | EO401 | more than 100,000 round trips (a note), or more than 500,000 (a warning) |
 | EO402 | more than 10,000 round trips with no `eo::budget` declared |
 | EO403 | a budget was declared and never spent |

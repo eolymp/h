@@ -75,6 +75,7 @@ func TestGroupScoring(t *testing.T) {
 		{"ALL", 0},
 		{"BEST", 10},
 		{"WORST", 4},
+		{"NO_SCORE", 0},
 	} {
 		t.Run(one.mode, func(t *testing.T) {
 			group := summarizeGroup(1, one.mode, runs(Accepted, WrongAnswer, Accepted))

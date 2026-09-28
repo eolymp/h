@@ -25,6 +25,30 @@ EO_TEST(a_sum_limit_allows_its_limit_and_refuses_one_more) {
     EO_CHECK_IN(over.text, "sum of n is 11, above 10");
 }
 
+EO_TEST(a_sum_limit_refuses_a_total_that_overflows) {
+    eot::outcome const wrapped = validate("2\n5000000000000000000 5000000000000000000\n", [](eo::validator& v) {
+        int const t = v.read_int(1, 9, "t");
+        v.read_eoln();
+        eo::sum_limit total(8000000000000000000, "sum of a");
+        for (int at = 0; at < t; at++) {
+            total += v.read_long(1, 5000000000000000000, "a");
+            if (at + 1 < t) v.read_space();
+        }
+        v.read_eoln();
+    });
+    EO_CHECK(wrapped.stopped);
+    EO_CHECK_EQ(wrapped.code, 3);
+    EO_CHECK_EQ(wrapped.text, std::string("sum of a does not fit a long long: 5000000000000000000 was added to "
+                                          "5000000000000000000"));
+    eot::outcome const below = validate("", [](eo::validator&) {
+        eo::sum_limit total(0, "sum of a");
+        total += std::numeric_limits<long long>::min();
+        total += -1;
+    });
+    EO_CHECK_EQ(below.code, 3);
+    EO_CHECK_IN(below.text, "sum of a does not fit a long long: -1 was added to -9223372036854775808");
+}
+
 EO_TEST(a_token_is_accepted_at_both_bounds_and_refused_outside_them) {
     for (auto const& one : std::vector<std::pair<std::string, bool>>{
              {"ab", false}, {"abc", true}, {"abcde", true}, {"abcdef", false}}) {

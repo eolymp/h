@@ -27,6 +27,20 @@ EO_TEST(a_first_phase_hands_the_next_one_its_work) {
     EO_CHECK_IN(result.summary, "eolymp-phase 2 2\ninput 2\n7\n\n0101\n\n");
 }
 
+EO_TEST(a_handoff_that_cannot_be_written_whole_is_a_jury_error) {
+    file_size_limit disk;
+    chat const result = talk("7\n", "0101\n", [&](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        it.input.read_long(0, 99, "x");
+        std::string const code = it.contestant.read_token(1, 9, eo::charset("01"), "code");
+        disk.cap(20);
+        ph.handoff([&](eo::writer& w) { w.line(code); });
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_IN(result.text, "eolymp.h: the handoff could not be written to ");
+    EO_CHECK_EQ(result.summary.size(), static_cast<std::size_t>(20));
+}
+
 EO_TEST(a_later_phase_reads_the_test_and_what_was_handed_on) {
     chat const result = talk(handoff_for(2, 2, "7\n", "0101\n"), "7\n", [](eo::interactor& it) {
         eo::phases ph(it, 2);
@@ -43,6 +57,26 @@ EO_TEST(a_later_phase_reads_the_test_and_what_was_handed_on) {
     EO_CHECK_EQ(result.code, 0);
     EO_CHECK_EQ(result.text, std::string("ok 4 characters"));
     EO_CHECK_IN(result.summary, "fraction 1");
+}
+
+EO_TEST(every_phase_draws_from_the_same_seed_the_test_gives) {
+    long long const expected = eo::rng(eo::detail::seed_of("7\n")).uniform(1, 1000000000);
+    long long first = 0;
+    long long later = 0;
+    talk("7\n", "", [&](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        first = it.rng().uniform(1, 1000000000);
+        it.input.read_long(0, 99, "x");
+        ph.handoff([](eo::writer& w) { w.line("rest"); });
+    });
+    talk(handoff_for(2, 2, "7\n", "rest\n"), "", [&](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        later = it.rng().uniform(1, 1000000000);
+        it.input.read_long(0, 99, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(first, expected);
+    EO_CHECK_EQ(later, expected);
 }
 
 EO_TEST(a_partial_score_from_an_early_phase_is_carried_on) {
@@ -143,6 +177,33 @@ EO_TEST(a_handoff_this_release_cannot_read_is_a_jury_error) {
         eo::accept();
     });
     EO_CHECK_IN(paid.text, "left a header this release cannot read");
+}
+
+EO_TEST(a_handoff_cut_short_is_a_jury_error) {
+    for (char const* carried : {"eolymp-phase 2 2\ninput 50\n7\n\n", "eolymp-phase 2 2\ninput 2",
+                                "eolymp-phase 2 2\ninput 2\n7\n", "eolymp-phase 2 2\ninput 2\n7"}) {
+        chat const cut = talk(carried, "", [](eo::interactor& it) {
+            eo::phases ph(it, 2);
+            (void)ph.number();
+            eo::accept();
+        });
+        EO_CHECK_EQ(cut.code, 3);
+        EO_CHECK_IN(cut.text, "the previous phase left a handoff cut short of its ");
+    }
+    chat const negative = talk("eolymp-phase 2 2\ninput -5\n7\n\n", "", [](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        (void)ph.number();
+        eo::accept();
+    });
+    EO_CHECK_EQ(negative.code, 3);
+    EO_CHECK_IN(negative.text, "the previous phase left a handoff whose test has a size of -5 bytes");
+    chat const whole = talk("eolymp-phase 2 2\ninput 2\n7\n\n", "", [](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        EO_CHECK_EQ(it.input.read_long(0, 99, "x"), 7LL);
+        EO_CHECK(ph.previous().at_eof());
+        eo::accept();
+    });
+    EO_CHECK_EQ(whole.code, 0);
 }
 
 EO_TEST(a_handoff_too_big_to_copy_is_reported) {

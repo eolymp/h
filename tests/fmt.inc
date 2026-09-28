@@ -34,6 +34,31 @@ EO_TEST(fmt_writes_reals_that_read_back_exactly) {
     EO_CHECK(written.size() > 1);
 }
 
+EO_TEST(fmt_writes_nan_and_inf_the_same_way_under_every_library) {
+    double const nothing = std::nan("");
+    double const endless = std::numeric_limits<double>::infinity();
+    EO_CHECK_EQ(eo::fmt("{}", nothing), std::string("nan"));
+    EO_CHECK_EQ(eo::fmt("{}", -nothing), std::string("-nan"));
+    EO_CHECK_EQ(eo::fmt("{}", endless), std::string("inf"));
+    EO_CHECK_EQ(eo::fmt("{}", -endless), std::string("-inf"));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(nothing, 6)), std::string("nan"));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(-nothing, 6)), std::string("-nan"));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(endless, 2)), std::string("inf"));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(-endless, 2)), std::string("-inf"));
+}
+
+EO_TEST(fmt_writes_a_fixed_number_of_any_length) {
+    EO_CHECK_EQ(eo::fmt("[{}]", eo::fixed(2.5, 3)), std::string("[2.500]"));
+    std::string const huge = eo::fmt("[{}]", eo::fixed(1e300, 2));
+    EO_CHECK_EQ(huge.size(), static_cast<std::size_t>(306));
+    EO_CHECK_EQ(huge.substr(0, 3), std::string("[10"));
+    EO_CHECK_EQ(huge.substr(huge.size() - 4), std::string(".00]"));
+    std::string const digits = eo::fmt("{}", eo::fixed(0.5, 100));
+    EO_CHECK_EQ(digits, "0.5" + std::string(99, '0'));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(0.5, 61)), "0.5" + std::string(60, '0'));
+    EO_CHECK_EQ(eo::fmt("{}", eo::fixed(0.5, 62)), "0.5" + std::string(61, '0'));
+}
+
 EO_TEST(fmt_writes_text_of_every_kind) {
     char mutable_text[] = "mutable";
     char* pointer = mutable_text;
@@ -49,20 +74,31 @@ EO_TEST(fmt_writes_text_of_every_kind) {
     EO_CHECK_EQ(eo::fmt("{} {}", true, false), std::string("true false"));
 }
 
-EO_TEST(fmt_refuses_a_lone_brace) {
-    eot::outcome const opening = eot::run_until_stop([] { (void)eo::fmt("a { b"); });
-    EO_CHECK(opening.stopped);
-    EO_CHECK_IN(opening.text, "lone '{'");
-    eot::outcome const closing = eot::run_until_stop([] { (void)eo::fmt("a } b"); });
-    EO_CHECK(closing.stopped);
-    EO_CHECK_IN(closing.text, "lone '}'");
+EO_TEST(fmt_keeps_a_lone_brace_and_reports_it) {
+    eo::detail::diagnostics::shared().forget_everything();
+    EO_CHECK_EQ(eo::fmt("a { b"), std::string("a { b"));
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(),
+                "warning EO112: the message \"a { b\" has 0 {} for 0 values and a lone '{'");
+    eo::detail::diagnostics::shared().forget_everything();
+    EO_CHECK_EQ(eo::fmt("a } {} {", 7), std::string("a } 7 {"));
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(), "has 1 {} for 1 values and a lone '}'");
+    eo::detail::diagnostics::shared().forget_everything();
+    EO_CHECK_EQ(eo::fmt("{{}} {}", 1), std::string("{} 1"));
+    EO_CHECK(!eo::detail::diagnostics::shared().anything());
 }
 
-EO_TEST(fmt_refuses_a_count_that_does_not_match) {
-    eot::outcome const hungry = eot::run_until_stop([] { (void)eo::fmt("{} {}", 1); });
-    EO_CHECK(hungry.stopped);
-    EO_CHECK_IN(hungry.text, "more {} than the 1 values given");
-    eot::outcome const spare = eot::run_until_stop([] { (void)eo::fmt("{}", 1, 2); });
-    EO_CHECK(spare.stopped);
-    EO_CHECK_IN(spare.text, "has 1 {} but 2 values were given");
+EO_TEST(fmt_keeps_every_value_when_the_count_does_not_match) {
+    eo::detail::diagnostics::shared().forget_everything();
+    int const line = __LINE__ + 1;
+    EO_CHECK_EQ(eo::fmt("{} {}", 1), std::string("1 {}"));
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(),
+                eo::fmt("fmt.inc:{}: warning EO112", line).c_str());
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(),
+                "warning EO112: the message \"{} {}\" has 2 {} for 1 values");
+    eo::detail::diagnostics::shared().forget_everything();
+    EO_CHECK_EQ(eo::fmt("{}", 1, 2, "three"), std::string("1 2 three"));
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(), "has 1 {} for 3 values");
+    eo::detail::diagnostics::shared().forget_everything();
+    EO_CHECK_EQ(eo::fmt("expected %lld", 5), std::string("expected %lld 5"));
+    eo::detail::diagnostics::shared().forget_everything();
 }

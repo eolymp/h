@@ -1,4 +1,4 @@
-// eolymp.h 1.0.0 — a judging library for the Eolymp platform.
+// eolymp.h 2.0.0 — a judging library for the Eolymp platform.
 // https://github.com/eolymp/h
 //
 // SPDX-License-Identifier: MIT
@@ -19,6 +19,7 @@
 #include <cerrno>
 #include <charconv>
 #include <chrono>
+#include <climits>
 #include <cmath>
 #include <csignal>
 #include <cstddef>
@@ -28,24 +29,52 @@
 #include <cstring>
 #include <exception>
 #include <fcntl.h>
+#include <functional>
 #include <initializer_list>
+#include <limits>
 #include <map>
 #include <memory>
+#include <new>
 #include <optional>
+#include <poll.h>
 #include <set>
 #include <string>
 #include <string_view>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <type_traits>
 #include <unistd.h>
 #include <utility>
 #include <vector>
 
-#define EOLYMP_H_VERSION "1.0.0"
+#define EOLYMP_H_VERSION "2.0.0"
+#define EOLYMP_H_VERSION_MAJOR 2
+#define EOLYMP_H_VERSION_MINOR 0
+#define EOLYMP_H_VERSION_PATCH 0
 
 namespace eo {
 
 inline char const* version() { return EOLYMP_H_VERSION; }
+
+namespace detail {
+
+constexpr long version_part(char const* text, int which) {
+    for (; which > 0; which--) {
+        while (*text != '.') text++;
+        text++;
+    }
+    long value = 0;
+    while (*text >= '0' && *text <= '9') value = value * 10 + (*text++ - '0');
+    return value;
+}
+
+static_assert(version_part(EOLYMP_H_VERSION, 0) == EOLYMP_H_VERSION_MAJOR &&
+                  version_part(EOLYMP_H_VERSION, 1) == EOLYMP_H_VERSION_MINOR &&
+                  version_part(EOLYMP_H_VERSION, 2) == EOLYMP_H_VERSION_PATCH,
+              "EOLYMP_H_VERSION and EOLYMP_H_VERSION_MAJOR, _MINOR and _PATCH disagree");
+
+}
 
 struct any_t {};
 struct unnamed_t {};
@@ -150,12 +179,29 @@ inline void append_unsigned(std::string& out, unsigned long long value) {
     out.append(buffer, static_cast<std::size_t>(written.ptr - buffer));
 }
 
+inline bool append_non_finite(std::string& out, double value) {
+    if (std::isfinite(value)) return false;
+    if (std::isnan(value)) out.append(std::signbit(value) ? "-nan" : "nan");
+    else out.append(value < 0 ? "-inf" : "inf");
+    return true;
+}
+
 inline void append_real(std::string& out, double value) {
+    if (append_non_finite(out, value)) return;
     char buffer[48];
+#if defined(__cpp_lib_to_chars)
+    char* end = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::general, 15).ptr;
+    double back = 0;
+    std::from_chars(buffer, end, back);
+    if (back != value)
+        end = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::general, 17).ptr;
+    out.append(buffer, static_cast<std::size_t>(end - buffer));
+#else
     int written = std::snprintf(buffer, sizeof(buffer), "%.15g", value);
     if (std::strtod(buffer, nullptr) != value)
         written = std::snprintf(buffer, sizeof(buffer), "%.17g", value);
     out.append(buffer, static_cast<std::size_t>(written));
+#endif
 }
 
 template <class T>
@@ -171,9 +217,18 @@ template <class T>
 struct is_fixed<fixed_number<T>> : std::true_type {};
 
 inline void append_fixed(std::string& out, double value, int digits) {
+    if (append_non_finite(out, value)) return;
     char buffer[64];
-    int const written = std::snprintf(buffer, sizeof(buffer), "%.*f", digits, value);
-    out.append(buffer, static_cast<std::size_t>(written));
+    std::size_t const written =
+        static_cast<std::size_t>(std::snprintf(buffer, sizeof(buffer), "%.*f", digits, value));
+    if (written < sizeof(buffer)) {
+        out.append(buffer, written);
+        return;
+    }
+    std::size_t const at = out.size();
+    out.resize(at + written + 1);
+    std::snprintf(&out[at], written + 1, "%.*f", digits, value);
+    out.resize(at + written);
 }
 
 template <class T>
@@ -219,42 +274,70 @@ inline void add_to_line(std::string& line, T const& value, bool& first) {
 
 using appender = void (*)(std::string&, void const*);
 
+class pattern {
+public:
+    template <class T, class = std::enable_if_t<std::is_convertible_v<T const&, std::string_view>>>
+    pattern(T const& text, char const* file = __builtin_FILE(), int line = __builtin_LINE())
+        : text_(text), file_(file), line_(line) {}
+
+    std::string_view text() const { return text_; }
+    char const* file() const { return file_; }
+    int line() const { return line_; }
+
+private:
+    std::string_view text_;
+    char const* file_;
+    int line_;
+};
+
+inline void (*&bad_pattern_hook())(std::string const&, char const*, int) {
+    static void (*hook)(std::string const&, char const*, int) = nullptr;
+    return hook;
+}
+
 template <class T>
 inline void append_erased(std::string& out, void const* value) {
     append_value(out, *static_cast<T const*>(value));
 }
 
-inline std::string assemble(std::string_view pattern, void const* const* values, appender const* appenders,
+inline std::string assemble(pattern const& told, void const* const* values, appender const* appenders,
                             std::size_t count) {
+    std::string_view const pattern = told.text();
     std::string out;
-    out.reserve(pattern.size() + 16 * count);
+    if (pattern.size() + 8 * count > 15) out.reserve(pattern.size() + 8 * count);
     std::size_t used = 0;
+    std::size_t slots = 0;
+    char lone = '\0';
     for (std::size_t at = 0; at < pattern.size(); at++) {
         char const here = pattern[at];
         char const next = at + 1 < pattern.size() ? pattern[at + 1] : '\0';
-        if (here == '{' && next == '{') {
-            out.push_back('{');
-            at++;
-        } else if (here == '}' && next == '}') {
-            out.push_back('}');
+        if ((here == '{' || here == '}') && next == here) {
+            out.push_back(here);
             at++;
         } else if (here == '{' && next == '}') {
-            if (used == count)
-                library_error("the message \"" + std::string(pattern) + "\" has more {} than the " +
-                              std::to_string(count) + " values given");
-            appenders[used](out, values[used]);
-            used++;
+            slots++;
+            if (used < count) {
+                appenders[used](out, values[used]);
+                used++;
+            } else {
+                out += "{}";
+            }
             at++;
-        } else if (here == '{' || here == '}') {
-            library_error("the message \"" + std::string(pattern) + "\" has a lone '" + here +
-                          "'; write \"{}\" for a value, \"" + here + here + "\" for the character");
         } else {
+            if ((here == '{' || here == '}') && lone == '\0') lone = here;
             out.push_back(here);
         }
     }
-    if (used != count)
-        library_error("the message \"" + std::string(pattern) + "\" has " + std::to_string(used) +
-                      " {} but " + std::to_string(count) + " values were given");
+    for (; used < count; used++) {
+        out.push_back(' ');
+        appenders[used](out, values[used]);
+    }
+    if ((lone != '\0' || slots != count) && bad_pattern_hook() != nullptr) {
+        std::string problem = "the message \"" + std::string(pattern) + "\" has " + std::to_string(slots) +
+                              " {} for " + std::to_string(count) + " values";
+        if (lone != '\0') problem += std::string(" and a lone '") + lone + "'";
+        bad_pattern_hook()(problem, told.file(), told.line());
+    }
     return out;
 }
 
@@ -266,7 +349,7 @@ inline detail::fixed_number<T> fixed(T value, int digits) {
 }
 
 template <class... Args>
-inline std::string fmt(std::string_view pattern, Args const&... args) {
+inline std::string fmt(detail::pattern pattern, Args const&... args) {
     if constexpr (sizeof...(Args) == 0) {
         return detail::assemble(pattern, nullptr, nullptr, 0);
     } else {
@@ -338,7 +421,7 @@ struct real_read {
     number_problem problem = number_problem::none;
 };
 
-inline real_read parse_real(std::string_view text, bool allow_exponent) {
+inline real_read parse_real(std::string_view text, bool allow_exponent, bool negative_zero = false) {
     if (text.empty()) return {0, 0, number_problem::empty};
     std::size_t at = text[0] == '-' ? 1u : 0u;
     bool const negative = at == 1;
@@ -366,7 +449,8 @@ inline real_read parse_real(std::string_view text, bool allow_exponent) {
     std::string const buffer(text);
     double const value = std::strtod(buffer.c_str(), nullptr);
     if (!std::isfinite(value)) return {0, 0, number_problem::out_of_range};
-    if (negative && value == 0) return {0, 0, number_problem::redundant_minus};
+    if (negative && value == 0 && !negative_zero) return {0, 0, number_problem::redundant_minus};
+    if (value == 0) return {0, decimals, number_problem::none};
     return {value, decimals, number_problem::none};
 }
 
@@ -423,9 +507,25 @@ public:
         return only;
     }
 
-    void raise(char const* code, severity level, std::string message, std::string fix, site where) {
-        if (record(code, level, message, std::move(fix), where) && level == severity::warning && strict_mode())
+    bool raise(char const* code, severity level, std::string message, std::string fix, site where) {
+        bool const fresh = record(code, level, message, std::move(fix), where);
+        if (fresh && level == severity::warning && strict_mode())
             finish(3, fmt("{}: {} {}: {}", where_of(where), "strict mode stops at", code, message));
+        return fresh;
+    }
+
+    bool again(char const* code, site where) {
+        for (allowance& permitted : allowed_)
+            if (permitted.code == code) {
+                permitted.count++;
+                return true;
+            }
+        for (raised& already : entries_)
+            if (already.code == code && already.where.line == where.line) {
+                already.count++;
+                return true;
+            }
+        return false;
     }
 
     void start_the_clock(char const* code, char const* role, long long limit_ms, site where) {
@@ -492,6 +592,12 @@ public:
 
     std::vector<raised> const& all() const { return entries_; }
 
+    bool raised_already(char const* code) const {
+        for (raised const& one : entries_)
+            if (std::string(one.code) == code) return true;
+        return false;
+    }
+
     void forget_everything() {
         entries_.clear();
         allowed_.clear();
@@ -535,10 +641,10 @@ private:
     static std::string times(long long count) { return count > 1 ? fmt(" ({} times)", count) : std::string(); }
 
     std::vector<raised> ordered() const {
-        std::vector<raised> sorted = entries_;
-        std::stable_sort(sorted.begin(), sorted.end(),
-                         [](raised const& left, raised const& right) { return left.level > right.level; });
-        if (sorted.size() > report_limit) sorted.resize(report_limit);
+        std::vector<raised> sorted;
+        for (severity const level : {severity::warning, severity::note})
+            for (raised const& one : entries_)
+                if (one.level == level && sorted.size() < report_limit) sorted.push_back(one);
         return sorted;
     }
 
@@ -558,14 +664,32 @@ inline void warn(char const* code, std::string message, std::string fix, site wh
     diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where);
 }
 
+inline void warn_at_once(char const* code, std::string message, std::string fix, site where) {
+    std::string const line = fmt("warning {} {} {}\n", code, where_of(where), message);
+    if (diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where)) {
+        std::fwrite(line.data(), 1, line.size(), stderr);
+        std::fflush(stderr);
+    }
+}
+
 inline void note(char const* code, std::string message, std::string fix, site where) {
     diagnostics::shared().raise(code, severity::note, std::move(message), std::move(fix), where);
 }
+
+inline void report_a_bad_pattern(std::string const& problem, char const* file, int line) {
+    warn("EO112", problem, "write one {} for each value and {{ or }} for a brace; the verdict stands",
+         site{file, line});
+}
+
+inline bool const bad_patterns_are_reported = (bad_pattern_hook() = &report_a_bad_pattern, true);
 
 }  // namespace detail
 
 class allow {
 public:
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     allow(std::string code, std::string reason, char const* file = __builtin_FILE(),
           int line = __builtin_LINE()) {
         detail::diagnostics::shared().allow_code(std::move(code), std::move(reason), detail::site{file, line});
@@ -582,28 +706,36 @@ public:
 namespace eo {
 namespace detail {
 
-inline void write_without_waiting(int descriptor, std::string const& bytes) {
+inline bool would_block() { return errno == EAGAIN || errno == EWOULDBLOCK; }
+
+inline void wait_for(int descriptor, short event) {
+    pollfd ready{descriptor, event, 0};
+    ::poll(&ready, 1, -1);
+}
+
+inline int constexpr last_words_patience_ms = 500;
+inline int constexpr last_words_deadline_ms = 2000;
+
+inline void write_while_read(int descriptor, std::string const& bytes, int patience_ms, int deadline_ms) {
     int const flags = ::fcntl(descriptor, F_GETFL);
     if (flags >= 0) ::fcntl(descriptor, F_SETFL, flags | O_NONBLOCK);
+    auto const started = std::chrono::steady_clock::now();
     std::size_t sent = 0;
     while (sent < bytes.size()) {
         ssize_t const wrote = ::write(descriptor, bytes.data() + sent, bytes.size() - sent);
-        if (wrote < 0 && errno == EINTR) continue;
-        if (wrote <= 0) return;
-        sent += static_cast<std::size_t>(wrote);
-    }
-}
-
-inline void write_all(int descriptor, char const* bytes, std::size_t size, bool& broken) {
-    while (size > 0) {
-        ssize_t const written = ::write(descriptor, bytes, size);
-        if (written < 0) {
-            if (errno == EINTR) continue;
-            broken = true;
-            return;
+        if (wrote > 0) {
+            sent += static_cast<std::size_t>(wrote);
+            continue;
         }
-        bytes += written;
-        size -= static_cast<std::size_t>(written);
+        if (wrote < 0 && errno == EINTR) continue;
+        if (wrote == 0 || !would_block()) return;
+        long long const spent = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - started)
+                                    .count();
+        if (spent >= deadline_ms) return;
+        pollfd room{descriptor, POLLOUT, 0};
+        int const ready = ::poll(&room, 1, static_cast<int>(std::min<long long>(patience_ms, deadline_ms - spent)));
+        if (ready == 0 || (ready < 0 && errno != EINTR)) return;
     }
 }
 
@@ -614,9 +746,20 @@ inline bool file_is_there(char const* path) {
     return true;
 }
 
+inline void write_file(std::string const& path, std::string const& bytes, char const* what) {
+    std::FILE* const file = std::fopen(path.c_str(), "wb");
+    if (file == nullptr) library_error(fmt("cannot write the {} to {}", what, path));
+    bool const whole = std::fwrite(bytes.data(), 1, bytes.size(), file) == bytes.size();
+    if (std::fclose(file) != 0 || !whole)
+        library_error(fmt("the {} could not be written to {}: {}", what, path, std::strerror(errno)));
+}
+
+enum class absorbed { nothing, some, full };
+
 class source {
 public:
     static std::size_t constexpr default_chunk = 1u << 20;
+    static std::size_t constexpr pipe_chunk = 1u << 16;
 
     source() = default;
     source(source const&) = delete;
@@ -650,6 +793,8 @@ public:
         return made;
     }
 
+    static source over_channel(char const* path) { return over_file(path, false, pipe_chunk); }
+
     static source over_file(char const* path, bool normalize, std::size_t chunk = default_chunk) {
         int const descriptor = ::open(path, O_RDONLY);
         if (descriptor < 0) library_error(fmt("cannot open {}: {}", path, std::strerror(errno)));
@@ -657,6 +802,14 @@ public:
     }
 
     int peek() {
+        if (begin_ < end_) {
+            int const quick = static_cast<unsigned char>(buffer_[begin_]);
+            if (quick != '\r') return quick;
+        }
+        return peek_slowly();
+    }
+
+    int peek_slowly() {
         for (;;) {
             if (!have(1)) return -1;
             int const here = static_cast<unsigned char>(buffer_[begin_]);
@@ -683,11 +836,46 @@ public:
 
     bool at_end() { return peek() < 0; }
 
-    std::string ahead(std::size_t limit) const {
+    std::string ahead(std::size_t limit) {
+        while (held() < limit && top_up()) {
+        }
         return std::string(buffer_.data() + begin_, std::min(limit, end_ - begin_));
     }
 
     std::size_t held() const { return end_ - begin_; }
+
+    long long bytes_left() const {
+        long long const here = static_cast<long long>(held());
+        if (drained_) return here;
+        if (text_backed_) return here + static_cast<long long>(pending_.size());
+        struct stat seen {};
+        if (::fstat(descriptor_, &seen) != 0 || !S_ISREG(seen.st_mode)) return -1;
+        off_t const at = ::lseek(descriptor_, 0, SEEK_CUR);
+        if (at < 0) return -1;
+        return here + static_cast<long long>(seen.st_size - at);
+    }
+    char const* window() const { return buffer_.data() + begin_; }
+
+    void skip_plain(std::size_t count) {
+        begin_ += count;
+        column_ += static_cast<long long>(count);
+    }
+
+    int listening_descriptor() const { return drained_ || text_backed_ ? -1 : descriptor_; }
+
+    absorbed absorb(std::size_t most) {
+        if (drained_ || text_backed_) return absorbed::nothing;
+        int ready = 0;
+        if (::ioctl(descriptor_, FIONREAD, &ready) != 0 || ready <= 0) return absorbed::nothing;
+        std::size_t const wanted = static_cast<std::size_t>(ready);
+        if (held() + wanted > most) return absorbed::full;
+        compact();
+        if (buffer_.size() - end_ < wanted) buffer_.resize(end_ + wanted);
+        ssize_t const got = ::read(descriptor_, buffer_.data() + end_, wanted);
+        if (got < 0) return errno == EINTR ? absorbed::some : absorbed::nothing;
+        end_ += static_cast<std::size_t>(got);
+        return got > 0 ? absorbed::some : absorbed::nothing;
+    }
 
     bool top_up() {
         if (drained_) return false;
@@ -756,9 +944,16 @@ private:
             ssize_t const got = ::read(descriptor_, buffer_.data() + end_, room);
             if (got < 0) {
                 if (errno == EINTR) continue;
+                if (would_block()) {
+                    wait_for(descriptor_, POLLIN);
+                    continue;
+                }
                 library_error(fmt("cannot read the input: {}", std::strerror(errno)));
             }
-            if (got == 0) drained_ = true;
+            if (got == 0) {
+                drained_ = true;
+                release();
+            }
             end_ += static_cast<std::size_t>(got);
         }
         return end_ - begin_ >= count;
@@ -777,6 +972,40 @@ private:
     long long line_ = 1;
     long long column_ = 1;
 };
+
+inline std::size_t constexpr absorb_limit = std::size_t{1} << 24;
+
+template <class Reading>
+inline void write_while_absorbing(int to, std::string const& bytes, Reading& from, bool& deaf,
+                                  std::string const& who, char const* role, char const* instead) {
+    std::size_t sent = 0;
+    bool listening = true;
+    while (sent < bytes.size()) {
+        pollfd both[2] = {{to, POLLOUT, 0}, {listening ? from.listening_descriptor() : -1, POLLIN, 0}};
+        int const ready = ::poll(both, 2, -1);
+        if (ready < 0 && errno != EINTR && errno != EAGAIN) deaf = true;
+        if (deaf) return;
+        if (ready < 0) continue;
+        if (both[1].revents != 0) {
+            absorbed const what = from.absorb(absorb_limit);
+            if (what == absorbed::full)
+                warn_at_once("EO409",
+                             fmt("{} sent more than {} MB while the {} was still writing to it, and the rest "
+                                 "of it waits in the pipe",
+                                 who, absorb_limit >> 20, role),
+                             instead, site::here());
+            listening = what == absorbed::some;
+        }
+        if (both[0].revents == 0) continue;
+        std::size_t const step = std::min<std::size_t>(bytes.size() - sent, PIPE_BUF);
+        ssize_t const wrote = ::write(to, bytes.data() + sent, step);
+        if (wrote > 0) sent += static_cast<std::size_t>(wrote);
+        if (wrote < 0 && errno != EINTR && !would_block()) {
+            deaf = true;
+            return;
+        }
+    }
+}
 
 }  // namespace detail
 }  // namespace eo
@@ -831,21 +1060,24 @@ public:
 
     bool known() const { return state_ == stated::yes; }
     bool absent() const { return state_ == stated::absent; }
-    std::string const& text() const { return text_; }
+    std::string text() const { return indexed_ ? fmt("{}[{}]", text_, index_) : text_; }
+    std::string const& key() const { return text_; }
+    bool indexed() const { return indexed_; }
+    long long index() const { return index_; }
 
     value_name at(long long index) const {
         if (!known()) return *this;
-        value_name made(fmt("{}[{}]", text_, index));
-        made.key_ = text_;
+        value_name made(indexed_ ? text() : text_);
+        made.indexed_ = true;
+        made.index_ = index;
         return made;
     }
 
-    std::string const& key() const { return key_.empty() ? text_ : key_; }
-
 private:
     std::string text_;
-    std::string key_;
     stated state_;
+    bool indexed_ = false;
+    long long index_ = 0;
 };
 
 inline bool is_round(long long value) {
@@ -855,12 +1087,62 @@ inline bool is_round(long long value) {
 }
 
 inline bool nearly_round(long long value) {
+    if (value == std::numeric_limits<long long>::min() || value == std::numeric_limits<long long>::max())
+        return false;
     return !is_round(value) && (is_round(value - 1) || is_round(value + 1));
 }
 
+inline unsigned char byte_at(std::string const& text, std::size_t at) { return static_cast<unsigned char>(text[at]); }
+
+inline std::size_t utf8_length(std::string const& text, std::size_t at) {
+    unsigned char const lead = byte_at(text, at);
+    std::size_t length = 4;
+    unsigned char low = 0x80;
+    unsigned char high = 0xBF;
+    if (lead < 0xC2 || lead > 0xF4) return 0;
+    if (lead < 0xE0) length = 2;
+    else if (lead < 0xF0) length = 3;
+    if (lead == 0xE0) low = 0xA0;
+    if (lead == 0xED) high = 0x9F;
+    if (lead == 0xF0) low = 0x90;
+    if (lead == 0xF4) high = 0x8F;
+    if (text.size() - at < length) return 0;
+    for (std::size_t next = 1; next < length; next++) {
+        unsigned char const byte = byte_at(text, at + next);
+        if (byte < low || byte > high) return 0;
+        low = 0x80;
+        high = 0xBF;
+    }
+    return length;
+}
+
+inline std::string escaped(std::string const& text) {
+    std::string out;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        unsigned char const byte = byte_at(text, at);
+        std::size_t length = 1;
+        if (byte >= 0x80) length = utf8_length(text, at);
+        else if (byte < 0x20 || byte == 0x7F) length = 0;
+        if (length > 0) {
+            out.append(text, at, length);
+            at += length;
+            continue;
+        }
+        out += "\\x";
+        out += "0123456789abcdef"[byte >> 4];
+        out += "0123456789abcdef"[byte & 15];
+        at++;
+    }
+    return out;
+}
+
 inline std::string shorten(std::string const& text, std::size_t limit = 40) {
-    if (text.size() <= limit) return text;
-    return text.substr(0, limit) + "...";
+    if (text.size() <= limit) return escaped(text);
+    std::size_t lead = limit;
+    while (lead > 0 && limit - lead < 3 && (byte_at(text, lead) & 0xC0) == 0x80) lead--;
+    std::size_t const cut = lead + utf8_length(text, lead) > limit ? lead : limit;
+    return escaped(text.substr(0, cut)) + "...";
 }
 
 inline char const* name_of(int character) {
@@ -960,7 +1242,7 @@ public:
 
     long long line() const { return from_.line(); }
     bool carriage_returns() const { return from_.carriage_returns(); }
-    std::string const& last_value() const { return last_value_; }
+    std::string last_value() const { return last_indexed_ ? fmt("{}[{}]", last_value_, last_index_) : last_value_; }
     bool separated() const { return separated_; }
     void mark_separated() { separated_ = true; }
     std::map<std::string, seen_bounds> const& bounds() const { return bounds_; }
@@ -986,8 +1268,9 @@ public:
 
     std::size_t room_for(long long count, value_name const& name) {
         if (count < 0) refuse(name, fmt("a count of {} cannot be read", count));
-        long long const sane = count < (1 << 20) ? count : (1 << 20);
-        return static_cast<std::size_t>(sane);
+        long long const left = from_.bytes_left();
+        if (left >= 0) return static_cast<std::size_t>(std::min(count, left / 2 + 1));
+        return static_cast<std::size_t>(std::min(count, 1LL << 20));
     }
 
     void blame(fault whose) { whose_ = whose; }
@@ -1002,6 +1285,10 @@ public:
         while (at < rest.size() && !is_blank(static_cast<unsigned char>(rest[at]))) at++;
         return rest.substr(0, at);
     }
+
+    absorbed absorb(std::size_t most) { return from_.absorb(most); }
+
+    int listening_descriptor() const { return from_.listening_descriptor(); }
 
     bool content_waiting() {
         for (;;) {
@@ -1054,24 +1341,24 @@ public:
     double fractional(double low, double high, stated bounds, int least_decimals, int most_decimals,
                       bool decimals_stated, value_name const& name, site where) {
         std::string const token = take_number(name, where, true, "a number");
-        real_read const parsed = parse_real(token, exponents_);
+        real_read const parsed = parse_real(token, exponents_, lenient_);
         if (parsed.problem != number_problem::none)
             refuse(name, fmt("expected a number, found \"{}\": {}", shorten(token), describe(parsed.problem)));
-        if (name.absent())
+        if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
-        if (!decimals_stated && !lenient_)
+        if (!decimals_stated && !lenient_ && fresh("EO109", where))
             warn("EO109", "this number is read without a rule on its digits",
                  "say how many digits follow the point: read_real(low, high, least, most, name)", where);
-        if (bounds == stated::absent)
+        if (bounds == stated::absent && fresh(loose_code_, where))
             warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
         if (bounds == stated::yes) {
             if (parsed.value < low) refuse(name, fmt("{} is below {}", parsed.value, low));
             if (parsed.value > high) refuse(name, fmt("{} is above {}", parsed.value, high));
         }
         if (decimals_stated && (parsed.decimals < least_decimals || parsed.decimals > most_decimals)) {
-            std::string const said = fmt("{} has {} digits after the point, not {}..{}", token, parsed.decimals,
-                                         least_decimals, most_decimals);
+            std::string const said = fmt("{} has {} digits after the point, not {}..{}", shorten(token),
+                                         parsed.decimals, least_decimals, most_decimals);
             refuse(name, said);
         }
         if (bounds == stated::yes)
@@ -1082,18 +1369,19 @@ public:
 
     std::string word(long long least, long long most, charset const* allowed, stated bounds,
                      value_name const& name, site where) {
-        long long const cap = bounds == stated::yes ? most + 1 : 0;
+        long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
         std::string const token = take_word(name, where, "a token", cap);
-        if (name.absent())
+        if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
-        if (bounds == stated::absent)
-            warn(lenient_ ? loose_code_ : "EO108", "this token is read with no length and no charset",
-                 "give a length and the characters it may hold, or say eo::any", where);
-        else if (allowed == nullptr && bounds == stated::yes && !lenient_)
+        if (bounds == stated::absent) {
+            if (fresh(lenient_ ? loose_code_ : "EO108", where))
+                warn(lenient_ ? loose_code_ : "EO108", "this token is read with no length and no charset",
+                     "give a length and the characters it may hold, or say eo::any", where);
+        } else if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this token is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
-        if (token.size() > 1024 * 1024)
+        if (token.size() > 1024 * 1024 && fresh("EO111", where))
             note("EO111", fmt("a token of {} bytes was held in memory", token.size()),
                  "bound its length if the format allows", where);
         if (bounds == stated::yes) {
@@ -1106,8 +1394,8 @@ public:
             if (allowed != nullptr)
                 for (char const one : token)
                     if (!allowed->has(one))
-                        refuse(name, fmt("\"{}\" holds \"{}\", which is not in \"{}\"", shorten(token), one,
-                                         allowed->text()));
+                        refuse(name, fmt("\"{}\" holds \"{}\", which is not in \"{}\"", shorten(token),
+                                         escaped(std::string(1, one)), allowed->text()));
             remember(name, "length", least, most, length == least, length == most,
                      where);
         }
@@ -1118,7 +1406,7 @@ public:
                              value_name const& name, site where) {
         settle();
         std::string text;
-        long long const cap = bounds == stated::yes ? most + 1 : 0;
+        long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
         long long seen = 0;
         while (true) {
             int const next = from_.peek();
@@ -1132,7 +1420,7 @@ public:
             text.pop_back();
             seen--;
         }
-        if (allowed == nullptr && bounds == stated::yes && !lenient_)
+        if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this line is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
         long long const length = cap == 0 ? static_cast<long long>(text.size()) : seen;
@@ -1143,10 +1431,28 @@ public:
         if (allowed != nullptr)
             for (char const one : text)
                 if (!allowed->has(one))
-                    refuse(name, fmt("the line holds \"{}\", which is not in \"{}\"", one, allowed->text()));
+                    refuse(name, fmt("the line holds \"{}\", which is not in \"{}\"", escaped(std::string(1, one)),
+                                     allowed->text()));
         if (bounds == stated::yes)
             remember(name, "length", least, most, length == least, length == most,
                      where);
+        if (from_.peek() == '\n') from_.take();
+        was_read(name);
+        separated_ = true;
+        return text;
+    }
+
+    std::string line_up_to(std::size_t keep, bool& longer, value_name const& name) {
+        settle();
+        std::string text;
+        longer = false;
+        while (true) {
+            int const next = from_.peek();
+            if (next < 0 || next == '\n') break;
+            from_.take();
+            if (text.size() < keep) text.push_back(static_cast<char>(next));
+            else if (next != ' ' && next != '\t' && next != '\r') longer = true;
+        }
         if (from_.peek() == '\n') from_.take();
         was_read(name);
         separated_ = true;
@@ -1159,7 +1465,7 @@ public:
         int const here = from_.peek();
         if (here >= 0 && !is_blank(here)) return;
         if (here < 0 && !end_text_.empty()) refuse(name, end_text_);
-        if (here >= 0 && !last_value_.empty() && !separated_) missing_separator(name, where, here);
+        if (here >= 0 && (last_indexed_ || !last_value_.empty()) && !separated_) missing_separator(name, where, here);
         refuse(name, fmt("expected {}, found {}", expected, name_of(here)));
     }
 
@@ -1167,7 +1473,7 @@ public:
         char const* const call = found == '\n' ? "read_eoln()" : "read_space()";
         std::string message = fmt("{}: {}line {}", where_of(where), case_prefix(), from_.line());
         if (name.known()) message += fmt(", {}", name.text());
-        finish(3, message + fmt(": {} follows {}; read it with {}", name_of(found), last_value_, call));
+        finish(3, message + fmt(": {} follows {}; read it with {}", name_of(found), last_value(), call));
     }
 
     static long long constexpr longest_number = 4096;
@@ -1177,20 +1483,34 @@ public:
         if (lenient_) {
             std::string const word = take_word(name, where, expected, longest_number);
             if (word.empty()) refuse(name, fmt("expected {}, found nothing", expected));
+            if (from_.peek() >= 0 && !is_blank(from_.peek()))
+                refuse(name, fmt("expected {}, found a token longer than {} characters: \"{}\"", expected,
+                                 longest_number, shorten(word)));
             return word;
         }
         std::string token;
         if (from_.peek() == '-' || (relaxed_ && from_.peek() == '+'))
             token.push_back(static_cast<char>(from_.take()));
-        while (from_.peek() >= '0' && from_.peek() <= '9') token.push_back(static_cast<char>(from_.take()));
+        digits_into(token);
         if (with_a_point && from_.peek() == '.') {
             token.push_back(static_cast<char>(from_.take()));
-            while (from_.peek() >= '0' && from_.peek() <= '9') token.push_back(static_cast<char>(from_.take()));
+            digits_into(token);
         }
         if (token.empty() || token == "-" || token == "+")
             refuse(name, fmt("expected {}, found \"{}\"", expected, shorten(token + ahead_of_the_value())));
         was_read(name);
         return token;
+    }
+
+    void digits_into(std::string& token) {
+        while (from_.peek() >= '0' && from_.peek() <= '9') {
+            char const* const at = from_.window();
+            std::size_t const held = from_.held();
+            std::size_t run = 0;
+            while (run < held && at[run] >= '0' && at[run] <= '9') run++;
+            token.append(at, run);
+            from_.skip_plain(run);
+        }
     }
 
     std::string take_word(value_name const& name, site where, char const* expected, long long cap = 0) {
@@ -1200,7 +1520,13 @@ public:
             int const next = from_.peek();
             if (next < 0 || is_blank(next)) break;
             if (cap > 0 && static_cast<long long>(token.size()) >= cap) break;
-            token.push_back(static_cast<char>(from_.take()));
+            char const* const at = from_.window();
+            std::size_t held = from_.held();
+            if (cap > 0) held = std::min<std::size_t>(held, static_cast<std::size_t>(cap) - token.size());
+            std::size_t run = 0;
+            while (run < held && !is_blank(static_cast<unsigned char>(at[run]))) run++;
+            token.append(at, run);
+            from_.skip_plain(run);
         }
         was_read(name);
         return token;
@@ -1208,26 +1534,29 @@ public:
 
     void study(value_name const& name, long long low, long long high, stated bounds, long long type_low,
                long long type_high, char const* type_word, site where) {
-        if (name.absent())
+        if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
         if (bounds == stated::absent) {
-            warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
+            if (fresh(loose_code_, where))
+                warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
             return;
         }
         if (bounds != stated::yes) return;
-        if (low == type_low && high == type_high)
+        if (low == type_low && high == type_high && fresh("EO104", where))
             warn("EO104", fmt("the bounds are the whole range of {}", type_word),
                  "say eo::any if any value is allowed", where);
-        if (low < type_low || high > type_high)
+        if ((low < type_low || high > type_high) && fresh("EO105", where))
             warn("EO105", fmt("the bounds {}..{} do not fit {}", low, high, type_word), "read a wider type",
                  where);
-        if (nearly_round(high) || nearly_round(low))
+        if ((nearly_round(high) || nearly_round(low)) && fresh("EO106", where))
             note("EO106", fmt("the bounds {}..{} are one away from a round number", low, high),
                  "compare them with the statement", where);
     }
 
 private:
+    static bool fresh(char const* code, site where) { return !diagnostics::shared().again(code, where); }
+
     char const* verdict_word() const {
         if (whose_ == fault::wrong_answer) return "wrong answer: ";
         if (whose_ == fault::jury_error) return "jury error: ";
@@ -1249,7 +1578,10 @@ private:
     }
 
     void was_read(value_name const& name) {
-        last_value_ = name.known() ? name.text() : std::string("the value before");
+        if (name.known()) last_value_ = name.key();
+        else last_value_ = "the value before";
+        last_indexed_ = name.known() && name.indexed();
+        last_index_ = name.index();
         separated_ = false;
         read_anything_ = true;
     }
@@ -1258,14 +1590,19 @@ private:
     void remember(value_name const& name, char const* kind, Bound low, Bound high, bool at_low, bool at_high,
                   site where) {
         if (!name.known()) return;
-        auto const found = bounds_.find(name.key());
-        if (found == bounds_.end()) {
-            seen_bounds fresh{kind, fmt("{}", low), fmt("{}", high), at_low, at_high, where, true};
-            note_the_numbers(fresh, low, high);
-            bounds_.emplace(name.key(), std::move(fresh));
-            return;
+        if (last_bounds_ == nullptr || last_key_ != name.key()) {
+            auto const found = bounds_.find(name.key());
+            if (found == bounds_.end()) {
+                seen_bounds fresh{kind, fmt("{}", low), fmt("{}", high), at_low, at_high, where, true};
+                note_the_numbers(fresh, low, high);
+                last_bounds_ = &bounds_.emplace(name.key(), std::move(fresh)).first->second;
+                last_key_ = name.key();
+                return;
+            }
+            last_bounds_ = &found->second;
+            last_key_ = name.key();
         }
-        seen_bounds& known = found->second;
+        seen_bounds& known = *last_bounds_;
         if (known.kind == kind && same_numbers(known, low, high)) {
             if (at_low) known.reached_low = true;
             if (at_high) known.reached_high = true;
@@ -1313,7 +1650,11 @@ private:
     bool lenient_ = false;
     char const* loose_code_ = "EO102";
     std::string last_value_;
+    bool last_indexed_ = false;
+    long long last_index_ = 0;
     std::map<std::string, seen_bounds> bounds_;
+    std::string last_key_;
+    seen_bounds* last_bounds_ = nullptr;
     bool separated_ = true;
     bool read_anything_ = false;
     bool exponents_ = false;
@@ -1355,16 +1696,45 @@ private:
     std::string complaint_;
 };
 
+namespace detail {
+
+struct first_repeat {
+    std::size_t first;
+    std::size_t second;
+};
+
+template <class T>
+inline first_repeat earliest_repeat(std::vector<std::pair<T, std::size_t>> placed) {
+    std::less<T> const before;
+    std::sort(placed.begin(), placed.end(), [&](auto const& left, auto const& right) {
+        if (before(left.first, right.first)) return true;
+        if (before(right.first, left.first)) return false;
+        return left.second < right.second;
+    });
+    first_repeat found{placed.size(), placed.size()};
+    std::size_t group = 0;
+    for (std::size_t at = 1; at < placed.size(); at++) {
+        if (before(placed[at - 1].first, placed[at].first)) {
+            group = at;
+            continue;
+        }
+        if (at == group + 1 && placed[at].second < found.second)
+            found = {placed[group].second, placed[at].second};
+    }
+    return found;
+}
+
+}  // namespace detail
+
 template <class T>
 [[nodiscard]] inline check_result all_distinct(std::vector<T> const& values) {
-    std::map<T, std::size_t> seen;
-    for (std::size_t at = 0; at < values.size(); at++) {
-        auto const found = seen.find(values[at]);
-        if (found != seen.end())
-            return check_result(fmt("elements {} and {} are both {}", found->second + 1, at + 1, values[at]));
-        seen.emplace(values[at], at);
-    }
-    return {};
+    std::vector<std::pair<T, std::size_t>> placed;
+    placed.reserve(values.size());
+    for (std::size_t at = 0; at < values.size(); at++) placed.emplace_back(values[at], at);
+    detail::first_repeat const found = detail::earliest_repeat(std::move(placed));
+    if (found.second == values.size()) return {};
+    return check_result(
+        fmt("elements {} and {} are both {}", found.first + 1, found.second + 1, values[found.second]));
 }
 
 template <class T>
@@ -1415,17 +1785,19 @@ inline int root_of(std::vector<int>& parent, int vertex) {
 
 [[nodiscard]] inline check_result is_simple_graph(int n, std::vector<edge> const& edges) {
     if (check_result inside = detail::vertices_are_inside(n, edges); !inside) return inside;
-    std::map<std::pair<int, int>, std::size_t> seen;
-    for (std::size_t at = 0; at < edges.size(); at++) {
-        edge const& one = edges[at];
-        if (one.u == one.v) return check_result(fmt("edge {} is a loop at vertex {}", at + 1, one.u));
-        std::pair<int, int> const key{std::min(one.u, one.v), std::max(one.u, one.v)};
-        auto const found = seen.find(key);
-        if (found != seen.end())
-            return check_result(
-                fmt("edges {} and {} are both ({}, {})", found->second + 1, at + 1, key.first, key.second));
-        seen.emplace(key, at);
+    std::size_t loop = 0;
+    while (loop < edges.size() && edges[loop].u != edges[loop].v) loop++;
+    std::vector<std::pair<std::pair<int, int>, std::size_t>> placed;
+    placed.reserve(loop);
+    for (std::size_t at = 0; at < loop; at++)
+        placed.push_back({{std::min(edges[at].u, edges[at].v), std::max(edges[at].u, edges[at].v)}, at});
+    detail::first_repeat const found = detail::earliest_repeat(std::move(placed));
+    if (found.second < loop) {
+        edge const& one = edges[found.second];
+        return check_result(fmt("edges {} and {} are both ({}, {})", found.first + 1, found.second + 1,
+                                std::min(one.u, one.v), std::max(one.u, one.v)));
     }
+    if (loop < edges.size()) return check_result(fmt("edge {} is a loop at vertex {}", loop + 1, edges[loop].u));
     return {};
 }
 
@@ -1471,12 +1843,14 @@ public:
         if (low > high) detail::library_error(fmt("uniform({}, {}) has no values in it", low, high));
         std::uint64_t const span = reach(low, high);
         if (span == 0) return static_cast<long long>(next());
-        return low + static_cast<long long>(below(span));
+        return static_cast<long long>(static_cast<std::uint64_t>(low) + below(span));
     }
 
     [[nodiscard]] double real(double low, double high) {
         double const fraction = static_cast<double>(next() >> 11) * (1.0 / 9007199254740992.0);
-        return low + fraction * (high - low);
+        double const span = high - low;
+        double volatile const part = fraction * span;
+        return low + part;
     }
 
     [[nodiscard]] bool chance(double odds) { return real(0, 1) < odds; }
@@ -1496,6 +1870,7 @@ public:
     }
 
     [[nodiscard]] std::vector<int> perm(int count, int first = 0) {
+        if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
         std::vector<int> values(static_cast<std::size_t>(count));
         for (int at = 0; at < count; at++) values[static_cast<std::size_t>(at)] = first + at;
         shuffle(values);
@@ -1503,22 +1878,22 @@ public:
     }
 
     [[nodiscard]] std::vector<long long> ints(long long count, long long low, long long high) {
-        std::vector<long long> values;
-        values.reserve(static_cast<std::size_t>(count));
+        if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
+        std::vector<long long> values = room_for(count);
         for (long long at = 0; at < count; at++) values.push_back(uniform(low, high));
         return values;
     }
 
     [[nodiscard]] std::vector<long long> distinct(long long count, long long low, long long high) {
         if (count < 0) detail::library_error(fmt("cannot draw {} values", count));
+        if (count == 0) return {};
+        std::vector<long long> values = room_for(count);
         if (low > high) detail::library_error(fmt("distinct({}, {}) has no values in it", low, high));
         std::uint64_t const span = reach(low, high);
         std::uint64_t const wanted = static_cast<std::uint64_t>(count);
         if (span != 0 && wanted > span)
             detail::library_error(fmt("cannot draw {} different values from {}..{}", count, low, high));
 
-        std::vector<long long> values;
-        values.reserve(static_cast<std::size_t>(count));
         if (span != 0 && span <= 4 * wanted) {
             for (std::uint64_t at = 0; at < span && values.size() < wanted; at++) {
                 std::uint64_t const left = span - at;
@@ -1527,9 +1902,22 @@ public:
                     values.push_back(low + static_cast<long long>(at));
             }
         } else {
-            std::set<long long> picked;
-            while (picked.size() < wanted) picked.insert(uniform(low, high));
-            values.assign(picked.begin(), picked.end());
+            int bits = 4;
+            while ((std::uint64_t{1} << bits) < 2 * wanted) bits++;
+            std::size_t const mask = (std::size_t{1} << bits) - 1;
+            std::vector<long long> slots(mask + 1);
+            std::vector<unsigned char> taken(mask + 1, 0);
+            while (values.size() < wanted) {
+                long long const drawn = uniform(low, high);
+                std::uint64_t const mixed = static_cast<std::uint64_t>(drawn) * 0x9e3779b97f4a7c15ull;
+                std::size_t at = static_cast<std::size_t>(mixed >> (64 - bits));
+                while (taken[at] != 0 && slots[at] != drawn) at = (at + 1) & mask;
+                if (taken[at] != 0) continue;
+                taken[at] = 1;
+                slots[at] = drawn;
+                values.push_back(drawn);
+            }
+            std::sort(values.begin(), values.end());
         }
         shuffle(values);
         return values;
@@ -1553,22 +1941,28 @@ public:
 
     [[nodiscard]] std::vector<long long> partition(long long count, long long sum, long long least = 1) {
         if (count < 1) detail::library_error(fmt("a partition has at least one part, not {}", count));
-        if (least * count > sum)
+        long long need = 0;
+        bool const huge = __builtin_mul_overflow(least, count, &need);
+        if ((huge && least > 0) || (!huge && need > sum))
             detail::library_error(fmt("{} parts of at least {} cannot add up to {}", count, least, sum));
-        std::vector<long long> cuts = distinct(count - 1, 1, sum - least * count + count - 1);
+        long long high = 0;
+        if (huge || __builtin_sub_overflow(sum, need, &high) || __builtin_add_overflow(high, count - 1, &high))
+            detail::library_error(fmt("partition({}, {}, {}) spans more values than a long long holds", count, sum,
+                                      least));
+        std::vector<long long> cuts = distinct(count - 1, 1, high);
         std::sort(cuts.begin(), cuts.end());
-        std::vector<long long> parts;
-        parts.reserve(static_cast<std::size_t>(count));
+        std::vector<long long> parts = room_for(count);
         long long last = 0;
         for (long long const one : cuts) {
             parts.push_back(one - last + least - 1);
             last = one;
         }
-        parts.push_back(sum - least * count + count - 1 - last + least - 1 + 1);
+        parts.push_back(high - last + least);
         return parts;
     }
 
     [[nodiscard]] std::string letters(long long length, charset const& allowed) {
+        if (length < 0) detail::library_error(fmt("cannot draw {} letters", length));
         std::vector<char> choices;
         for (int one = 0; one < 256; one++)
             if (allowed.has(static_cast<char>(one))) choices.push_back(static_cast<char>(one));
@@ -1580,6 +1974,18 @@ public:
     }
 
 private:
+    static std::vector<long long> room_for(long long count) {
+        std::vector<long long> values;
+        if (static_cast<unsigned long long>(count) > values.max_size())
+            detail::library_error(fmt("cannot draw {} values: no vector holds that many", count));
+        try {
+            values.reserve(static_cast<std::size_t>(count));
+        } catch (std::bad_alloc const&) {
+            detail::library_error(fmt("cannot draw {} values: there is not enough memory for them", count));
+        }
+        return values;
+    }
+
     static std::uint64_t reach(long long low, long long high) {
         return static_cast<std::uint64_t>(high) - static_cast<std::uint64_t>(low) + 1;
     }
@@ -1596,12 +2002,23 @@ private:
 
 namespace detail {
 
+inline std::uint64_t constexpr seed_start = 0xcbf29ce484222325ull;
+
+inline std::uint64_t seed_step(std::uint64_t mixed, unsigned char one) {
+    return (mixed ^ static_cast<std::uint64_t>(one)) * 0x100000001b3ull;
+}
+
 inline std::uint64_t seed_of(std::string const& bytes) {
-    std::uint64_t mixed = 0xcbf29ce484222325ull;
-    for (char const one : bytes) {
-        mixed ^= static_cast<std::uint64_t>(static_cast<unsigned char>(one));
-        mixed *= 0x100000001b3ull;
-    }
+    std::uint64_t mixed = seed_start;
+    for (char const one : bytes) mixed = seed_step(mixed, static_cast<unsigned char>(one));
+    return mixed;
+}
+
+inline std::uint64_t seed_of_file(char const* path) {
+    source reading = source::over_file(path, true);
+    std::uint64_t mixed = seed_start;
+    for (int one = reading.take(); one >= 0; one = reading.take())
+        mixed = seed_step(mixed, static_cast<unsigned char>(one));
     return mixed;
 }
 
@@ -1624,7 +2041,7 @@ public:
 
     bool has(std::string const& name) const { return values_.count(name) != 0; }
 
-    void set_fraction(double what) { fraction_ = what; }
+    void set_fraction(double what) { fraction_ = what == 0 ? 0.0 : what; }
     void set_message(std::string what) {
         message_ = one_line(std::move(what));
     }
@@ -1634,7 +2051,17 @@ public:
             if (one == '\n' || one == '\r') one = ' ';
         return what;
     }
-    void record(std::string name, double what) { values_[std::move(name)] = what; }
+    void record(std::string name, double what) {
+        bool plain = !name.empty();
+        for (char const one : name) plain = plain && static_cast<unsigned char>(one) > ' ' && one != 0x7F;
+        if (!plain)
+            detail::library_error(fmt("the value name \"{}\" is not one word; a summary needs a name with no "
+                                      "spaces or line breaks in it", detail::shorten(name)));
+        if (!std::isfinite(what))
+            detail::library_error(fmt("the value \"{}\" is {}, which a summary cannot carry; record a finite number",
+                                      name, what));
+        values_[std::move(name)] = what == 0 ? 0.0 : what;
+    }
 
     std::string written() const {
         std::string out = fmt("{} 1\n", marker());
@@ -1722,15 +2149,37 @@ private:
     reader* before_;
 };
 
-inline double clamped(double fraction) {
+struct scored {
+    double value;
+    site where;
+
+    template <class T, class = std::enable_if_t<std::is_convertible_v<T, double>>>
+    scored(T&& what, char const* file = __builtin_FILE(), int line = __builtin_LINE())
+        : value(static_cast<double>(std::forward<T>(what))), where{file, line} {}
+};
+
+[[noreturn]] inline void refuse_a_score(std::string const& what) {
+    library_error(fmt("{} is not a number the judge can pay; look for zero divided by zero, or an infinity "
+                      "less an infinity, in the formula", what));
+}
+
+inline double clamped(double fraction, site where) {
+    if (std::isnan(fraction)) refuse_a_score(fmt("a score of {}", fraction));
+    if (fraction >= 2 && std::isfinite(fraction)) {
+        warn("EO205", fmt("a score of {} was clamped to 1; it looks like a percentage or points, and eo::score "
+                          "takes a fraction of the test", fraction),
+             "use eo::ratio(a, b) for a out of b, or eo::points for points", where);
+        return 1.0;
+    }
     if (fraction < 0 || fraction > 1) {
         warn("EO205", fmt("a score of {} was clamped into 0..1", fraction), "keep the formula inside the test",
-             site::here());
+             where);
         return fraction < 0 ? 0.0 : 1.0;
     }
     if (fraction > 0 && fraction < 1 && fraction > 1 - 1e-9)
-        warn("EO206", fmt("a score of {} is a hair below full marks", fraction),
-             "use eo::ratio(a, b), which is exact", site::here());
+        warn("EO206", fmt("a score of {} is a hair below full marks, which the judge may read as full marks",
+                          fraction),
+             "use eo::ratio(a, b), which is exact", where);
     return fraction;
 }
 
@@ -1745,7 +2194,25 @@ inline std::string format_points(double value) {
     return std::string(buffer, static_cast<std::size_t>(written));
 }
 
+inline double test_cost() {
+    char const* const set = environment("TEST_COST");
+    if (set == nullptr) {
+        if (on_judge() && !diagnostics::shared().raised_already("EO213"))
+            warn("EO213", "TEST_COST is not set, so this test is taken to be worth 100 points",
+                 "points and partial scores follow from the cost; report the judge's configuration", site::here());
+        return 100;
+    }
+    real_read const parsed = parse_real(set, true);
+    if (parsed.problem == number_problem::none) return parsed.value;
+    if (on_judge() && !diagnostics::shared().raised_already("EO213"))
+        warn("EO213", fmt("TEST_COST is \"{}\", which is not a number, so this test is taken to be worth 0 points",
+                          shorten(set)),
+             "points and partial scores follow from the cost; report the judge's configuration", site::here());
+    return 0;
+}
+
 inline double rounded(double value, int digits) {
+    if (digits > 15) return value;
     double scale = 1;
     for (int at = 0; at < digits; at++) scale *= 10;
     return std::round(value * scale) / scale;
@@ -1756,6 +2223,9 @@ inline double rounded(double value, int digits) {
 class budget {
 public:
     template <class Owner>
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     budget(Owner& owner, long long limit, std::string name)
         : keeper_(&owner), judge_(&owner), limit_(limit), name_(std::move(name)) {
         keeper_->declare_budget();
@@ -1790,13 +2260,13 @@ private:
 };
 
 template <class... Args>
-[[noreturn]] inline void accept(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void accept(detail::pattern pattern = "", Args const&... args) {
     detail::judging().pass(1, fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void wrong(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void wrong(detail::pattern pattern = "", Args const&... args) {
     std::string const message = fmt(pattern, args...);
     if (detail::blaming() != nullptr) detail::blaming()->refuse(detail::value_name(unnamed), message);
     detail::judging().fail_run(message);
@@ -1804,38 +2274,45 @@ template <class... Args>
 }
 
 template <class... Args>
-[[noreturn]] inline void jury_error(std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void jury_error(detail::pattern pattern = "", Args const&... args) {
     detail::judging().fail_jury(fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(double fraction, std::string_view pattern = "", Args const&... args) {
-    detail::judging().pass(detail::clamped(fraction), fmt(pattern, args...));
+[[noreturn]] inline void score(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
+    detail::judging().pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(double fraction, rounding how, std::string_view pattern = "",
+[[noreturn]] inline void score(detail::scored fraction, rounding how, detail::pattern pattern = "",
                                Args const&... args) {
     detail::scorer& one = detail::judging();
-    double const paid = detail::rounded(detail::clamped(fraction) * one.cost(), how.digits);
+    double const paid = detail::rounded(detail::clamped(fraction.value, fraction.where) * one.cost(), how.digits);
     one.pass(one.cost() > 0 ? paid / one.cost() : 0, fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void points(double paid, std::string_view pattern = "", Args const&... args) {
+[[noreturn]] inline void points(detail::scored given, detail::pattern pattern = "", Args const&... args) {
     detail::scorer& one = detail::judging();
+    double paid = given.value;
+    if (std::isnan(paid)) detail::refuse_a_score(fmt("{} points", paid));
+    if (paid < 0) {
+        detail::warn("EO205", fmt("{} points was clamped to 0", paid), "keep the formula inside the test",
+                     given.where);
+        paid = 0;
+    }
     if (paid > one.cost())
         detail::warn("EO207", fmt("{} points is more than the test's {}", paid, one.cost()),
-                     "the judge clamps it", detail::site::here());
+                     "the judge clamps it", given.where);
     one.pass(one.cost() > 0 ? paid / one.cost() : 0, fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-inline void log(std::string_view pattern, Args const&... args) {
+inline void log(detail::pattern pattern, Args const&... args) {
     detail::log_line(fmt(pattern, args...));
 }
 
@@ -1883,6 +2360,9 @@ inline validator*& live_validator() {
 
 class sum_limit : public detail::registered_sum {
 public:
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     sum_limit(long long limit, std::string name) : limit_(limit), name_(std::move(name)) {
         detail::live_sums().push_back(this);
         detail::sums_ever_made()++;
@@ -1898,7 +2378,10 @@ public:
     }
 
     sum_limit& operator+=(long long value) {
-        total_ += value;
+        long long sum = 0;
+        if (__builtin_add_overflow(total_, value, &sum))
+            detail::finish(3, fmt("{} does not fit a long long: {} was added to {}", name_, value, total_));
+        total_ = sum;
         return *this;
     }
 
@@ -2184,7 +2667,7 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, std::string_view message, Args const&... args) {
+    void require(bool condition, detail::pattern message, Args const&... args) {
         if (!condition) invalid(detail::value_name(unnamed), fmt(message, args...));
     }
 
@@ -2247,7 +2730,7 @@ private:
     std::string found_name(int character) {
         char const* const known = detail::name_of(character);
         if (known[0] != '\0') return known;
-        return fmt("\"{}\"", static_cast<char>(character));
+        return fmt("\"{}\"", detail::escaped(std::string(1, static_cast<char>(character))));
     }
 
     int whole_int(long long low, long long high, detail::stated bounds, detail::value_name name,
@@ -2416,6 +2899,45 @@ inline checker*& live_checker() {
     return only;
 }
 
+inline std::FILE* opened_scratch(int descriptor) {
+    if (descriptor < 0) return nullptr;
+    std::FILE* const file = ::fdopen(descriptor, "w+b");
+    if (file == nullptr) ::close(descriptor);
+    return file;
+}
+
+inline std::FILE* scratch_in_memory() {
+#if defined(__linux__) && defined(SYS_memfd_create)
+    return opened_scratch(static_cast<int>(::syscall(SYS_memfd_create, "eolymp-checker-output", 0)));
+#else
+    return nullptr;
+#endif
+}
+
+inline std::FILE* scratch_in_the_temporary_directory() { return std::tmpfile(); }
+
+inline std::FILE* scratch_in_the_workspace() {
+    char name[] = "eolymp-checker-output-XXXXXX";
+    int const descriptor = ::mkstemp(name);
+    if (descriptor >= 0) ::unlink(name);
+    return opened_scratch(descriptor);
+}
+
+using scratch_maker = std::FILE* (*)();
+
+inline std::array<scratch_maker, 3> scratch_makers() {
+    return {&scratch_in_the_temporary_directory, &scratch_in_memory, &scratch_in_the_workspace};
+}
+
+template <std::size_t Count>
+inline std::FILE* first_scratch(std::array<scratch_maker, Count> const& makers) {
+    for (scratch_maker const make : makers)
+        if (std::FILE* const made = make()) return made;
+    return nullptr;
+}
+
+inline std::FILE* scratch_file() { return first_scratch(scratch_makers()); }
+
 class reader;
 
 }  // namespace detail
@@ -2565,7 +3087,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void wrong(std::string_view pattern, Args const&... args) const {
+    [[noreturn]] void wrong(detail::pattern pattern, Args const&... args) const {
         reader_.refuse(detail::value_name(unnamed), fmt(pattern, args...));
     }
 
@@ -2582,6 +3104,7 @@ private:
     friend class checker;
     friend class interactor;
     friend class controller;
+    friend class channel;
 
     detail::reader& inside() { return reader_; }
     bool trailing_matters() const { return trailing_matters_; }
@@ -2641,10 +3164,10 @@ public:
         if (detail::on_judge()) {
             saved_out_ = ::dup(1);
             saved_err_ = ::dup(2);
-            held_ = std::tmpfile();
+            held_ = detail::scratch_file();
             if (held_ == nullptr)
-                detail::library_error(  // LCOV_EXCL: a workspace with no writable temporary directory
-                    "the checker cannot open a temporary file for its own output");
+                detail::library_error("the checker cannot open a scratch file for its own output: not in memory, "
+                                      "not in the temporary directory and not in the workspace");
             ::dup2(::fileno(held_), 1);
             ::dup2(::fileno(held_), 2);
             detail::emitter() = &checker::write_log;
@@ -2662,21 +3185,23 @@ public:
         detail::blaming() = nullptr;
         detail::current_case() = 0;
         detail::emitter() = nullptr;
-        if (held_ != nullptr) put_the_output_back();
-        if (std::uncaught_exceptions() == 0 && !delivered_)
-            fail_jury("the checker ended without a verdict");
+        if (held_ != nullptr) {
+            put_the_output_back();
+            let_go_of_what_was_held();
+        }
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury("the checker ended without a verdict");
+#ifndef EOLYMP_TESTING
+        fail_jury("an exception left the checker before its verdict; catch it inside the checker's scope "
+                  "and give a verdict there, or let it end the program");
+#endif
     }
 
     stream input;
     stream output;
     stream jury;
 
-    double cost() const final {
-        char const* const set = detail::environment("TEST_COST");
-        if (set == nullptr) return 100;
-        detail::real_read const parsed = detail::parse_real(set, true);
-        return parsed.problem == detail::number_problem::none ? parsed.value : 0;
-    }
+    double cost() const final { return detail::test_cost(); }
 
     int group() const { return whole_of("TEST_GROUP"); }
     int index() const { return whole_of("TEST_INDEX"); }
@@ -2724,8 +3249,13 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
             std::string const want = jury.read_token(any, fmt("token {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
-            std::string const got = output.read_token(any, fmt("token {}", seen));
-            if (want != got) fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, got, want));
+            std::string const got = contestant_token(seen, want.size());
+            if (got.size() > want.size())
+                fail_run(fmt("token {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
+            if (want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                             detail::shorten(want)));
         }
     }
 
@@ -2740,16 +3270,21 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
             std::string const want = jury.read_token(any, fmt("token {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
-            std::string const got = output.read_token(any, fmt("token {}", seen));
-            detail::real_read const wanted = detail::parse_real(want, true);
-            detail::real_read const found = detail::parse_real(got, true);
+            std::size_t const longest = std::max<std::size_t>(want.size(), detail::reader::longest_number);
+            std::string const got = contestant_token(seen, longest);
+            if (got.size() > longest)
+                fail_run(fmt("token {} is longer than {} characters: \"{}\"", seen, longest, detail::shorten(got)));
+            detail::real_read const wanted = detail::parse_real(want, true, true);
+            detail::real_read const found = detail::parse_real(got, true, true);
             if (wanted.problem == detail::number_problem::none &&
                 found.problem == detail::number_problem::none) {
                 if (!close_enough(wanted.value, found.value, epsilon))
                     fail_run(fmt("value {} is {}, expected {}", seen, found.value, wanted.value));
                 continue;
             }
-            if (want != got) fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, got, want));
+            if (want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                             detail::shorten(want)));
         }
     }
 
@@ -2764,25 +3299,29 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} lines, the output has more", seen - 1));
             std::string want = jury.read_line(any, fmt("line {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} lines, the answer has more", seen - 1));
-            std::string got = output.read_line(any, fmt("line {}", seen));
-            while (!want.empty() && (want.back() == ' ' || want.back() == '\t')) want.pop_back();
-            while (!got.empty() && (got.back() == ' ' || got.back() == '\t')) got.pop_back();
+            bool longer = false;
+            std::string got = output.inside().line_up_to(want.size() + 1, longer, fmt("line {}", seen));
+            while (!want.empty() && trailing_blank(want.back())) want.pop_back();
+            if (longer)
+                fail_run(fmt("line {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
+            while (!got.empty() && trailing_blank(got.back())) got.pop_back();
             if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
                                           detail::shorten(want)));
         }
     }
 
-    [[noreturn]] void from_interactor() {
-        from_interactor([](summary const& what) { return what.fraction(); });
+    [[noreturn]] void from_interactor(detail::site where = detail::site::here()) {
+        from_interactor([](summary const& what) { return what.fraction(); }, where);
     }
 
     template <class Mapping>
-    [[noreturn]] void from_interactor(Mapping mapping) {
+    [[noreturn]] void from_interactor(Mapping mapping, detail::site where = detail::site::here()) {
         stock_ = true;
         output.inside().blame(detail::fault::jury_error);
         if (jury.inside().read_anything() == false) jury.skip_rest("an interactive problem is graded by the interactor");
         summary const said = read_summary(output);
-        pass(detail::clamped(mapping(said)), said.message());
+        pass(detail::clamped(mapping(said), where), said.message());
     }
 
     template <class Certificate>
@@ -2810,13 +3349,22 @@ public:
     }
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
         if (fraction >= 1) deliver(0, "ok", message);
         double const paid = fraction * cost();
+        std::string const printed = detail::format_points(paid);
+        if (cost() > 0 && std::strtof(printed.c_str(), nullptr) >= static_cast<float>(cost()))
+            detail::warn("EO206", fmt("'points {}' is below the test's {}, but the judge reads points as a "
+                                      "float, which rounds it to the full cost: the run counts as accepted",
+                                      printed, cost()),
+                         "use eo::ratio(a, b), which is exact, or eo::accept for full marks", detail::site::here());
         if (cost() <= 0)
-            detail::note("EO208", "a partial score with no cost is worth nothing",
-                         "samples and stress runs carry no points", detail::site::here());
-        deliver(7, "points " + detail::format_points(paid), message);
+            detail::warn("EO208", fmt("this test is worth {} points, so the judge counts this score of {} as "
+                                      "accepted: points reach a cost of 0", cost(), fraction),
+                         "end an answer that earns nothing with eo::wrong, which a sample shows as a wrong answer",
+                         detail::site::here());
+        deliver(7, "points " + printed, message);
     }
 
     [[noreturn]] void fail_run(std::string const& message) final {
@@ -2834,6 +3382,13 @@ public:
     }
 
 private:
+    static bool trailing_blank(char one) { return one == ' ' || one == '\t' || one == '\r'; }
+
+    std::string contestant_token(long long seen, std::size_t longest) {
+        return output.inside().take_word(fmt("token {}", seen), detail::site::here(), "a token",
+                                         static_cast<long long>(longest) + 1);
+    }
+
     static void write_log(std::string const& verdict) {
         checker* const one = detail::live_checker();
         if (one == nullptr) return;
@@ -2858,12 +3413,16 @@ private:
             said.wrong("this is not an interactor's summary: it starts with \"{}\"",
                        detail::shorten(marker));
         said.read_long(1, 1, "version");
+        std::set<std::string> seen;
         while (!said.at_eof()) {
             std::string const field = said.read_token(any, "field");
+            if (field != "value" && !seen.insert(field).second)
+                said.wrong("the summary has a second {} field", detail::shorten(field));
             if (field == "fraction") {
                 out.set_fraction(said.read_real(0.0, 1.0, "fraction"));
             } else if (field == "value") {
                 std::string const name = said.read_token(any, "name");
+                if (out.has(name)) said.wrong("the summary has a second value called \"{}\"", detail::shorten(name));
                 out.record(name, said.read_real(any, "value"));
             } else if (field == "message") {
                 std::string text = said.read_line(any, "message");
@@ -2909,34 +3468,45 @@ private:
         detail::finish(code, message.empty() ? head : head + " " + message);
     }
 
-    std::string put_the_output_back() {
-        std::string held;
+    void put_the_output_back() {
         std::fflush(stdout);
         std::fflush(stderr);
         ::dup2(saved_out_, 1);
         ::dup2(saved_err_, 2);
         ::close(saved_out_);
         ::close(saved_err_);
+    }
+
+    long long copy_what_was_held() {
         std::rewind(held_);
-        char buffer[4096];
+        char buffer[1 << 16];
+        long long copied = 0;
         std::size_t got = 0;
-        while ((got = std::fread(buffer, 1, sizeof(buffer), held_)) > 0) held.append(buffer, got);
+        while ((got = std::fread(buffer, 1, sizeof(buffer), held_)) > 0) {
+            std::fwrite(buffer, 1, got, stdout);
+            copied += static_cast<long long>(got);
+        }
+        return copied;
+    }
+
+    void let_go_of_what_was_held() {
         std::fclose(held_);
         held_ = nullptr;
-        return held;
     }
 
     void unwrap(std::string const& verdict) {
         detail::emitter() = nullptr;
-        std::string const held = held_ != nullptr ? put_the_output_back() : std::string();
+        bool const holding = held_ != nullptr;
+        if (holding) put_the_output_back();
         detail::report(verdict);
-        if (!held.empty()) std::fwrite(held.data(), 1, held.size(), stdout);
+        long long const held = holding ? copy_what_was_held() : 0;
+        if (holding) let_go_of_what_was_held();
         std::fwrite("eolymp.h ", 1, 9, stdout);
         std::fwrite(EOLYMP_H_VERSION, 1, std::strlen(EOLYMP_H_VERSION), stdout);
         std::fputc('\n', stdout);
         std::fflush(stdout);
-        if (held.size() > 64 * 1024)
-            detail::note("EO210", fmt("the checker printed {} bytes before its verdict", held.size()),
+        if (held > 64 * 1024)
+            detail::note("EO210", fmt("the checker printed {} bytes before its verdict", held),
                          "stored logs are truncated", detail::site::here());
     }
 
@@ -3006,8 +3576,12 @@ public:
         detail::live_interactor() = nullptr;
         detail::live_scorer() = nullptr;
         detail::current_case() = 0;
-        if (std::uncaught_exceptions() == 0 && !delivered_)
-            fail_jury("the interactor ended without a verdict");
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury("the interactor ended without a verdict");
+#ifndef EOLYMP_TESTING
+        fail_jury("an exception left the interactor before its verdict; catch it inside the interactor's scope "
+                  "and give a verdict there, or let it end the program");
+#endif
     }
 
     stream input;
@@ -3031,25 +3605,18 @@ public:
         if (pending_.empty()) return;
         if (waiting_) round_trips_++;
         waiting_ = false;
-        bool broken = false;
-        detail::write_all(1, pending_.data(), pending_.size(), broken);
+        if (!deaf_) write_while_listening();
         pending_.clear();
-        if (broken) fail_run("the solution stopped reading");
     }
 
-    double cost() const final {
-        char const* const set = detail::environment("TEST_COST");
-        if (set == nullptr) return 100;
-        detail::real_read const parsed = detail::parse_real(set, true);
-        return parsed.problem == detail::number_problem::none ? parsed.value : 0;
-    }
+    double cost() const final { return detail::test_cost(); }
 
     void value(std::string name, double what) { held_.record(std::move(name), what); }
 
     eo::rng& rng() {
         if (!seeded_) {
-            std::string const bytes = kept_test_.empty() ? whole_input() : kept_test_;
-            dice_ = eo::rng(detail::seed_of(bytes));
+            dice_ = eo::rng(kept_test_.empty() ? detail::seed_of_file(paths_[0].c_str())
+                                               : detail::seed_of(kept_test_));
             seeded_ = true;
         }
         return dice_;
@@ -3059,8 +3626,9 @@ public:
 
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
-        held_.set_fraction(fraction);
+        held_.set_fraction(std::min(fraction, 1.0));
         held_.set_message(message);
         put_the_summary_down();
         deliver(0, message.empty() ? "ok" : "ok " + message);
@@ -3094,10 +3662,7 @@ private:
     }
 
     [[noreturn]] void hand_the_file_on(std::string const& bytes) {
-        std::FILE* const file = std::fopen(paths_[1].c_str(), "wb");
-        if (file == nullptr) detail::library_error(fmt("cannot write the handoff to {}", paths_[1]));
-        std::fwrite(bytes.data(), 1, bytes.size(), file);
-        std::fclose(file);
+        detail::write_file(paths_[1], bytes, "handoff");
         deliver(0, "ok handed on to the next phase");
     }
 
@@ -3115,6 +3680,12 @@ private:
         std::fputc('\n', stderr);
         if (detail::live_interactor() != nullptr) detail::live_interactor()->report_traffic();
         std::fflush(stderr);
+    }
+
+    void write_while_listening() {
+        detail::write_while_absorbing(1, pending_, contestant.inside(), deaf_, "the solution", "interactor",
+                                      "read the solution's answers between sends instead of sending everything "
+                                      "first");
     }
 
     void waiting_and_flush() {
@@ -3158,16 +3729,13 @@ public:
 private:
 
     void put_the_summary_down() {
-        std::string const text = held_.written();
-        std::FILE* const file = std::fopen(paths_[1].c_str(), "wb");
-        if (file == nullptr) detail::library_error(fmt("cannot write the summary to {}", paths_[1]));
-        std::fwrite(text.data(), 1, text.size(), file);
-        std::fclose(file);
+        detail::write_file(paths_[1], held_.written(), "summary");
     }
 
     [[noreturn]] void deliver(int code, std::string text) {
         delivered_ = true;
-        detail::write_without_waiting(1, pending_);
+        if (!deaf_) detail::write_while_read(1, pending_, detail::last_words_patience_ms,
+                                                detail::last_words_deadline_ms);
         pending_.clear();
         detail::finish(code, text);
     }
@@ -3179,6 +3747,7 @@ private:
     eo::rng dice_{0};
     bool seeded_ = false;
     bool delivered_ = false;
+    bool deaf_ = false;
     bool reported_ = false;
     bool waiting_ = false;
     bool budget_spent_ = false;
@@ -3258,10 +3827,10 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void finish(double fraction, std::string_view pattern = "", Args const&... args) {
-        if (number_ >= count_) owner_->pass(detail::clamped(fraction), fmt(pattern, args...));
+    [[noreturn]] void finish(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
+        if (number_ >= count_) owner_->pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
         finished_ = true;
-        share_ = detail::clamped(fraction);
+        share_ = detail::clamped(fraction.value, fraction.where);
         note_ = fmt(pattern, args...);
         hand_on(std::string());
     }
@@ -3308,6 +3877,11 @@ private:
         if (parsed.problem != detail::number_problem::none)
             owner_->fail_jury("the previous phase left a handoff with no size on its test");
         bytes = parsed.value;
+        if (bytes < 0)
+            owner_->fail_jury(fmt("the previous phase left a handoff whose test has a size of {} bytes", bytes));
+        if (second == std::string::npos || static_cast<unsigned long long>(bytes) >= carried.size() - second - 1)
+            owner_->fail_jury(fmt("the previous phase left a handoff cut short of its {}-byte test and the "
+                                  "line break after it", bytes));
         test_ = carried.substr(second + 1, static_cast<std::size_t>(bytes));
         payload_ = carried.substr(second + 1 + static_cast<std::size_t>(bytes) + 1);
     }
@@ -3448,6 +4022,7 @@ private:
     std::string pending_;
     bool spoken_to_ = false;
     bool shut_ = false;
+    bool deaf_ = false;
 };
 
 class controller final : public detail::scorer, public detail::limits_keeper {
@@ -3492,8 +4067,12 @@ public:
         if (replies_ != nullptr) std::fclose(replies_);
         requests_ = nullptr;
         replies_ = nullptr;
-        if (std::uncaught_exceptions() == 0 && !delivered_)
-            fail_jury("the controller ended without a verdict");
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury("the controller ended without a verdict");
+#ifndef EOLYMP_TESTING
+        fail_jury("an exception left the controller before its verdict; catch it inside the controller's scope "
+                  "and give a verdict there, or let it end the program");
+#endif
     }
 
     stream input;
@@ -3527,7 +4106,7 @@ public:
         made->writes_ = ::open(to_them.c_str(), O_WRONLY);
         if (made->writes_ < 0) fail_jury(fmt("cannot write to instance {}", made->index_));
         std::string const named = fmt("instance {}", made->index_);
-        detail::source listening = detail::source::over_file(from_them.c_str(), false);
+        detail::source listening = detail::source::over_channel(from_them.c_str());
         made->reads_ = std::make_unique<stream>(std::move(listening), detail::fault::wrong_answer, named);
         made->reads_->inside().before_blocking(&controller::flush_from, this);
         made->reads_->inside().on_end(fmt("instance {} ended the dialogue early", made->index_));
@@ -3535,22 +4114,13 @@ public:
         return *team_.back();
     }
 
-    double cost() const final {
-        char const* const set = detail::environment("TEST_COST");
-        if (set == nullptr) return 100;
-        detail::real_read const parsed = detail::parse_real(set, true);
-        return parsed.problem == detail::number_problem::none ? parsed.value : 0;
-    }
+    double cost() const final { return detail::test_cost(); }
 
     void value(std::string name, double what) { held_.record(std::move(name), what); }
 
     eo::rng& rng() {
         if (!seeded_) {
-            detail::source reading = detail::source::over_file(paths_[0].c_str(), true);
-            std::string bytes;
-            for (int one = reading.take(); one >= 0; one = reading.take())
-                bytes.push_back(static_cast<char>(one));
-            dice_ = eo::rng(detail::seed_of(bytes));
+            dice_ = eo::rng(detail::seed_of_file(paths_[0].c_str()));
             seeded_ = true;
         }
         return dice_;
@@ -3562,14 +4132,11 @@ public:
     void spent_a_budget() final { budget_spent_ = true; }
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
-        held_.set_fraction(fraction);
+        held_.set_fraction(std::min(fraction, 1.0));
         held_.set_message(message);
-        std::string const text = held_.written();
-        std::FILE* const file = std::fopen(paths_[1].c_str(), "wb");
-        if (file == nullptr) detail::library_error(fmt("cannot write the summary to {}", paths_[1]));
-        std::fwrite(text.data(), 1, text.size(), file);
-        std::fclose(file);
+        detail::write_file(paths_[1], held_.written(), "summary");
         deliver(0, message.empty() ? "ok" : "ok " + message);
     }
 
@@ -3684,16 +4251,18 @@ private:
 inline void channel::flush() {
     if (pending_.empty() || shut_) return;
     spoken_to_ = true;
-    bool broken = false;
-    detail::write_all(writes_, pending_.data(), pending_.size(), broken);
+    if (!deaf_)
+        detail::write_while_absorbing(writes_, pending_, reads_->inside(), deaf_, fmt("instance {}", index_),
+                                      "controller",
+                                      "read the instances' answers between sends instead of sending everything "
+                                      "first");
     owner_->sent_bytes_ += static_cast<long long>(pending_.size());
     pending_.clear();
-    if (broken) owner_->fail_run(fmt("instance {} stopped reading", index_));
 }
 
 inline void channel::hand_over() {
-    if (pending_.empty() || shut_) return;
-    detail::write_without_waiting(writes_, pending_);
+    if (pending_.empty() || shut_ || deaf_) return;
+    detail::write_while_read(writes_, pending_, detail::last_words_patience_ms, detail::last_words_deadline_ms);
     pending_.clear();
 }
 
@@ -3761,7 +4330,8 @@ public:
         base_ = detail::seed_of(all);
         dice_.emplace("", eo::rng(base_));
         std::fflush(stdout);
-        started_ = ::lseek(1, 0, SEEK_CUR);
+        struct stat towards {};
+        if (::fstat(1, &towards) == 0 && S_ISREG(towards.st_mode)) started_ = ::lseek(1, 0, SEEK_CUR);
         detail::log_file() = stderr;
         detail::emitter() = &generator::say;
         out.owner_ = this;
@@ -3830,7 +4400,7 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, std::string_view pattern, Args const&... args) {
+    void require(bool condition, detail::pattern pattern, Args const&... args) {
         if (!condition) refuse(fmt(pattern, args...));
     }
 
@@ -3848,11 +4418,10 @@ public:
     public:
         template <class... Args>
         void line(Args const&... values) {
-            std::string built;
             bool first = true;
-            (detail::add_to_line(built, values, first), ...);
-            built.push_back('\n');
-            put(built);
+            (add(values, first), ...);
+            held_.push_back('\n');
+            if (held_.size() >= 1u << 20) flush();
         }
 
         void line() { put("\n"); }
@@ -3871,6 +4440,18 @@ public:
 
     private:
         friend class generator;
+
+        template <class T>
+        void add(T const& value, bool& first) {
+            if constexpr (detail::is_a_list<T>::value && !std::is_convertible_v<T const&, std::string_view>) {
+                for (auto const& one : value) {
+                    add(one, first);
+                    if (held_.size() >= 1u << 20) flush();
+                }
+            } else {
+                detail::add_to_line(held_, value, first);
+            }
+        }
 
         void put(std::string const& bytes) {
             held_ += bytes;
@@ -3968,7 +4549,11 @@ private:
         if (written_ > 64ll * 1024 * 1024)
             detail::warn("EO502", fmt("this test is {} bytes", written_),
                          "storage and judging time", where_of_run_);
-        std::fflush(stdout);
+        int const flushed = std::fflush(stdout);
+        int const reason = errno;
+        if (flushed != 0) detail::finish(3, fmt("the test could not be written: {}", std::strerror(reason)));
+        if (std::ferror(stdout))
+            detail::finish(3, "the test could not be written: an earlier write to stdout failed");
         long long const ended = ::lseek(1, 0, SEEK_CUR);
         if (!describing_ && started_ >= 0 && ended >= 0 && ended - started_ != written_)
             detail::warn("EO503", fmt("{} bytes reached stdout without going through g.out",

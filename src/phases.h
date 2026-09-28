@@ -67,10 +67,10 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void finish(double fraction, std::string_view pattern = "", Args const&... args) {
-        if (number_ >= count_) owner_->pass(detail::clamped(fraction), fmt(pattern, args...));
+    [[noreturn]] void finish(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
+        if (number_ >= count_) owner_->pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
         finished_ = true;
-        share_ = detail::clamped(fraction);
+        share_ = detail::clamped(fraction.value, fraction.where);
         note_ = fmt(pattern, args...);
         hand_on(std::string());
     }
@@ -117,6 +117,11 @@ private:
         if (parsed.problem != detail::number_problem::none)
             owner_->fail_jury("the previous phase left a handoff with no size on its test");
         bytes = parsed.value;
+        if (bytes < 0)
+            owner_->fail_jury(fmt("the previous phase left a handoff whose test has a size of {} bytes", bytes));
+        if (second == std::string::npos || static_cast<unsigned long long>(bytes) >= carried.size() - second - 1)
+            owner_->fail_jury(fmt("the previous phase left a handoff cut short of its {}-byte test and the "
+                                  "line break after it", bytes));
         test_ = carried.substr(second + 1, static_cast<std::size_t>(bytes));
         payload_ = carried.substr(second + 1 + static_cast<std::size_t>(bytes) + 1);
     }

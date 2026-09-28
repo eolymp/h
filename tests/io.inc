@@ -91,7 +91,7 @@ EO_TEST(a_buffer_too_small_to_look_ahead_keeps_the_carriage_return) {
 
 EO_TEST(ahead_shows_what_comes_next_without_consuming_it) {
     eo::detail::source over = eo::detail::source::over_text("hello world", false);
-    EO_CHECK_EQ(over.ahead(5), std::string(""));
+    EO_CHECK_EQ(over.ahead(5), std::string("hello"));
     EO_CHECK_EQ(over.peek(), static_cast<int>('h'));
     EO_CHECK_EQ(over.ahead(5), std::string("hello"));
     EO_CHECK_EQ(over.ahead(5), std::string("hello"));
@@ -135,6 +135,24 @@ EO_TEST(looking_ahead_never_waits_for_more_of_a_pipe) {
     ::close(ends[0]);
 }
 
+EO_TEST(looking_ahead_takes_what_has_arrived_beyond_the_buffer) {
+    std::string const text = "abcdefghijklmnopqrst";
+    eo::detail::source over = eo::detail::source::over_text(text, false, 16);
+    for (int at = 0; at < 10; at++) (void)over.take();
+    EO_CHECK_EQ(over.held(), static_cast<std::size_t>(6));
+    EO_CHECK_EQ(over.ahead(8), std::string("klmnopqr"));
+    EO_CHECK_EQ(over.ahead(64), std::string("klmnopqrst"));
+
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    EO_CHECK_EQ(::write(ends[1], "abc", 3), static_cast<ssize_t>(3));
+    eo::detail::source piped = eo::detail::source::over_descriptor(ends[0], true, false);
+    EO_CHECK_EQ(piped.peek(), static_cast<int>('a'));
+    EO_CHECK_EQ(::write(ends[1], "def\n", 4), static_cast<ssize_t>(4));
+    EO_CHECK_EQ(piped.ahead(64), std::string("abcdef\n"));
+    ::close(ends[1]);
+}
+
 EO_TEST(topping_up_takes_only_what_is_already_waiting) {
     int ends[2] = {-1, -1};
     EO_CHECK_EQ(::pipe(ends), 0);
@@ -162,22 +180,190 @@ EO_TEST(topping_up_a_text_source_never_waits) {
     EO_CHECK(!over.top_up());
 }
 
-EO_TEST(a_last_word_is_written_without_waiting_for_room) {
+EO_TEST(a_last_word_is_written_while_it_is_read) {
     ::signal(SIGPIPE, SIG_IGN);
     int ends[2] = {-1, -1};
     EO_CHECK_EQ(::pipe(ends), 0);
-    eo::detail::write_without_waiting(ends[1], "done\n");
+    eo::detail::write_while_read(ends[1], "done\n", 50, 1000);
     char got[8] = {};
     EO_CHECK_EQ(::read(ends[0], got, sizeof(got)), static_cast<ssize_t>(5));
     EO_CHECK_EQ(std::string(got, 5), std::string("done\n"));
 
-    std::string const block(1 << 16, 'x');
-    for (int at = 0; at < 64; at++) eo::detail::write_without_waiting(ends[1], block);
-    eo::detail::write_without_waiting(ends[1], "never waits\n");
-
+    std::string const whole(1 << 20, 'x');
+    int counted[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(counted), 0);
+    pid_t const reader = ::fork();
+    if (reader == 0) {
+        ::close(ends[1]);
+        long long total = 0;
+        char chunk[4096];
+        for (int round = 1;; round++) {
+            ssize_t const one = ::read(ends[0], chunk, sizeof(chunk));
+            if (one <= 0) break;
+            total += one;
+            if (round % 32 == 0) ::usleep(2000);
+        }
+        ssize_t const told = ::write(counted[1], &total, sizeof(total));
+        ::_exit(told == static_cast<ssize_t>(sizeof(total)) ? 0 : 1);
+    }
     ::close(ends[0]);
-    eo::detail::write_without_waiting(ends[1], "nobody reads this\n");
+    eo::detail::write_while_read(ends[1], whole, 1000, 20000);
     ::close(ends[1]);
+    long long total = 0;
+    EO_CHECK_EQ(::read(counted[0], &total, sizeof(total)), static_cast<ssize_t>(sizeof(total)));
+    EO_CHECK_EQ(total, static_cast<long long>(whole.size()));
+    int status = 0;
+    ::waitpid(reader, &status, 0);
+    ::close(counted[0]);
+    ::close(counted[1]);
+
+    EO_CHECK_EQ(::pipe(ends), 0);
+    auto const started = std::chrono::steady_clock::now();
+    eo::detail::write_while_read(ends[1], whole, 50, 1000);
+    auto const waited = std::chrono::steady_clock::now() - started;
+    EO_CHECK(waited >= std::chrono::milliseconds(50));
+    EO_CHECK(waited < std::chrono::seconds(5));
+    ::close(ends[0]);
+    eo::detail::write_while_read(ends[1], "nobody reads this\n", 5000, 5000);
+    EO_CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(5));
+    ::close(ends[1]);
+}
+
+EO_TEST(a_last_word_gives_up_on_a_reader_that_trickles) {
+    ::signal(SIGPIPE, SIG_IGN);
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    pid_t const reader = ::fork();
+    if (reader == 0) {
+        ::close(ends[1]);
+        char chunk[4096];
+        for (int round = 0; round < 400; round++) {
+            if (::read(ends[0], chunk, sizeof(chunk)) <= 0) break;
+            ::usleep(20000);
+        }
+        ::_exit(0);
+    }
+    ::close(ends[0]);
+    std::string const whole(1 << 22, 'x');
+    auto const started = std::chrono::steady_clock::now();
+    eo::detail::write_while_read(ends[1], whole, 500, 300);
+    auto const waited = std::chrono::steady_clock::now() - started;
+    EO_CHECK(waited >= std::chrono::milliseconds(300));
+    EO_CHECK(waited < std::chrono::milliseconds(2000));
+    ::close(ends[1]);
+    int status = 0;
+    ::waitpid(reader, &status, 0);
+}
+
+EO_TEST(a_non_blocking_pipe_is_waited_on_both_ways) {
+    ::signal(SIGPIPE, SIG_IGN);
+    int towards[2] = {-1, -1};
+    int back[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(towards), 0);
+    EO_CHECK_EQ(::pipe(back), 0);
+    ::fcntl(towards[1], F_SETFL, ::fcntl(towards[1], F_GETFL) | O_NONBLOCK);
+    ::fcntl(back[0], F_SETFL, ::fcntl(back[0], F_GETFL) | O_NONBLOCK);
+    pid_t const echo = ::fork();
+    if (echo == 0) {
+        ::close(towards[1]);
+        ::close(back[0]);
+        ::usleep(50000);
+        long long total = 0;
+        char chunk[4096];
+        for (;;) {
+            ssize_t const one = ::read(towards[0], chunk, sizeof(chunk));
+            if (one <= 0) break;
+            total += one;
+        }
+        std::string const said = std::to_string(total) + "\n";
+        ::usleep(50000);
+        ssize_t const told = ::write(back[1], said.data(), said.size());
+        ::_exit(told == static_cast<ssize_t>(said.size()) ? 0 : 1);
+    }
+    ::close(towards[0]);
+    ::close(back[1]);
+    std::string const whole(1 << 18, 'x');
+    bool deaf = false;
+    eo::detail::source heard = eo::detail::source::over_descriptor(back[0], true, false);
+    eo::detail::write_while_absorbing(towards[1], whole, heard, deaf, "the child", "test",
+                                      "read between sends");
+    EO_CHECK(!deaf);
+    ::close(towards[1]);
+    EO_CHECK_EQ(drain(heard), std::string("262144\n"));
+    int status = 0;
+    ::waitpid(echo, &status, 0);
+    EO_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+EO_TEST(a_source_lets_its_descriptor_go_once_it_has_read_everything) {
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    EO_CHECK_EQ(::write(ends[1], "last\n", 5), static_cast<ssize_t>(5));
+    ::close(ends[1]);
+    eo::detail::source owned = eo::detail::source::over_descriptor(ends[0], true, false,
+                                                                    eo::detail::source::pipe_chunk);
+    EO_CHECK(::fcntl(ends[0], F_GETFD) >= 0);
+    EO_CHECK_EQ(drain(owned), std::string("last\n"));
+    EO_CHECK(::fcntl(ends[0], F_GETFD) < 0);
+    EO_CHECK(owned.at_end());
+}
+
+EO_TEST(a_channel_is_read_through_a_64_kb_buffer) {
+    std::string const path = temporary_path();
+    std::FILE* const writing = std::fopen(path.c_str(), "wb");
+    std::string const heard(300000, '7');
+    std::fwrite(heard.data(), 1, heard.size(), writing);
+    std::fclose(writing);
+    eo::detail::source channel = eo::detail::source::over_channel(path.c_str());
+    EO_CHECK_EQ(channel.peek(), static_cast<int>('7'));
+    EO_CHECK_EQ(channel.held(), static_cast<std::size_t>(1) << 16);
+    EO_CHECK_EQ(drain(channel), heard);
+    ::unlink(path.c_str());
+}
+
+EO_TEST(a_source_absorbs_what_is_waiting_up_to_a_limit) {
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    eo::detail::source over = eo::detail::source::over_descriptor(ends[0], true, false, 4);
+    EO_CHECK(over.absorb(100) == eo::detail::absorbed::nothing);
+    EO_CHECK_EQ(::write(ends[1], "0123456789", 10), static_cast<ssize_t>(10));
+    EO_CHECK(over.absorb(5) == eo::detail::absorbed::full);
+    EO_CHECK(over.absorb(100) == eo::detail::absorbed::some);
+    EO_CHECK_EQ(over.held(), static_cast<std::size_t>(10));
+    EO_CHECK_EQ(over.take(), static_cast<int>('0'));
+    EO_CHECK_EQ(::write(ends[1], "ab", 2), static_cast<ssize_t>(2));
+    EO_CHECK(over.absorb(100) == eo::detail::absorbed::some);
+    ::close(ends[1]);
+    EO_CHECK_EQ(drain(over), std::string("123456789ab"));
+    EO_CHECK(over.absorb(100) == eo::detail::absorbed::nothing);
+    eo::detail::source text = eo::detail::source::over_text("abc", false);
+    EO_CHECK(text.absorb(100) == eo::detail::absorbed::nothing);
+}
+
+EO_TEST(a_source_knows_how_much_of_a_file_is_left) {
+    std::string const path = temporary_path();
+    std::FILE* const writing = std::fopen(path.c_str(), "wb");
+    std::fputs("1 2 3\n", writing);
+    std::fclose(writing);
+    eo::detail::source file = eo::detail::source::over_file(path.c_str(), true, 4);
+    EO_CHECK_EQ(file.bytes_left(), 6LL);
+    EO_CHECK_EQ(file.take(), static_cast<int>('1'));
+    EO_CHECK_EQ(file.bytes_left(), 5LL);
+    EO_CHECK_EQ(drain(file), std::string(" 2 3\n"));
+    EO_CHECK_EQ(file.bytes_left(), 0LL);
+    ::unlink(path.c_str());
+    eo::detail::source text = eo::detail::source::over_text("abcdef", false, 4);
+    EO_CHECK_EQ(text.take(), static_cast<int>('a'));
+    EO_CHECK_EQ(text.bytes_left(), 5LL);
+    int ends[2] = {-1, -1};
+    EO_CHECK_EQ(::pipe(ends), 0);
+    EO_CHECK_EQ(::write(ends[1], "1 2 3\n", 6), static_cast<ssize_t>(6));
+    ::close(ends[1]);
+    eo::detail::source raw = eo::detail::source::over_descriptor(ends[0], false, false);
+    EO_CHECK_EQ(raw.bytes_left(), -1LL);
+    eo::stream piped(eo::detail::source::over_descriptor(ends[0], true, false), eo::detail::fault::jury_error,
+                     "pipe");
+    EO_CHECK(piped.read_ints(3, 1, 9, "a") == std::vector<int>({1, 2, 3}));
 }
 
 EO_TEST(a_descriptor_that_cannot_be_read_is_a_library_error) {

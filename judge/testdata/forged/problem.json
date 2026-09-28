@@ -1,0 +1,13 @@
+{
+  "title": "a solution that writes where the summary goes",
+  "type": "INTERACTIVE",
+  "timeLimit": 2000,
+  "memoryLimit": 268435456,
+  "checker": {"source": "checker.cpp", "files": ["../../../eolymp.h"]},
+  "interactor": {"source": "interactor.cpp", "files": ["../../../eolymp.h"]},
+  "solutions": [{"name": "forger", "source": "forger.cpp"}],
+  "testsets": [
+    {"index": 1, "scoringMode": "EACH", "feedbackPolicy": "COMPLETE",
+     "tests": [{"index": 1, "score": 100, "input": "01.in"}]}
+  ]
+}

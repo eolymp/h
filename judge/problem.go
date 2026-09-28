@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 )
 
 type Program struct {
@@ -80,6 +84,25 @@ func (p *Problem) Interactive() bool {
 	return p.Type == "INTERACTIVE" || p.Type == "COMMUNICATION"
 }
 
+func (p *Problem) Solution(name string) *Solution {
+	for _, one := range p.Solutions {
+		if one.Name == name {
+			return one
+		}
+	}
+	return nil
+}
+
+func (p *Problem) Judged(only string) []*Solution {
+	var judged []*Solution
+	for _, one := range p.Solutions {
+		if one.Name == only || (only == "" && one.Type != "DONT_RUN") {
+			judged = append(judged, one)
+		}
+	}
+	return judged
+}
+
 func (p *Problem) Testset(index int) *Testset {
 	for _, one := range p.Testsets {
 		if one.Index == index {
@@ -121,26 +144,195 @@ func LoadProblem(dir string) (*Problem, error) {
 	}
 
 	problem := &Problem{RunCount: 1, dir: dir}
-	if err := json.Unmarshal(body, problem); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(problem); err != nil {
+		return nil, fmt.Errorf("problem.json: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("problem.json: something follows the problem's closing brace")
+	}
+	var raw any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("problem.json: %w", err)
+	}
+	if err := exactNames(raw, reflect.TypeOf(problem)); err != nil {
+		return nil, fmt.Errorf("problem.json: %w", err)
+	}
+	if err := repeatedKey(json.NewDecoder(bytes.NewReader(body))); err != nil {
 		return nil, fmt.Errorf("problem.json: %w", err)
 	}
 
-	if problem.Type == "" {
-		problem.Type = "PROGRAM"
-	}
+	absent(&problem.Type, "UNKNOWN_TYPE", "PROGRAM")
 	if problem.RunCount < 1 {
 		problem.RunCount = 1
 	}
 	for _, testset := range problem.Testsets {
-		if testset.ScoringMode == "" {
-			testset.ScoringMode = "EACH"
-		}
-		if testset.FeedbackPolicy == "" {
-			testset.FeedbackPolicy = "COMPLETE"
-		}
-		if testset.DependencyMode == "" {
-			testset.DependencyMode = "FULLY_ACCEPTED"
-		}
+		absent(&testset.ScoringMode, "", "EACH")
+		absent(&testset.FeedbackPolicy, "UNKNOWN_FEEDBACK_POLICY", "COMPLETE")
+		absent(&testset.DependencyMode, "UNKNOWN_DEPENDENCY_MODE", "FULLY_ACCEPTED")
+	}
+	for _, solution := range problem.Solutions {
+		absent(&solution.Type, "UNSET", "")
+	}
+	if err := problem.checkNames(); err != nil {
+		return nil, fmt.Errorf("problem.json: %w", err)
 	}
 	return problem, nil
+}
+
+func exactNames(value any, kind reflect.Type) error {
+	for kind.Kind() == reflect.Pointer {
+		kind = kind.Elem()
+	}
+	var inside []any
+	switch kind.Kind() {
+	case reflect.Struct:
+		object, _ := value.(map[string]any)
+		for key, one := range object {
+			field, spelt := fieldCalled(kind, key)
+			if spelt != key {
+				return fmt.Errorf("the field %q is spelt %q; field names are case-sensitive", spelt, key)
+			}
+			if err := exactNames(one, field.Type); err != nil {
+				return err
+			}
+		}
+		return nil
+	case reflect.Slice:
+		inside, _ = value.([]any)
+	case reflect.Map:
+		object, _ := value.(map[string]any)
+		for _, one := range object {
+			inside = append(inside, one)
+		}
+	}
+	for _, one := range inside {
+		if err := exactNames(one, kind.Elem()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func fieldCalled(kind reflect.Type, key string) (reflect.StructField, string) {
+	var near reflect.StructField
+	spelt := ""
+	for at := 0; at < kind.NumField(); at++ {
+		field := kind.Field(at)
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if name == key {
+			return field, name
+		}
+		if strings.EqualFold(name, key) {
+			near, spelt = field, name
+		}
+	}
+	return near, spelt
+}
+
+func absent(value *string, unknown, otherwise string) {
+	if *value == "" || *value == unknown {
+		*value = otherwise
+	}
+}
+
+func oneOf(what, value string, allowed ...string) error {
+	for _, one := range allowed {
+		if value == one {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s is %q; it is one of %s", what, value, strings.Join(allowed, ", "))
+}
+
+func plainName(what, name string) error {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00") {
+		return fmt.Errorf("%s %q cannot be a file name; use letters, digits, dots, dashes and underscores",
+			what, name)
+	}
+	if len(name) > 240 {
+		return fmt.Errorf("%s %q... is %d bytes long; it becomes part of a directory name, so it holds at most 240",
+			what, name[:16], len(name))
+	}
+	return nil
+}
+
+func repeatedKey(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delim, opens := token.(json.Delim)
+	if !opens {
+		return nil
+	}
+	seen := map[string]bool{}
+	for decoder.More() {
+		if delim == '{' {
+			key, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			name, _ := key.(string)
+			if seen[name] {
+				return fmt.Errorf("%q appears twice in one object; the second would silently replace the first", name)
+			}
+			seen[name] = true
+		}
+		if err := repeatedKey(decoder); err != nil {
+			return err
+		}
+	}
+	_, err = decoder.Token()
+	return err
+}
+
+func (p *Problem) checkNames() error {
+	if err := oneOf("type", p.Type, "UNKNOWN_TYPE", "PROGRAM", "FUNCTION", "OUTPUT", "SQL", "ML", "QUIZ",
+		"INTERACTIVE", "COMMUNICATION", "WIDGET"); err != nil {
+		return err
+	}
+	if p.Type != "PROGRAM" && !p.Interactive() {
+		return fmt.Errorf("eo-judge does not run %s problems", p.Type)
+	}
+	for _, testset := range p.Testsets {
+		where := fmt.Sprintf("testset %d's ", testset.Index)
+		if err := oneOf(where+"scoringMode", testset.ScoringMode, "NO_SCORE", "EACH", "ALL", "WORST",
+			"BEST"); err != nil {
+			return err
+		}
+		if err := oneOf(where+"feedbackPolicy", testset.FeedbackPolicy,
+			"UNKNOWN_FEEDBACK_POLICY", "ICPC", "ICPC_EXPANDED", "COMPLETE"); err != nil {
+			return err
+		}
+		if err := oneOf(where+"dependencyMode", testset.DependencyMode,
+			"UNKNOWN_DEPENDENCY_MODE", "FULLY_ACCEPTED", "FIRST_POINT"); err != nil {
+			return err
+		}
+	}
+	for name := range p.Scripts {
+		if err := plainName("the script", name); err != nil {
+			return err
+		}
+	}
+	named := map[string]bool{}
+	for _, solution := range p.Solutions {
+		if err := plainName("the solution", solution.Name); err != nil {
+			return err
+		}
+		if named[solution.Name] {
+			return fmt.Errorf("two solutions are called %q; each needs a name of its own", solution.Name)
+		}
+		named[solution.Name] = true
+		if solution.Type == "" {
+			continue
+		}
+		if err := oneOf(fmt.Sprintf("solution %q's type", solution.Name), solution.Type, "UNSET",
+			"CORRECT", "INCORRECT", "WRONG_ANSWER", "TIMEOUT", "OVERFLOW", "TIMEOUT_OR_ACCEPTED",
+			"OVERFLOW_OR_ACCEPTED", "DONT_RUN", "FAILURE"); err != nil {
+			return err
+		}
+	}
+	return nil
 }

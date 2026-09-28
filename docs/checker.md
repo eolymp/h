@@ -89,7 +89,9 @@ Two consequences the library takes care of:
 - **A full score must exit 0, not 7.** An exit 7 is not an accept even at full points, and a
   testset that needs every test passed then awards nothing. `eo::score(1.0)` exits 0.
 - **Points are absolute, not a percentage.** A test worth 11 that receives `points 90.9` is
-  clamped to 11. `eo::score` takes a fraction of `TEST_COST`, so the two cannot be confused.
+  clamped to 11. `eo::score` takes a fraction of `TEST_COST` and multiplies; a percentage
+  given to it by mistake is clamped to full marks with warning EO205, which calls it a likely
+  percentage, and `EOLYMP_STRICT=1` or `eo-judge --strict` makes that fatal while you prepare.
 
 A run that earns a partial score is labelled **`PARTIALLY_CORRECT`**, so the verdict matches
 the score instead of reading as a plain wrong answer.
@@ -170,7 +172,8 @@ per element, which on 200,000 values is the difference between 2.4 MB and 39 MB.
 ### What counts as a number
 
 An integer is an optional `-` followed by digits, with no `+`, no leading zeros and no `-0`. Real numbers may carry an exponent, because many languages print
-small numbers that way. To take contestants as they come, or to refuse an exponent:
+small numbers that way, and may be a zero written with a minus, such as `-0.000000`, which
+`printf("%.6f", -1e-9)` prints; it reads as 0. To take contestants as they come, or to refuse an exponent:
 
 ```cpp
 c.output.numbers(eo::lenient);
@@ -202,7 +205,7 @@ eo::jury_error("the jury's path is not simple");
 | `eo::wrong(…)` | 1 | `wrong answer` | WRONG_ANSWER, 0 |
 | `eo::score(f)` with f = 1 | 0 | `ok` | ACCEPTED |
 | `eo::score(f)` with 0 < f < 1 | 7 | `points <f × cost>` | PARTIALLY_CORRECT, f × cost points |
-| `eo::score(f)` with f = 0 | 7 | `points 0` | PARTIALLY_CORRECT, 0 points |
+| `eo::score(f)` with f = 0 | 7 | `points 0` | PARTIALLY_CORRECT, 0 points; ACCEPTED on a test worth 0 |
 | `eo::points(p)` | as `eo::score(p / cost)` | | |
 | `eo::jury_error(…)` | 3 | `jury error` | VERIFICATION_FAILURE |
 
@@ -211,8 +214,11 @@ eo::jury_error("the jury's path is not simple");
 testset configuration, and the checker never hard-codes 100.
 
 **Use `eo::ratio(a, b)`** for "a out of b": it is exact, so `eo::ratio(n, n)` is exactly 1 and
-a perfect answer is an accept. A fraction outside [0, 1] is clamped with warning EO205, and
-one within 10⁻⁹ of 1 gets EO206.
+a perfect answer is an accept. A fraction outside [0, 1], an infinity included, is clamped
+with warning EO205, which says that a finite one of 2 or more looks like a percentage; one
+that is NaN is a jury error, and one within 10⁻⁹ of 1 gets EO206. So do points
+that the judge, which reads them as a 32-bit float, would round up to the full cost and so
+count as an accept.
 
 **Rounding.** Some tasks round the score, and a documented full score can be unreachable
 without it:
@@ -223,8 +229,9 @@ eo::score(quality, eo::round_to(0), "D = {}", d);
 
 **A partial score pays only in the right testset mode.** Under `ALL` a partially scored run
 is not a pass and the whole testset pays nothing; partial scores need `EACH` or `WORST`. On a
-test that carries no points — a sample, a stress run — a partial score is worth nothing, and
-the library says so with note EO208.
+test that carries no points — a sample, a stress run — any score, 0 included, reaches the
+test's cost of 0, so the judge counts the run as accepted; the library says so with warning
+EO208. An answer that earns nothing should end with `eo::wrong`.
 
 **Every path must end in a verdict.** Returning from `main` without one is a jury error.
 
@@ -240,7 +247,7 @@ a line that ends in a space
 
 and a blank line above
 n = 3
-eolymp.h 1.0.0
+eolymp.h 2.0.0
 ```
 
 Either of those lines would kill the parse if it reached the log before the verdict. Print
@@ -305,14 +312,15 @@ Each of these gives the verdict and ends the program.
 | Call | Accepts when |
 | --- | --- |
 | `c.tokens()` | the output has exactly the answer's tokens, in order; whitespace does not matter, letter case does |
-| `c.lines()` | the output has the answer's lines, ignoring trailing spaces and tabs |
-| `c.reals(eps)` | token by token: numbers agree within an absolute or relative error of `eps`, other tokens are equal |
+| `c.lines()` | the output has the answer's lines, ignoring trailing spaces, tabs and carriage returns |
+| `c.reals(eps)` | token by token: numbers agree within an absolute or relative error of `eps`, other tokens are equal; a token longer than 4096 characters and than the answer's is wrong |
 | `c.yes_no(certificate)` | a `YES`/`NO` answer, with a certificate after `YES` |
 | `c.yes_no(certificate, "POSSIBLE", "IMPOSSIBLE")` | the same with other words |
 
 Eolymp also has built-in `TOKENS` and `LINES` checkers that need no program at all. Use them
 when they are enough — but note that the built-in `TOKENS` fails with a system failure on a
-token over 64 KB, where `c.tokens()` has no such limit.
+token over 64 KB, where `c.tokens()` has no such limit: it reads a contestant token only one
+character past the answer's, so a huge token costs no memory.
 
 `yes_no` reads the first token of each side, ignoring case, and then:
 
@@ -367,7 +375,9 @@ wrong answer: case 2: output.txt, line 1, answer: expected an integer, found "x"
 ## Warnings
 
 A warning is about the problem, not about one run, and **it never changes a verdict**. Each
-carries a stable code, the line of your source and a fix; each is counted once per call site;
+carries a stable code, a line and a fix: the line of your source for a read, a bound or a
+clamped score, and the header's own line for how the run ended — EO201–EO204, EO206's
+rounding, EO208, EO210 and EO212. Each is counted once per call site;
 the report is capped at thirty lines. They appear as compiler warnings where they can be, on
 stderr locally, and in `checker.log` after the verdict on the judge, followed by one
 machine-readable `eo-report` line.
@@ -385,13 +395,14 @@ machine-readable `eo-report` line.
 | EO202 | the checker read neither the input nor the answer |
 | EO203 | the answer file still holds something when the checker finished |
 | EO204 | `eo::wrong` or `eo::jury_error` carries no message |
-| EO205 | a fraction outside [0, 1] was clamped |
-| EO206 | a fraction is a hair below full marks; use `eo::ratio` |
+| EO205 | a fraction outside [0, 1], or negative points, was clamped |
+| EO206 | a fraction is a hair below full marks, or its points round up to the cost on the judge; use `eo::ratio` |
 | EO207 | `eo::points` exceeded the test's cost |
-| EO208 | a partial score on a test that carries no points (a note) |
+| EO208 | a partial score, 0 included, on a test worth 0 points, which the judge counts as accepted |
 | EO210 | more than 64 KB was printed before the verdict (a note) |
 | EO211 | the checker runs as the legacy type (a note) |
 | EO212 | the problem declares `eo::many`, but the checker only compares with the jury |
+| EO213 | on the judge, `TEST_COST` is missing or not a number, so the cost is a guess |
 
 `EOLYMP_STRICT=1` turns every warning into a jury error while you prepare a problem. Notes
 stay notes. State the intent where there is a way to — `eo::any`, `eo::unnamed`,
@@ -442,4 +453,5 @@ Still missing:
 | `eo::element(name, index)` | names one element of a sequence, without a coverage entry of its own |
 | `eo::all_distinct`, `eo::is_sorted`, `eo::is_permutation`, `eo::is_tree`, `eo::is_connected`, `eo::is_simple_graph` | structural checks |
 | `eo::allow name("EO103", "why")` | silence one warning code in a scope |
-| `eo::version()`, `EOLYMP_H_VERSION` | the library's version |
+| `eo::version()`, `EOLYMP_H_VERSION` | the library's version, as a string |
+| `EOLYMP_H_VERSION_MAJOR`, `_MINOR`, `_PATCH` | the same version as three numbers, for `#if` |

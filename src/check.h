@@ -1,15 +1,20 @@
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <initializer_list>
+#include <set>
 #include <string_view>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include "core.h"
@@ -52,6 +57,45 @@ inline checker*& live_checker() {
     static checker* only = nullptr;
     return only;
 }
+
+inline std::FILE* opened_scratch(int descriptor) {
+    if (descriptor < 0) return nullptr;
+    std::FILE* const file = ::fdopen(descriptor, "w+b");
+    if (file == nullptr) ::close(descriptor);
+    return file;
+}
+
+inline std::FILE* scratch_in_memory() {
+#if defined(__linux__) && defined(SYS_memfd_create)
+    return opened_scratch(static_cast<int>(::syscall(SYS_memfd_create, "eolymp-checker-output", 0)));
+#else
+    return nullptr;
+#endif
+}
+
+inline std::FILE* scratch_in_the_temporary_directory() { return std::tmpfile(); }
+
+inline std::FILE* scratch_in_the_workspace() {
+    char name[] = "eolymp-checker-output-XXXXXX";
+    int const descriptor = ::mkstemp(name);
+    if (descriptor >= 0) ::unlink(name);
+    return opened_scratch(descriptor);
+}
+
+using scratch_maker = std::FILE* (*)();
+
+inline std::array<scratch_maker, 3> scratch_makers() {
+    return {&scratch_in_the_temporary_directory, &scratch_in_memory, &scratch_in_the_workspace};
+}
+
+template <std::size_t Count>
+inline std::FILE* first_scratch(std::array<scratch_maker, Count> const& makers) {
+    for (scratch_maker const make : makers)
+        if (std::FILE* const made = make()) return made;
+    return nullptr;
+}
+
+inline std::FILE* scratch_file() { return first_scratch(scratch_makers()); }
 
 class reader;
 
@@ -202,7 +246,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void wrong(std::string_view pattern, Args const&... args) const {
+    [[noreturn]] void wrong(detail::pattern pattern, Args const&... args) const {
         reader_.refuse(detail::value_name(unnamed), fmt(pattern, args...));
     }
 
@@ -219,6 +263,7 @@ private:
     friend class checker;
     friend class interactor;
     friend class controller;
+    friend class channel;
 
     detail::reader& inside() { return reader_; }
     bool trailing_matters() const { return trailing_matters_; }
@@ -278,10 +323,10 @@ public:
         if (detail::on_judge()) {
             saved_out_ = ::dup(1);
             saved_err_ = ::dup(2);
-            held_ = std::tmpfile();
+            held_ = detail::scratch_file();
             if (held_ == nullptr)
-                detail::library_error(  // LCOV_EXCL: a workspace with no writable temporary directory
-                    "the checker cannot open a temporary file for its own output");
+                detail::library_error("the checker cannot open a scratch file for its own output: not in memory, "
+                                      "not in the temporary directory and not in the workspace");
             ::dup2(::fileno(held_), 1);
             ::dup2(::fileno(held_), 2);
             detail::emitter() = &checker::write_log;
@@ -299,21 +344,23 @@ public:
         detail::blaming() = nullptr;
         detail::current_case() = 0;
         detail::emitter() = nullptr;
-        if (held_ != nullptr) put_the_output_back();
-        if (std::uncaught_exceptions() == 0 && !delivered_)
-            fail_jury("the checker ended without a verdict");
+        if (held_ != nullptr) {
+            put_the_output_back();
+            let_go_of_what_was_held();
+        }
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury("the checker ended without a verdict");
+#ifndef EOLYMP_TESTING
+        fail_jury("an exception left the checker before its verdict; catch it inside the checker's scope "
+                  "and give a verdict there, or let it end the program");
+#endif
     }
 
     stream input;
     stream output;
     stream jury;
 
-    double cost() const final {
-        char const* const set = detail::environment("TEST_COST");
-        if (set == nullptr) return 100;
-        detail::real_read const parsed = detail::parse_real(set, true);
-        return parsed.problem == detail::number_problem::none ? parsed.value : 0;
-    }
+    double cost() const final { return detail::test_cost(); }
 
     int group() const { return whole_of("TEST_GROUP"); }
     int index() const { return whole_of("TEST_INDEX"); }
@@ -361,8 +408,13 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
             std::string const want = jury.read_token(any, fmt("token {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
-            std::string const got = output.read_token(any, fmt("token {}", seen));
-            if (want != got) fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, got, want));
+            std::string const got = contestant_token(seen, want.size());
+            if (got.size() > want.size())
+                fail_run(fmt("token {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
+            if (want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                             detail::shorten(want)));
         }
     }
 
@@ -377,16 +429,21 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
             std::string const want = jury.read_token(any, fmt("token {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
-            std::string const got = output.read_token(any, fmt("token {}", seen));
-            detail::real_read const wanted = detail::parse_real(want, true);
-            detail::real_read const found = detail::parse_real(got, true);
+            std::size_t const longest = std::max<std::size_t>(want.size(), detail::reader::longest_number);
+            std::string const got = contestant_token(seen, longest);
+            if (got.size() > longest)
+                fail_run(fmt("token {} is longer than {} characters: \"{}\"", seen, longest, detail::shorten(got)));
+            detail::real_read const wanted = detail::parse_real(want, true, true);
+            detail::real_read const found = detail::parse_real(got, true, true);
             if (wanted.problem == detail::number_problem::none &&
                 found.problem == detail::number_problem::none) {
                 if (!close_enough(wanted.value, found.value, epsilon))
                     fail_run(fmt("value {} is {}, expected {}", seen, found.value, wanted.value));
                 continue;
             }
-            if (want != got) fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, got, want));
+            if (want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                             detail::shorten(want)));
         }
     }
 
@@ -401,25 +458,29 @@ public:
             if (jury_done) fail_run(fmt("the answer has {} lines, the output has more", seen - 1));
             std::string want = jury.read_line(any, fmt("line {}", seen));
             if (output_done) fail_run(fmt("the output ended after {} lines, the answer has more", seen - 1));
-            std::string got = output.read_line(any, fmt("line {}", seen));
-            while (!want.empty() && (want.back() == ' ' || want.back() == '\t')) want.pop_back();
-            while (!got.empty() && (got.back() == ' ' || got.back() == '\t')) got.pop_back();
+            bool longer = false;
+            std::string got = output.inside().line_up_to(want.size() + 1, longer, fmt("line {}", seen));
+            while (!want.empty() && trailing_blank(want.back())) want.pop_back();
+            if (longer)
+                fail_run(fmt("line {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
+            while (!got.empty() && trailing_blank(got.back())) got.pop_back();
             if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
                                           detail::shorten(want)));
         }
     }
 
-    [[noreturn]] void from_interactor() {
-        from_interactor([](summary const& what) { return what.fraction(); });
+    [[noreturn]] void from_interactor(detail::site where = detail::site::here()) {
+        from_interactor([](summary const& what) { return what.fraction(); }, where);
     }
 
     template <class Mapping>
-    [[noreturn]] void from_interactor(Mapping mapping) {
+    [[noreturn]] void from_interactor(Mapping mapping, detail::site where = detail::site::here()) {
         stock_ = true;
         output.inside().blame(detail::fault::jury_error);
         if (jury.inside().read_anything() == false) jury.skip_rest("an interactive problem is graded by the interactor");
         summary const said = read_summary(output);
-        pass(detail::clamped(mapping(said)), said.message());
+        pass(detail::clamped(mapping(said), where), said.message());
     }
 
     template <class Certificate>
@@ -447,13 +508,22 @@ public:
     }
 
     [[noreturn]] void pass(double fraction, std::string const& message) final {
+        if (std::isnan(fraction)) detail::refuse_a_score(fmt("a score of {}", fraction));
         closing_checks(fraction);
         if (fraction >= 1) deliver(0, "ok", message);
         double const paid = fraction * cost();
+        std::string const printed = detail::format_points(paid);
+        if (cost() > 0 && std::strtof(printed.c_str(), nullptr) >= static_cast<float>(cost()))
+            detail::warn("EO206", fmt("'points {}' is below the test's {}, but the judge reads points as a "
+                                      "float, which rounds it to the full cost: the run counts as accepted",
+                                      printed, cost()),
+                         "use eo::ratio(a, b), which is exact, or eo::accept for full marks", detail::site::here());
         if (cost() <= 0)
-            detail::note("EO208", "a partial score with no cost is worth nothing",
-                         "samples and stress runs carry no points", detail::site::here());
-        deliver(7, "points " + detail::format_points(paid), message);
+            detail::warn("EO208", fmt("this test is worth {} points, so the judge counts this score of {} as "
+                                      "accepted: points reach a cost of 0", cost(), fraction),
+                         "end an answer that earns nothing with eo::wrong, which a sample shows as a wrong answer",
+                         detail::site::here());
+        deliver(7, "points " + printed, message);
     }
 
     [[noreturn]] void fail_run(std::string const& message) final {
@@ -471,6 +541,13 @@ public:
     }
 
 private:
+    static bool trailing_blank(char one) { return one == ' ' || one == '\t' || one == '\r'; }
+
+    std::string contestant_token(long long seen, std::size_t longest) {
+        return output.inside().take_word(fmt("token {}", seen), detail::site::here(), "a token",
+                                         static_cast<long long>(longest) + 1);
+    }
+
     static void write_log(std::string const& verdict) {
         checker* const one = detail::live_checker();
         if (one == nullptr) return;
@@ -495,12 +572,16 @@ private:
             said.wrong("this is not an interactor's summary: it starts with \"{}\"",
                        detail::shorten(marker));
         said.read_long(1, 1, "version");
+        std::set<std::string> seen;
         while (!said.at_eof()) {
             std::string const field = said.read_token(any, "field");
+            if (field != "value" && !seen.insert(field).second)
+                said.wrong("the summary has a second {} field", detail::shorten(field));
             if (field == "fraction") {
                 out.set_fraction(said.read_real(0.0, 1.0, "fraction"));
             } else if (field == "value") {
                 std::string const name = said.read_token(any, "name");
+                if (out.has(name)) said.wrong("the summary has a second value called \"{}\"", detail::shorten(name));
                 out.record(name, said.read_real(any, "value"));
             } else if (field == "message") {
                 std::string text = said.read_line(any, "message");
@@ -546,34 +627,45 @@ private:
         detail::finish(code, message.empty() ? head : head + " " + message);
     }
 
-    std::string put_the_output_back() {
-        std::string held;
+    void put_the_output_back() {
         std::fflush(stdout);
         std::fflush(stderr);
         ::dup2(saved_out_, 1);
         ::dup2(saved_err_, 2);
         ::close(saved_out_);
         ::close(saved_err_);
+    }
+
+    long long copy_what_was_held() {
         std::rewind(held_);
-        char buffer[4096];
+        char buffer[1 << 16];
+        long long copied = 0;
         std::size_t got = 0;
-        while ((got = std::fread(buffer, 1, sizeof(buffer), held_)) > 0) held.append(buffer, got);
+        while ((got = std::fread(buffer, 1, sizeof(buffer), held_)) > 0) {
+            std::fwrite(buffer, 1, got, stdout);
+            copied += static_cast<long long>(got);
+        }
+        return copied;
+    }
+
+    void let_go_of_what_was_held() {
         std::fclose(held_);
         held_ = nullptr;
-        return held;
     }
 
     void unwrap(std::string const& verdict) {
         detail::emitter() = nullptr;
-        std::string const held = held_ != nullptr ? put_the_output_back() : std::string();
+        bool const holding = held_ != nullptr;
+        if (holding) put_the_output_back();
         detail::report(verdict);
-        if (!held.empty()) std::fwrite(held.data(), 1, held.size(), stdout);
+        long long const held = holding ? copy_what_was_held() : 0;
+        if (holding) let_go_of_what_was_held();
         std::fwrite("eolymp.h ", 1, 9, stdout);
         std::fwrite(EOLYMP_H_VERSION, 1, std::strlen(EOLYMP_H_VERSION), stdout);
         std::fputc('\n', stdout);
         std::fflush(stdout);
-        if (held.size() > 64 * 1024)
-            detail::note("EO210", fmt("the checker printed {} bytes before its verdict", held.size()),
+        if (held > 64 * 1024)
+            detail::note("EO210", fmt("the checker printed {} bytes before its verdict", held),
                          "stored logs are truncated", detail::site::here());
     }
 

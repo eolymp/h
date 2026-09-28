@@ -6,9 +6,10 @@ and what to do about it.
 
 **A warning never changes a verdict.** It cannot make a test invalid or an answer wrong.
 `EOLYMP_STRICT=1` in the environment, or `eo-judge --strict`, makes the first warning fatal;
-that is for a preparation loop, not for the judge. `eo::allow("EO106", "the statement really
-says n ≤ 200001")` silences one code inside a scope and needs a reason, which the report
-lists, so a silence stays visible.
+that is for a preparation loop, not for the judge. `eo::allow quiet("EO106", "the statement
+really says n ≤ 200001");` silences one code for the rest of its scope and needs a reason,
+which the report lists, so a silence stays visible. It has to be a named object: written as
+a bare statement it would end at the semicolon, and the compiler warns about that.
 
 **Where a warning comes out** — the stderr block locally, one line plus an `eo-report` JSON
 line on the judge, and the channel each role can afford to write to — is in
@@ -23,7 +24,7 @@ line on the judge, and the channel each role can afford to write to — is in
 | `eo-judge check` | the emulator, reading the whole problem; **never appears in a judge log** |
 | `eo-judge lint` | a textual scan of the source, for what no run can see |
 
-All 74 designed codes are built.
+All 77 designed codes are built.
 
 ## EO1xx — reading a value
 
@@ -42,6 +43,7 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO109` | warning | the program | a real number is read with no rule on its digits | say how many digits follow the point: `read_real(low, high, least, most, name)` |
 | `EO110` | note | the program | a local input has CRLF line endings | the judge converts them and so does a local run, so this is a note about the file, not the test |
 | `EO111` | note | the program | a token over 1 MB was held in memory | bound its length if the format allows |
+| `EO112` | warning | the program | a message has more or fewer `{}` than values, or a lone `{` or `}`, such as a printf-style `"%d"` | write one `{}` for each value and `{{` or `}}` for a brace; the message keeps every value, the extra ones appended, and the verdict stands |
 
 ## EO2xx — the checker
 
@@ -51,14 +53,15 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO202` | warning | the program | the checker read neither the input nor the answer | a verdict that cannot depend on the test is not a checker |
 | `EO203` | warning | the program | the answer file still holds unread content when the checker finished | read it, or say why not: `c.jury.skip_rest("...")` |
 | `EO204` | warning | the program | a wrong answer carries no message | say what was wrong with it; the message is what the author sees in the log |
-| `EO205` | warning | the program | a score outside 0..1 was clamped | keep the formula inside the test; Eolymp reads a fraction of the test cost, not a percentage |
-| `EO206` | warning | the program | a score is a hair below full marks, from floating-point division | use `eo::ratio(a, b)`, which is exact |
+| `EO205` | warning | the program | a score outside 0..1, or negative `eo::points`, was clamped; a score of 2 or more is called a likely percentage or points | keep the formula inside the test; Eolymp reads a fraction of the test cost, not a percentage: use `eo::ratio(a, b)`, or `eo::points` for points |
+| `EO206` | warning | the program | a score is a hair below full marks, from floating-point division, or its points are below the cost but round up to it in the judge's 32-bit float, so the run counts as ACCEPTED | use `eo::ratio(a, b)`, which is exact, or `eo::accept` for full marks |
 | `EO207` | warning | the program | more points were given than the test is worth | the judge clamps it to the cost; scale the formula instead |
-| `EO208` | note | the program | a partial score on a test with no cost | samples and stress runs carry no points, so the fraction is discarded |
+| `EO208` | warning | the program | a partial score, 0 included, on a test worth 0 points, such as a sample: the judge counts any points as reaching a cost of 0, so the run is ACCEPTED | end an answer that earns nothing with `eo::wrong`, which the sample then shows as a wrong answer |
 | `EO209` | warning | the program | the checker ran for more than half of the judge's 10 000 ms wall limit | a slower machine or a busy judge would not finish it in time |
 | `EO210` | note | the program | the checker printed a large amount before its verdict | stored logs are truncated; print after the verdict line |
 | `EO211` | note | the program | the checker runs as the legacy type, which swaps its last two arguments | the ordinary `PROGRAM` type is the norm |
 | `EO212` | warning | the program | the problem declares many answers and the checker only compares with the jury's | compare properties, not the jury's text, or declare `eo::unique` |
+| `EO213` | warning | the program, on the judge | `TEST_COST` is missing, and the test is taken to be worth 100 points, or is not a number, and it is taken to be worth 0; points and partial scores then follow from the wrong cost | the judge sets `TEST_COST` for every checker, interactor and controller; report its configuration |
 
 ## EO3xx — the validator
 
@@ -84,6 +87,7 @@ Raised by `eo::interactor`, `eo::controller` and `eo::phases`.
 | `EO406` | note | the program | the test has an answer file the interactor never read | drop it, or read it |
 | `EO407` | warning | the program | a `run_count` handoff is large | the judge copies it between runs, so keep it small |
 | `EO408` | warning | the program | an instance was started and never talked to | spawn it where it is needed, or drop it |
+| `EO409` | warning | the program | while the interactor was still writing to the solution, the solution sent more than 16 MB of answers, which the library stops taking in, so the pair can wait for each other until the time limit; it is written to stderr the moment it is raised, because a run killed at the limit never reaches the report | read the solution's answers between sends instead of sending everything first |
 
 ## EO5xx — the generator
 
@@ -134,7 +138,7 @@ These are the checks the platform should eventually make when a problem is saved
 
 | Code | Severity | Reporter | Fires when | What to do |
 | --- | --- | --- | --- | --- |
-| `EO901` | warning | `eo-judge check` | an `EACH` testset carries `ICPC` feedback | ICPC stops after the first test worth nothing, so the rest score 0; use `COMPLETE` |
+| `EO901` | warning | `eo-judge check` | an `EACH` testset carries `ICPC` or `ICPC_EXPANDED` feedback | ICPC stops after the first test worth nothing, so the rest score 0; use `COMPLETE` |
 | `EO902` | warning | `eo-judge check` | an interactive problem has no wall `timeLimit` | the interactor is given the wall limit plus a second and nothing else bounds it |
 | `EO903` | warning | `eo-judge check` | a program includes a quoted header with no matching `files[]` entry | attach it, or the first run fails to compile and shows up only as a submission failure |
 | `EO904` | warning | `eo-judge check` | a testset is listed among its own dependencies | nothing in it will ever run |

@@ -60,6 +60,9 @@ inline validator*& live_validator() {
 
 class sum_limit : public detail::registered_sum {
 public:
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     sum_limit(long long limit, std::string name) : limit_(limit), name_(std::move(name)) {
         detail::live_sums().push_back(this);
         detail::sums_ever_made()++;
@@ -75,7 +78,10 @@ public:
     }
 
     sum_limit& operator+=(long long value) {
-        total_ += value;
+        long long sum = 0;
+        if (__builtin_add_overflow(total_, value, &sum))
+            detail::finish(3, fmt("{} does not fit a long long: {} was added to {}", name_, value, total_));
+        total_ = sum;
         return *this;
     }
 
@@ -361,7 +367,7 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, std::string_view message, Args const&... args) {
+    void require(bool condition, detail::pattern message, Args const&... args) {
         if (!condition) invalid(detail::value_name(unnamed), fmt(message, args...));
     }
 
@@ -424,7 +430,7 @@ private:
     std::string found_name(int character) {
         char const* const known = detail::name_of(character);
         if (known[0] != '\0') return known;
-        return fmt("\"{}\"", static_cast<char>(character));
+        return fmt("\"{}\"", detail::escaped(std::string(1, static_cast<char>(character))));
     }
 
     int whole_int(long long low, long long high, detail::stated bounds, detail::value_name name,

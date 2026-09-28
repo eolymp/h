@@ -102,7 +102,7 @@ func (a *chain) Notify(run *Planned, result *RunResult) {
 func admissionFor(problem *Problem) *chain {
 	built := &chain{}
 	for _, testset := range problem.Testsets {
-		if testset.FeedbackPolicy == "ICPC" {
+		if testset.FeedbackPolicy == "ICPC" || testset.FeedbackPolicy == "ICPC_EXPANDED" {
 			built.controllers = append(built.controllers, &showstopper{group: testset.Index})
 		}
 		if len(testset.Dependencies) == 0 {

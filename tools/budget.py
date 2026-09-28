@@ -1,20 +1,33 @@
 #!/usr/bin/env python3
+"""What the header costs the programs the pages show: compile time and object size.
+
+The validator is the first example in docs/README.md and the checker the first in
+docs/checker.md, so the measurement follows what an author actually writes. Each is compared
+with a file that includes only the standard headers eolymp.h uses.
+"""
 import os
 import pathlib
+import re
+import resource
 import subprocess
 import sys
-import time
 
-CEILING_SECONDS = 3.0
+CEILING_RATIO = 9.0
+BLOCK = re.compile(r"```cpp\n(.*?)```", re.S)
 
 BASELINE = """\
 #include <algorithm>
+#include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
+#include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -23,18 +36,25 @@ BASELINE = """\
 int main() { return 0; }
 """
 
-LIBRARY = """\
-#include "eolymp.h"
-int main() { return 0; }
-"""
+
+def first_program(page: pathlib.Path) -> str:
+    for code in BLOCK.findall(page.read_text()):
+        if "int main" in code:
+            return code
+    raise SystemExit(f"budget: {page} has no program to measure")
+
+
+def cpu_of_children():
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return usage.ru_utime + usage.ru_stime
 
 
 def fastest(command, root, runs=3):
     best = float("inf")
     for _ in range(runs):
-        started = time.perf_counter()
+        before = cpu_of_children()
         subprocess.run(command, cwd=root, check=True)
-        best = min(best, time.perf_counter() - started)
+        best = min(best, cpu_of_children() - before)
     return best
 
 
@@ -42,24 +62,33 @@ def main() -> int:
     root = pathlib.Path(__file__).resolve().parent.parent
     build = root / "build" / "budget"
     build.mkdir(parents=True, exist_ok=True)
-    (build / "baseline.cpp").write_text(BASELINE)
-    (build / "library.cpp").write_text(LIBRARY)
+    programs = {
+        "baseline": BASELINE,
+        "validator": first_program(root / "docs" / "README.md"),
+        "checker": first_program(root / "docs" / "checker.md"),
+    }
     compiler = os.environ.get("CXX", "c++")
     standard = os.environ.get("CXXSTD", "c++17")
-    measurements = {}
-    for name in ("baseline", "library"):
-        source = str(build / f"{name}.cpp")
+    measured = {}
+    for name, code in programs.items():
+        source = build / f"{name}.cpp"
+        source.write_text(code)
         common = [compiler, f"-std={standard}", f"-I{root}"]
-        measurements[name, "parse"] = fastest(common + ["-fsyntax-only", source], root)
-        measurements[name, "build"] = fastest(common + ["-O2", "-c", "-o", str(build / f"{name}.o"), source], root)
-    for stage in ("parse", "build"):
-        library = measurements["library", stage]
-        baseline = measurements["baseline", stage]
-        print(f"budget: {stage} {library:.2f}s, standard headers alone {baseline:.2f}s, "
-              f"eolymp.h adds {library - baseline:.2f}s")
-    if measurements["library", "build"] > CEILING_SECONDS:
-        print(f"budget: -O2 takes {measurements['library', 'build']:.2f}s, above the {CEILING_SECONDS}s ceiling",
-              file=sys.stderr)
+        parse = fastest(common + ["-fsyntax-only", str(source)], root)
+        target = build / f"{name}.o"
+        compile_time = fastest(common + ["-O2", "-c", "-o", str(target), str(source)], root)
+        measured[name] = (parse, compile_time, target.stat().st_size)
+    base = measured["baseline"]
+    worst = 0.0
+    for name in ("validator", "checker"):
+        parse, compile_time, size = measured[name]
+        worst = max(worst, compile_time / base[1])
+        print(f"budget: the {name} takes {parse:.2f}s of compiler CPU time to parse and {compile_time:.2f}s to "
+              f"build with -O2, into {size // 1024} KB, {compile_time / base[1]:.1f} times the standard headers "
+              f"alone, which take {base[0]:.2f}s and {base[1]:.2f}s")
+    if worst > CEILING_RATIO:
+        print(f"budget: an -O2 build takes {worst:.1f} times the compiler CPU time of the standard headers "
+              f"alone, above the ceiling of {CEILING_RATIO}", file=sys.stderr)
         return 1
     return 0
 

@@ -1,10 +1,12 @@
 #pragma once
 
+#include <cmath>
 #include <map>
 #include <string>
 
 #include "core.h"
 #include "fmt.h"
+#include "read.h"
 
 namespace eo {
 
@@ -22,7 +24,7 @@ public:
 
     bool has(std::string const& name) const { return values_.count(name) != 0; }
 
-    void set_fraction(double what) { fraction_ = what; }
+    void set_fraction(double what) { fraction_ = what == 0 ? 0.0 : what; }
     void set_message(std::string what) {
         message_ = one_line(std::move(what));
     }
@@ -32,7 +34,17 @@ public:
             if (one == '\n' || one == '\r') one = ' ';
         return what;
     }
-    void record(std::string name, double what) { values_[std::move(name)] = what; }
+    void record(std::string name, double what) {
+        bool plain = !name.empty();
+        for (char const one : name) plain = plain && static_cast<unsigned char>(one) > ' ' && one != 0x7F;
+        if (!plain)
+            detail::library_error(fmt("the value name \"{}\" is not one word; a summary needs a name with no "
+                                      "spaces or line breaks in it", detail::shorten(name)));
+        if (!std::isfinite(what))
+            detail::library_error(fmt("the value \"{}\" is {}, which a summary cannot carry; record a finite number",
+                                      name, what));
+        values_[std::move(name)] = what == 0 ? 0.0 : what;
+    }
 
     std::string written() const {
         std::string out = fmt("{} 1\n", marker());

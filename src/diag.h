@@ -58,9 +58,25 @@ public:
         return only;
     }
 
-    void raise(char const* code, severity level, std::string message, std::string fix, site where) {
-        if (record(code, level, message, std::move(fix), where) && level == severity::warning && strict_mode())
+    bool raise(char const* code, severity level, std::string message, std::string fix, site where) {
+        bool const fresh = record(code, level, message, std::move(fix), where);
+        if (fresh && level == severity::warning && strict_mode())
             finish(3, fmt("{}: {} {}: {}", where_of(where), "strict mode stops at", code, message));
+        return fresh;
+    }
+
+    bool again(char const* code, site where) {
+        for (allowance& permitted : allowed_)
+            if (permitted.code == code) {
+                permitted.count++;
+                return true;
+            }
+        for (raised& already : entries_)
+            if (already.code == code && already.where.line == where.line) {
+                already.count++;
+                return true;
+            }
+        return false;
     }
 
     void start_the_clock(char const* code, char const* role, long long limit_ms, site where) {
@@ -127,6 +143,12 @@ public:
 
     std::vector<raised> const& all() const { return entries_; }
 
+    bool raised_already(char const* code) const {
+        for (raised const& one : entries_)
+            if (std::string(one.code) == code) return true;
+        return false;
+    }
+
     void forget_everything() {
         entries_.clear();
         allowed_.clear();
@@ -170,10 +192,10 @@ private:
     static std::string times(long long count) { return count > 1 ? fmt(" ({} times)", count) : std::string(); }
 
     std::vector<raised> ordered() const {
-        std::vector<raised> sorted = entries_;
-        std::stable_sort(sorted.begin(), sorted.end(),
-                         [](raised const& left, raised const& right) { return left.level > right.level; });
-        if (sorted.size() > report_limit) sorted.resize(report_limit);
+        std::vector<raised> sorted;
+        for (severity const level : {severity::warning, severity::note})
+            for (raised const& one : entries_)
+                if (one.level == level && sorted.size() < report_limit) sorted.push_back(one);
         return sorted;
     }
 
@@ -193,14 +215,32 @@ inline void warn(char const* code, std::string message, std::string fix, site wh
     diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where);
 }
 
+inline void warn_at_once(char const* code, std::string message, std::string fix, site where) {
+    std::string const line = fmt("warning {} {} {}\n", code, where_of(where), message);
+    if (diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where)) {
+        std::fwrite(line.data(), 1, line.size(), stderr);
+        std::fflush(stderr);
+    }
+}
+
 inline void note(char const* code, std::string message, std::string fix, site where) {
     diagnostics::shared().raise(code, severity::note, std::move(message), std::move(fix), where);
 }
+
+inline void report_a_bad_pattern(std::string const& problem, char const* file, int line) {
+    warn("EO112", problem, "write one {} for each value and {{ or }} for a brace; the verdict stands",
+         site{file, line});
+}
+
+inline bool const bad_patterns_are_reported = (bad_pattern_hook() = &report_a_bad_pattern, true);
 
 }  // namespace detail
 
 class allow {
 public:
+#if defined(__clang__) || __GNUC__ >= 10
+    [[nodiscard]]
+#endif
     allow(std::string code, std::string reason, char const* file = __builtin_FILE(),
           int line = __builtin_LINE()) {
         detail::diagnostics::shared().allow_code(std::move(code), std::move(reason), detail::site{file, line});

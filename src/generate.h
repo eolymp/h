@@ -6,9 +6,12 @@
 #include <string>
 #include <vector>
 
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "core.h"
@@ -72,7 +75,8 @@ public:
         base_ = detail::seed_of(all);
         dice_.emplace("", eo::rng(base_));
         std::fflush(stdout);
-        started_ = ::lseek(1, 0, SEEK_CUR);
+        struct stat towards {};
+        if (::fstat(1, &towards) == 0 && S_ISREG(towards.st_mode)) started_ = ::lseek(1, 0, SEEK_CUR);
         detail::log_file() = stderr;
         detail::emitter() = &generator::say;
         out.owner_ = this;
@@ -141,7 +145,7 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, std::string_view pattern, Args const&... args) {
+    void require(bool condition, detail::pattern pattern, Args const&... args) {
         if (!condition) refuse(fmt(pattern, args...));
     }
 
@@ -159,11 +163,10 @@ public:
     public:
         template <class... Args>
         void line(Args const&... values) {
-            std::string built;
             bool first = true;
-            (detail::add_to_line(built, values, first), ...);
-            built.push_back('\n');
-            put(built);
+            (add(values, first), ...);
+            held_.push_back('\n');
+            if (held_.size() >= 1u << 20) flush();
         }
 
         void line() { put("\n"); }
@@ -182,6 +185,18 @@ public:
 
     private:
         friend class generator;
+
+        template <class T>
+        void add(T const& value, bool& first) {
+            if constexpr (detail::is_a_list<T>::value && !std::is_convertible_v<T const&, std::string_view>) {
+                for (auto const& one : value) {
+                    add(one, first);
+                    if (held_.size() >= 1u << 20) flush();
+                }
+            } else {
+                detail::add_to_line(held_, value, first);
+            }
+        }
 
         void put(std::string const& bytes) {
             held_ += bytes;
@@ -279,7 +294,11 @@ private:
         if (written_ > 64ll * 1024 * 1024)
             detail::warn("EO502", fmt("this test is {} bytes", written_),
                          "storage and judging time", where_of_run_);
-        std::fflush(stdout);
+        int const flushed = std::fflush(stdout);
+        int const reason = errno;
+        if (flushed != 0) detail::finish(3, fmt("the test could not be written: {}", std::strerror(reason)));
+        if (std::ferror(stdout))
+            detail::finish(3, "the test could not be written: an earlier write to stdout failed");
         long long const ended = ::lseek(1, 0, SEEK_CUR);
         if (!describing_ && started_ >= 0 && ended >= 0 && ended - started_ != written_)
             detail::warn("EO503", fmt("{} bytes reached stdout without going through g.out",

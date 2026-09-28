@@ -399,8 +399,9 @@ never show.
 ## Warnings
 
 A warning is about the problem, not about one test. **It never makes a test invalid.** Each
-one carries a stable code, the line of your source, and a fix; each is counted once per call
-site; the report is capped at thirty lines, warnings before notes.
+one carries a stable code and a fix, and the line of your source when it is about a call; one
+about the whole run, such as EO301 or EO304, names only the validator. Each is counted once
+per call site; the report is capped at thirty lines, warnings before notes.
 
 They appear as compiler warnings where they can be, on stderr when a local run ends, and on
 the judge in the validator's output, which the validation results keep for valid tests as well
@@ -437,7 +438,7 @@ eo::allow quiet("EO106", "the statement really says n <= 200001");
 
 Still missing:
 
-- A pattern syntax. Use a charset and a length, which is exact and faster; `eo::read_choice`
+- A pattern syntax. Use a charset and a length, which is exact and faster; `v.read_choice`
   covers a fixed set of words.
 
 The whole-problem checks EO806–EO811 and the configuration checks EO9xx are in
@@ -471,4 +472,5 @@ The whole-problem checks EO806–EO811 and the configuration checks EO9xx are in
 | `eo::element(name, index)` | names one element of a sequence, without a coverage entry of its own |
 | `eo::fmt("…", args)` | build a string with `{}` placeholders |
 | `eo::allow name("EO106", "why")` | silence one warning code in a scope |
-| `eo::version()`, `EOLYMP_H_VERSION` | the library's version |
+| `eo::version()`, `EOLYMP_H_VERSION` | the library's version, as a string |
+| `EOLYMP_H_VERSION_MAJOR`, `_MINOR`, `_PATCH` | the same version as three numbers, for `#if` |
