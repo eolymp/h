@@ -38,10 +38,11 @@ build_one bulk_solution -O2
 fused=
 if grep -qw fma /proc/cpuinfo 2>/dev/null; then
     fused=ok
-    for compiler in ${CXX:-c++} clang++; do
+    for compiler in "${CXX:-c++}" clang++; do
         command -v "${compiler%% *}" > /dev/null 2>&1 || continue
         drawer=$((${drawer:-0} + 1))
-        fused="$fused $drawer:$compiler"
+        fused="$fused $drawer"
+        echo "$compiler" > "$build/real_bits_$drawer.by"
         build_with "real_bits_$drawer" $compiler -std=${CXXSTD:-c++17} -O2 -march=haswell -ffp-contract=fast \
             -o "$build/real_bits_$drawer" "$root/tests/e2e/real_bits.cpp"
     done
@@ -235,9 +236,9 @@ expect_run "the generator given an option it never declared" 3 "*unknown option 
     pass "an undeclared option stops the generator before it writes"
 if [ -n "$fused" ]; then
     for built in ${fused#ok}; do
-        drawn=$("$build/real_bits_${built%%:*}")
+        drawn=$("$build/real_bits_$built")
         if [ "$drawn" != 14174797998470170970 ]; then
-            fail "rng.real under ${built#*:} with fused multiply-add drew $drawn"
+            fail "rng.real under $(cat "$build/real_bits_$built.by") with fused multiply-add drew $drawn"
             fused=
         fi
     done
