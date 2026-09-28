@@ -80,11 +80,11 @@ func NewWorkspace(problem *Problem, dir string) *Workspace {
 		Programs: map[string]*Built{}, Tests: map[string]*Prepared{}}
 }
 
-func (w *Workspace) Build(name string, program *Program) (*Built, error) {
+func (w *Workspace) Build(ctx context.Context, name string, program *Program) (*Built, error) {
 	if made, known := w.Programs[name]; known {
 		return made, nil
 	}
-	made, err := build(w.Problem, name, program, w.Dir)
+	made, err := build(ctx, w.Problem, name, program, w.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (w *Workspace) recipe(program *Program) string {
 	return keyOf(parts...)
 }
 
-func (w *Workspace) BuildAll(solutions []*Solution) error {
+func (w *Workspace) BuildAll(ctx context.Context, solutions []*Solution) error {
 	problem := w.Problem
 	var jobs []wanted
 	if problem.Checker != nil {
@@ -151,7 +151,7 @@ func (w *Workspace) BuildAll(solutions []*Solution) error {
 		go func(at int, job wanted) {
 			defer waiting.Done()
 			slots <- struct{}{}
-			built[at], failed[at] = build(problem, job.name, job.program, w.Dir)
+			built[at], failed[at] = build(ctx, problem, job.name, job.program, w.Dir)
 			<-slots
 		}(at, job)
 	}
@@ -170,12 +170,12 @@ func (w *Workspace) BuildAll(solutions []*Solution) error {
 	return nil
 }
 
-func (w *Workspace) script(name string) (*Built, error) {
+func (w *Workspace) script(ctx context.Context, name string) (*Built, error) {
 	script, known := w.Problem.Scripts[name]
 	if !known {
 		return nil, fmt.Errorf("no script named %q", name)
 	}
-	return w.Build("script."+name, script)
+	return w.Build(ctx, "script."+name, script)
 }
 
 func (w *Workspace) Generate(ctx context.Context) error {
@@ -223,7 +223,7 @@ func (w *Workspace) makeInput(ctx context.Context, made *Prepared) error {
 		return fmt.Errorf("test %d:%d has neither an input nor a generator", made.Group, test.Index)
 	}
 
-	built, err := w.script(test.Generator.Script)
+	built, err := w.script(ctx, test.Generator.Script)
 	if err != nil {
 		return err
 	}
@@ -271,7 +271,7 @@ func (w *Workspace) makeAnswer(ctx context.Context, made *Prepared) error {
 		return os.WriteFile(made.Answer, body, 0o644)
 	}
 
-	built, err := w.script(test.AnswerGenerator)
+	built, err := w.script(ctx, test.AnswerGenerator)
 	if err != nil {
 		return err
 	}
@@ -306,7 +306,7 @@ func (w *Workspace) Validate(ctx context.Context, group bool) error {
 	if w.Problem.Validator == nil {
 		return nil
 	}
-	built, err := w.Build("validator", w.Problem.Validator)
+	built, err := w.Build(ctx, "validator", w.Problem.Validator)
 	if err != nil {
 		return err
 	}
@@ -334,7 +334,7 @@ func (w *Workspace) Validate(ctx context.Context, group bool) error {
 }
 
 func (w *Workspace) describe(ctx context.Context, made *Prepared) (string, error) {
-	built, err := w.Build("validator", w.Problem.Validator)
+	built, err := w.Build(ctx, "validator", w.Problem.Validator)
 	if err != nil {
 		return "", err
 	}

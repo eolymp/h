@@ -56,7 +56,7 @@ func copyFile(from, to string) error {
 	return os.WriteFile(to, body, 0o644)
 }
 
-func build(problem *Problem, name string, program *Program, work string) (*Built, error) {
+func build(ctx context.Context, problem *Problem, name string, program *Program, work string) (*Built, error) {
 	if program == nil || program.Source == "" {
 		return nil, fmt.Errorf("%s has no source", name)
 	}
@@ -76,8 +76,15 @@ func build(problem *Problem, name string, program *Program, work string) (*Built
 	}
 
 	exe := filepath.Join(dir, "program")
-	said, err := exec.Command(compiler(), "-std="+standard(program.Runtime), "-O2", "-idirafter", dir, "-o", exe,
-		filepath.Join(dir, "source.cpp")).CombinedOutput()
+	command := exec.CommandContext(ctx, compiler(), "-std="+standard(program.Runtime), "-O2", "-idirafter", dir,
+		"-o", exe, filepath.Join(dir, "source.cpp"))
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error { return killGroup(command) }
+	command.WaitDelay = 250 * time.Millisecond
+	said, err := command.CombinedOutput()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("the build of %s was interrupted", name)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s does not compile:\n%s", name, strings.TrimSpace(string(said)))
 	}

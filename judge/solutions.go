@@ -25,7 +25,7 @@ func (w *Workspace) interactiveChecks(ctx context.Context, found *Findings) erro
 	if !w.Problem.Interactive() || w.Problem.Interactor == nil {
 		return nil
 	}
-	interactor, err := w.Build("interactor", w.Problem.Interactor)
+	interactor, err := w.Build(ctx, "interactor", w.Problem.Interactor)
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func (w *Workspace) interactiveChecks(ctx context.Context, found *Findings) erro
 		if err := os.WriteFile(source, []byte(body), 0o644); err != nil {
 			return err
 		}
-		client, err := build(&Problem{dir: dir}, "client", &Program{Source: "source.cpp"}, dir)
+		client, err := build(ctx, &Problem{dir: dir}, "client", &Program{Source: "source.cpp"}, dir)
 		if err != nil {
 			return err
 		}
@@ -171,7 +171,7 @@ func (w *Workspace) headroom(found *Findings, solution *Solution, attempt *Attem
 func (w *Workspace) Check(ctx context.Context, deep bool) (Findings, error) {
 	found := Configuration(w.Problem)
 
-	if err := w.BuildAll(w.Problem.Judged("")); err != nil {
+	if err := w.BuildAll(ctx, w.Problem.Judged("")); err != nil {
 		return found, err
 	}
 	if err := w.Generate(ctx); err != nil {

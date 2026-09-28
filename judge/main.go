@@ -113,6 +113,10 @@ func realMain(args []string, out, errs io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 	shop := NewWorkspace(problem, space)
 
 	switch command {
@@ -133,7 +137,7 @@ func realMain(args []string, out, errs io.Writer) int {
 
 func runProblem(ctx context.Context, shop *Workspace, only string, strict, verbose bool, out, errs io.Writer) int {
 	judged := shop.Problem.Judged(only)
-	if err := shop.BuildAll(judged); err != nil {
+	if err := shop.BuildAll(ctx, judged); err != nil {
 		fmt.Fprintln(errs, "eo-judge:", err)
 		return 3
 	}

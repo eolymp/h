@@ -132,7 +132,7 @@ func TestACrashAfterAnAcceptedDialogueIsNotForgiven(t *testing.T) {
 func judgeAll(t *testing.T, shop *Workspace) map[string]*Attempt {
 	t.Helper()
 	ctx := context.Background()
-	if err := shop.BuildAll(nil); err != nil {
+	if err := shop.BuildAll(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := shop.Generate(ctx); err != nil {

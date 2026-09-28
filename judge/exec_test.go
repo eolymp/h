@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,7 +20,7 @@ func TestAnAttachedHeaderIsFoundWithAngleBrackets(t *testing.T) {
 	write("attached_helper.h", "inline int answer() { return 42; }\n")
 	write("checker.cpp", "#include <attached_helper.h>\nint main() { return answer() == 42 ? 0 : 1; }\n")
 	problem := &Problem{dir: dir}
-	built, err := build(problem, "checker", &Program{Source: "checker.cpp", Files: []string{"attached_helper.h"}},
+	built, err := build(context.Background(), problem, "checker", &Program{Source: "checker.cpp", Files: []string{"attached_helper.h"}},
 		t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +44,7 @@ func TestTheSystemCopyOfAHeaderWinsOverAnAttachedOne(t *testing.T) {
 	write(filepath.Join(dir, "checker.cpp"), "#include <attached_helper.h>\nint main() { return answer(); }\n")
 	t.Setenv("CPLUS_INCLUDE_PATH", system)
 	problem := &Problem{dir: dir}
-	built, err := build(problem, "checker", &Program{Source: "checker.cpp", Files: []string{"attached_helper.h"}},
+	built, err := build(context.Background(), problem, "checker", &Program{Source: "checker.cpp", Files: []string{"attached_helper.h"}},
 		t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +55,34 @@ func TestTheSystemCopyOfAHeaderWinsOverAnAttachedOne(t *testing.T) {
 	}
 	if status.ExitCode != 7 {
 		t.Errorf("the program used the attached header, exiting %d", status.ExitCode)
+	}
+}
+
+func TestAnInterruptStopsABuildAndWhatItStarted(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "still-running")
+	slow := filepath.Join(dir, "slow-compiler")
+	script := "#!/bin/sh\n(sleep 2; touch " + marker + ") &\nsleep 30\n"
+	if err := os.WriteFile(slow, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.cpp"), []byte("int main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CXX", slow)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := build(ctx, &Problem{dir: dir}, "slow", &Program{Source: "a.cpp"}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "the build of slow was interrupted") {
+		t.Fatalf("said %v", err)
+	}
+	if spent := time.Since(started); spent > 5*time.Second {
+		t.Errorf("the build took %v to stop", spent)
+	}
+	time.Sleep(2500 * time.Millisecond)
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a process the compiler started outlived the build")
 	}
 }
 
@@ -102,7 +131,7 @@ func TestTheSameProgramIsBuiltOnceUnderEveryName(t *testing.T) {
 	problem := &Problem{dir: dir, Scripts: map[string]*Program{"a": same, "b": {Source: "gen.cpp"}},
 		Solutions: []*Solution{{Name: "full", Source: "gen.cpp"}}}
 	shop := NewWorkspace(problem, t.TempDir())
-	if err := shop.BuildAll(problem.Solutions); err != nil {
+	if err := shop.BuildAll(context.Background(), problem.Solutions); err != nil {
 		t.Fatal(err)
 	}
 	a, b, full := shop.Programs["script.a"], shop.Programs["script.b"], shop.Programs["solution.full"]
@@ -116,7 +145,7 @@ func TestTheSameProgramIsBuiltOnceUnderEveryName(t *testing.T) {
 		t.Errorf("names %s, %s, %s", a.Name, b.Name, full.Name)
 	}
 	problem.Checker = &Program{Source: "missing.cpp"}
-	if err := NewWorkspace(problem, t.TempDir()).BuildAll(nil); err == nil {
+	if err := NewWorkspace(problem, t.TempDir()).BuildAll(context.Background(), nil); err == nil {
 		t.Error("a program that cannot be built was not reported")
 	}
 }

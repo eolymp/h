@@ -17,7 +17,7 @@ type probe struct {
 }
 
 func (w *Workspace) probeChecker(ctx context.Context, made *Prepared, output string, cost float64) (probe, error) {
-	checker, err := w.Build("checker", w.Problem.Checker)
+	checker, err := w.Build(ctx, "checker", w.Problem.Checker)
 	if err != nil {
 		return probe{}, err
 	}
@@ -228,7 +228,7 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 		return nil
 	}
 
-	built, err := w.Build("validator", w.Problem.Validator)
+	built, err := w.Build(ctx, "validator", w.Problem.Validator)
 	if err != nil {
 		return err
 	}
@@ -369,7 +369,7 @@ var describedOption = regexp.MustCompile(`^eo-describe option (\S+) an? (integer
 
 func (w *Workspace) generatorChecks(ctx context.Context, found *Findings) error {
 	for name, script := range w.Problem.Scripts {
-		built, err := w.Build("script."+name, script)
+		built, err := w.Build(ctx, "script."+name, script)
 		if err != nil {
 			return err
 		}
@@ -394,7 +394,7 @@ func (w *Workspace) generatorChecks(ctx context.Context, found *Findings) error 
 		}
 
 		if other := otherCompiler(); other != "" {
-			twin, err := buildWith(other, w.Problem, "twin."+name, script, w.Dir)
+			twin, err := buildWith(ctx, other, w.Problem, "twin."+name, script, w.Dir)
 			if err != nil {
 				found.note("EO812", where, fmt.Sprintf("it does not build with %s: %v", other, err),
 					"a generator has to build with both compilers the judge may use")
@@ -491,7 +491,7 @@ func (w *Workspace) validateBody(ctx context.Context, body []byte) string {
 	if w.Problem.Validator == nil {
 		return ""
 	}
-	built, err := w.Build("validator", w.Problem.Validator)
+	built, err := w.Build(ctx, "validator", w.Problem.Validator)
 	if err != nil {
 		return err.Error()
 	}
@@ -538,9 +538,9 @@ func versionOf(name string) string {
 	return firstLine(string(said))
 }
 
-func buildWith(cxx string, problem *Problem, name string, program *Program, work string) (*Built, error) {
+func buildWith(ctx context.Context, cxx string, problem *Problem, name string, program *Program, work string) (*Built, error) {
 	before := os.Getenv("CXX")
 	os.Setenv("CXX", cxx)
 	defer os.Setenv("CXX", before)
-	return build(problem, name, program, work)
+	return build(ctx, problem, name, program, work)
 }

@@ -17,19 +17,19 @@ type Attempt struct {
 }
 
 func (w *Workspace) Evaluate(ctx context.Context, name string, source *Program) (*Attempt, error) {
-	built, err := w.Build("solution."+name, source)
+	built, err := w.Build(ctx, "solution."+name, source)
 	if err != nil {
 		return nil, err
 	}
 
-	checker, err := w.Build("checker", w.Problem.Checker)
+	checker, err := w.Build(ctx, "checker", w.Problem.Checker)
 	if err != nil {
 		return nil, err
 	}
 
 	var interactor *Built
 	if w.Problem.Interactive() {
-		if interactor, err = w.Build("interactor", w.Problem.Interactor); err != nil {
+		if interactor, err = w.Build(ctx, "interactor", w.Problem.Interactor); err != nil {
 			return nil, err
 		}
 	}
