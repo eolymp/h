@@ -768,6 +768,31 @@ EO_TEST(a_charset_range_that_runs_backwards_is_a_library_error) {
     EO_CHECK(!dash.has('b'));
 }
 
+EO_TEST(a_charset_can_be_built_from_a_string) {
+    std::string const spec = std::string("0-9") + "_";
+    eo::charset const digits(spec);
+    EO_CHECK(digits.has('7'));
+    EO_CHECK(digits.has('_'));
+    EO_CHECK(!digits.has('a'));
+    EO_CHECK_EQ(digits.text(), std::string("0-9_"));
+}
+
+EO_TEST(a_validator_reads_any_long_when_it_waives_the_bounds) {
+    eot::outcome const extremes = validate("-9223372036854775808 9223372036854775807\n", [](eo::validator& v) {
+        EO_CHECK_EQ(v.read_long(eo::any, "low"), std::numeric_limits<long long>::min());
+        v.read_space();
+        EO_CHECK_EQ(v.read_long(eo::any, "high"), std::numeric_limits<long long>::max());
+        v.read_eoln();
+    });
+    EO_CHECK(!extremes.stopped);
+    EO_CHECK_EQ(extremes.printed, std::string(""));
+    eot::outcome const beyond =
+        validate("9223372036854775808\n", [](eo::validator& v) { v.read_long(eo::any, "x"); });
+    EO_CHECK_EQ(beyond.code, 3);
+    EO_CHECK_EQ(beyond.text, std::string("line 1, x: expected an integer, found \"9223372036854775808\": it does not "
+                                         "fit the type it is read into"));
+}
+
 EO_TEST(a_warning_points_at_the_line_that_raised_it) {
     int wanted = 0;
     eot::outcome const result = validate("5\n", [&wanted](eo::validator& v) {

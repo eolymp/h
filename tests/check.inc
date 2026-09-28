@@ -1200,6 +1200,32 @@ EO_TEST(text_reads_on_a_checker_stream) {
     EO_CHECK_EQ(bounded.code, 0);
 }
 
+EO_TEST(a_checker_stream_reads_a_token_or_a_line_by_its_length_alone) {
+    eot::outcome const result = check_run("1\n", "a line, of words\nab!c\n", "x\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        EO_CHECK_EQ(c.output.read_line(1, 20, "line"), std::string("a line, of words"));
+        EO_CHECK_EQ(c.output.read_token(1, 4, "w"), std::string("ab!c"));
+        c.jury.read_token(eo::any, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(result.code, 0);
+    eot::outcome const token = check_run("1\n", "abcde\n", "x\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_token(1, 4, "w");
+        eo::accept();
+    });
+    EO_CHECK_EQ(token.code, 1);
+    EO_CHECK_EQ(token.text, std::string("wrong answer: output.txt, line 1, w: \"abcde\" is longer than 4 characters"));
+    eot::outcome const line = check_run("1\n", "abcde\n", "x\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        c.output.read_line(6, 9, "rest");
+        eo::accept();
+    });
+    EO_CHECK_EQ(line.code, 1);
+    EO_CHECK_EQ(line.text,
+                std::string("wrong answer: output.txt, line 1, rest: the line is 5 characters long, not 6..9"));
+}
+
 EO_TEST(loose_reads_on_a_checker_stream_are_warned_about) {
 #if defined(__clang__)
 #pragma clang diagnostic push
