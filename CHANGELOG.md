@@ -8,6 +8,10 @@
   `unknown option -m` as before, but no longer writes the first megabytes of a test over
   1 MB before it does. A generator that declares an option after its first megabyte of output
   writes the same bytes as before, later.
+- **A generator's argument errors go to stderr.** `n=5 is not an option` and `this program
+  already has a generator` were printed on stdout, into the test, before the generator had
+  pointed its reports at stderr; the generation failed with exit 3 as it still does, and
+  eo-judge, which shows a failed generator's stderr, now shows why.
 
 ## 2.1.0
 

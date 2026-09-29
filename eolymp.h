@@ -4598,6 +4598,8 @@ inline bool looks_like_a_seed(std::string const& word) {
 class generator {
 public:
     generator(int argc, char** argv, detail::site where = detail::site::here()) {
+        detail::log_file() = stderr;
+        detail::emitter() = &generator::say;
         if (detail::live_generator() != nullptr)
             detail::library_error(fmt("{}: this program already has a generator", detail::where_of(where)));
         detail::diagnostics::shared().start_the_clock("EO504", "generator", 60000, where);
@@ -4624,8 +4626,6 @@ public:
         std::fflush(stdout);
         struct stat towards {};
         if (::fstat(1, &towards) == 0 && S_ISREG(towards.st_mode)) started_ = ::lseek(1, 0, SEEK_CUR);
-        detail::log_file() = stderr;
-        detail::emitter() = &generator::say;
         out.owner_ = this;
         detail::live_generator() = this;
     }
@@ -4634,7 +4634,6 @@ public:
     generator& operator=(generator const&) = delete;
 
     ~generator() noexcept(false) {
-        detail::restore_channels afterwards;
         detail::live_generator() = nullptr;
         if (std::uncaught_exceptions() != 0) return;
         every_option_was_asked_for();
@@ -4886,6 +4885,7 @@ private:
 
     friend class sheet;
 
+    detail::restore_channels channels_;
     std::map<std::string, std::string> given_;
     std::set<std::string> asked_;
     std::vector<detail::declared_option> shape_;

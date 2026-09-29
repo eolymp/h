@@ -244,8 +244,8 @@ EO_TEST(an_unknown_option_is_refused_before_the_test_is_written) {
 EO_TEST(the_command_line_has_to_look_like_options) {
     made const bare = generate({"n=5"}, [](eo::generator& g) { g.out.line("never"); });
     EO_CHECK_IN(bare.text, "n=5 is not an option; write -name=value");
-    EO_CHECK_EQ(bare.test, std::string("eolymp.h: n=5 is not an option; write -name=value\n"));
-    EO_CHECK_EQ(bare.log, std::string(""));
+    EO_CHECK_EQ(bare.test, std::string(""));
+    EO_CHECK_EQ(bare.log, std::string("eolymp.h: n=5 is not an option; write -name=value\n"));
     made const dashed = generate({"-n"}, [](eo::generator& g) { g.out.line("never"); });
     EO_CHECK_IN(dashed.text, "-n is not an option");
     made const twice = generate({}, [](eo::generator& g) {
