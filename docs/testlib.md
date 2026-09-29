@@ -118,6 +118,7 @@ See [interactor.md](interactor.md).
 | `rnd.partition(k, sum, least)` | `r.partition(k, sum, least)` |
 | `rnd.next("[a-z]{5}")` | `r.letters(5, eo::charset("a-z"))` |
 | `println(a)`, `cout << a` | `g.out.line(a)` |
+| lattice points on a circle, found by a loop over `x` | `eo::shapes::cocircular(r, count, limit)`, from `eolymp-shapes.h` |
 
 `r` is `g.rng()`, the default stream, or `g.rng("label")`, a named one.
 

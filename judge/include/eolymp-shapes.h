@@ -841,6 +841,28 @@ inline std::vector<long long> chained(rng& draw, long long count, long long limi
             count));
 }
 
+[[nodiscard]] inline std::vector<point> cocircular(rng& draw, long long count, long long limit) {
+    detail::room_for_points(count, limit, "a circle");
+    for (long long const radius : detail::circle_radii()) {
+        if (radius > limit) break;
+        std::vector<point> found = detail::lattice_on(radius);
+        if (static_cast<long long>(found.size()) < count) continue;
+        draw.shuffle(found);
+        found.resize(static_cast<std::size_t>(count));
+        return found;
+    }
+    if (count <= 4) {
+        std::vector<point> found = detail::lattice_on(1);
+        draw.shuffle(found);
+        found.resize(static_cast<std::size_t>(count));
+        return found;
+    }
+    eo::detail::library_error(
+        fmt("the circles cocircular draws from, of radius 1, 5, 65, 1105, 32045 and 1185665, have none of radius "
+            "at most {} with {} lattice points; raise the limit, or ask for fewer",
+            limit, count));
+}
+
 [[nodiscard]] inline std::vector<point> extreme_points(rng& draw, long long count, long long limit) {
     detail::room_for_points(count, limit, "points on the bound");
     if (count > 8 * limit)
