@@ -7,6 +7,10 @@ EO_TEST(version_parts_are_the_numbers_in_the_version) {
     static_assert(eo::detail::version_part("12.34.56-rc1", 1) == 34);
     static_assert(eo::detail::version_part("12.34.56-rc1", 2) == 56);
     static_assert(eo::detail::version_part("1.0.10", 2) == 10);
+    char const* const running = eo::version();
+    EO_CHECK_EQ(eo::detail::version_part(running, 0), long{EOLYMP_H_VERSION_MAJOR});
+    EO_CHECK_EQ(eo::detail::version_part(running, 1), long{EOLYMP_H_VERSION_MINOR});
+    EO_CHECK_EQ(eo::detail::version_part(running, 2), long{EOLYMP_H_VERSION_PATCH});
     std::string const joined = std::to_string(EOLYMP_H_VERSION_MAJOR) + "." + std::to_string(EOLYMP_H_VERSION_MINOR) +
                                "." + std::to_string(EOLYMP_H_VERSION_PATCH);
     EO_CHECK_EQ(std::string(EOLYMP_H_VERSION).substr(0, joined.size()), joined);

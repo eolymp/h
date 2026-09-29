@@ -3,6 +3,9 @@ import pathlib
 import re
 import sys
 
+from common import ROOT
+from version import Refused, current
+
 CORE = ["core.h", "fmt.h", "parse.h", "diag.h", "io.h", "read.h", "stream.h", "structure.h", "random.h", "summary.h", "role.h", "validate.h", "check.h", "interact.h", "phases.h", "control.h", "generate.h"]
 
 SHAPES = ["shapes/present.h", "shapes/trees.h", "shapes/graphs.h", "shapes/sequences.h", "shapes/strings.h", "shapes/points.h"]
@@ -41,15 +44,7 @@ TARGETS = [
 ]
 
 
-def version_of(root: pathlib.Path) -> str:
-    text = (root / "src" / "core.h").read_text()
-    found = re.search(r'#define EOLYMP_H_VERSION "([^"]+)"', text)
-    if not found:
-        raise SystemExit("amalgamate: no EOLYMP_H_VERSION in src/core.h")
-    return found.group(1)
-
-
-def build(root: pathlib.Path, order, banner, guard, prelude) -> str:
+def build(root: pathlib.Path, version, order, banner, guard, prelude) -> str:
     system_includes = []
     bodies = []
     for name in order:
@@ -67,7 +62,7 @@ def build(root: pathlib.Path, order, banner, guard, prelude) -> str:
                 continue
             kept.append(line)
         bodies.append("\n".join(kept).strip("\n"))
-    out = [banner.format(version=version_of(root)), "", f"#ifndef {guard}", f"#define {guard}", ""]
+    out = [banner.format(version=version), "", f"#ifndef {guard}", f"#define {guard}", ""]
     if prelude is not None:
         out.append(prelude)
         out.append("")
@@ -80,11 +75,15 @@ def build(root: pathlib.Path, order, banner, guard, prelude) -> str:
 
 
 def main() -> int:
-    root = pathlib.Path(__file__).resolve().parent.parent
+    root = ROOT
+    try:
+        version = current()
+    except Refused as reason:
+        raise SystemExit(f"amalgamate: {reason}")
     checking = len(sys.argv) > 1 and sys.argv[1] == "--check"
     stale = []
     for name, order, banner, guard, prelude in TARGETS:
-        text = build(root, order, banner, guard, prelude)
+        text = build(root, version, order, banner, guard, prelude)
         target = root / name
         if checking:
             if not target.exists() or target.read_text() != text:

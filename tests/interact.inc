@@ -506,7 +506,7 @@ namespace {
 int draining_pipe = -1;
 
 void drain_the_pipe(int) {
-    char sink[4096];
+    char sink[1 << 15];
     ssize_t const got = ::read(draining_pipe, sink, sizeof(sink));
     (void)got;
 }
@@ -669,11 +669,19 @@ void add_slowly(std::FILE* numbers, std::FILE* answers) {
 }
 
 void flood_without_reading(std::FILE*, std::FILE* answers) {
-    ::alarm(3);
-    std::string const block(1 << 16, '7');
-    for (int at = 0; at < 17 * 16; at++) std::fwrite(block.data(), 1, block.size(), answers);
-    std::fflush(answers);
-    ::pause();
+    int const out = ::fileno(answers);
+    ::fcntl(out, F_SETFL, ::fcntl(out, F_GETFL) | O_NONBLOCK);
+    std::string const block(4096, '7');
+    pollfd room{out, POLLOUT, 0};
+    for (std::size_t sent = 0; sent <= (std::size_t{1} << 24);) {
+        ssize_t const wrote = ::write(out, block.data(), block.size());
+        if (wrote > 0) {
+            sent += static_cast<std::size_t>(wrote);
+            continue;
+        }
+        if (errno == EINTR) continue;
+        if (errno != EAGAIN || ::poll(&room, 1, 8000) <= 0) return;
+    }
 }
 
 }  // namespace

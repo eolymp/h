@@ -79,7 +79,7 @@ jobs:
 
   release:
     needs: [ linux, musl, macos, judge, sanitize, mutants ]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.repository == 'eolymp/h' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     concurrency:
       group: release
@@ -92,11 +92,7 @@ jobs:
       - name: Read the version
         id: read
         run: |
-          version=$(sed -n 's/^#define EOLYMP_H_VERSION "\(.*\)"$/\1/p' src/core.h)
-          if [ -z "$version" ]; then
-            echo "src/core.h carries no EOLYMP_H_VERSION" >&2
-            exit 1
-          fi
+          version=$(python3 tools/version.py --print)
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Refuse to publish headers that are not what src/ generates
@@ -139,20 +135,10 @@ jobs:
           go-version-file: judge/go.mod
           cache: false
 
-      - name: Read eo-judge's version
-        id: judge
-        run: |
-          version=$(sed -n 's/^const version = "\(.*\)"$/\1/p' judge/main.go)
-          if [ -z "$version" ]; then
-            echo "judge/main.go carries no version" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Release eo-judge, unless this version already has one
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.judge.outputs.version }}
+          VERSION: ${{ steps.read.outputs.version }}
         run: |
           tag="judge/v$VERSION"
           if gh release view "$tag" >/dev/null 2>&1; then

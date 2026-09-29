@@ -182,6 +182,16 @@ EO_TEST(a_rejection_loop_gives_up_instead_of_spinning) {
     EO_CHECK_IN(result.text, "a shape did not come out in 3 attempts");
 }
 
+EO_TEST(a_reader_counts_the_lines_it_has_passed) {
+    eo::detail::reader reading(eo::detail::source::over_text("a\nb\n", false), eo::detail::fault::wrong_answer,
+                               "output.txt", true, "EO103");
+    EO_CHECK_EQ(reading.line(), 1LL);
+    EO_CHECK_EQ(reading.take_word("s", eo::detail::site{"t", 1}, "a token"), std::string("a"));
+    EO_CHECK_EQ(reading.line(), 1LL);
+    reading.take();
+    EO_CHECK_EQ(reading.line(), 2LL);
+}
+
 EO_TEST(a_capped_token_read_stops_where_it_was_told_to) {
     eo::detail::reader reading(eo::detail::source::over_text("abcdefghij rest\n", false),
                                eo::detail::fault::wrong_answer, "output.txt", true, "EO103");

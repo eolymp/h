@@ -9,8 +9,11 @@ import pathlib
 import re
 import sys
 
+from common import ROOT
+
 ROW = re.compile(r"^\|\s*`(EO\d{3})`\s*\|")
 PLANNED = re.compile(r"^\|\s*`(EO\d{3})`\s*\|.*\bnot built\b", re.IGNORECASE)
+COUNTED = re.compile(r"^(All \d+|\d+ of the \d+) designed codes are built\.$", re.M)
 
 
 def raised(root: pathlib.Path) -> set:
@@ -63,7 +66,7 @@ def documented(page: pathlib.Path) -> tuple:
 
 
 def main() -> int:
-    root = pathlib.Path(__file__).resolve().parent.parent
+    root = ROOT
     page = root / "docs" / "warnings.md"
     if not page.exists():
         print("warnings: docs/warnings.md is missing", file=sys.stderr)
@@ -81,6 +84,14 @@ def main() -> int:
         complaints.append(f"{code} is on the page as not built, but the sources raise it")
     for code in sorted(twice):
         complaints.append(f"{code} has more than one row")
+    counts = f"{len(every) - len(planned)} of the {len(every)}" if planned else f"All {len(every)}"
+    stated = COUNTED.search(page.read_text())
+    if stated is None:
+        complaints.append(f"the page does not say how many codes are built; add the line \"{counts} designed "
+                          f"codes are built.\"")
+    elif stated.group(1) != counts:
+        complaints.append(f"the page says \"{stated.group(0)}\", but it has {len(every)} rows, {len(planned)} of "
+                          f"them not built; write \"{counts} designed codes are built.\" instead")
 
     print(f"warnings: {len(built)} codes raised, {len(every)} documented, "
           f"{len(planned)} of them not built yet")

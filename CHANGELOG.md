@@ -1,5 +1,54 @@
 # Changelog
 
+## 2.0.1
+
+No verdict and no score changes: a program built against 2.0.1 judges every run as it did
+under 2.0.0. The messages are the same, byte for byte.
+
+### For problem authors
+
+- [docs/controller.md](docs/controller.md) described 1.x: it said a controller does not take
+  in an instance's answers while it writes, and that sending an instance more than a pipe holds
+  before reading leaves both waiting. 2.0.0 already takes them in, up to 16 MB for each
+  instance, and raises EO409 beyond that; the page now says so, and says that only the instance
+  being written to is taken in from, so a wait across instances is the protocol's to avoid. The
+  EO409 row in [docs/warnings.md](docs/warnings.md) names the controller and the instance.
+- A controller builds an instance's name for EO409 only when EO409 is raised, instead of on
+  every flush: 200,000 round trips run about a third fewer instructions.
+- The 2.0.0 section below now also lists the controller's large sends and the spelling of a
+  real that is not a number, both of which shipped in 2.0.0.
+
+### For maintainers
+
+- The release job, and the nightly fuzzing, run only in eolymp/h, so a fork that syncs `main`
+  publishes nothing.
+- The coverage gate builds the suite with `-fkeep-inline-functions` under GNU `gcov`, so an
+  inline function nothing calls counts as unrun. Five internal functions nothing called are
+  gone, and the public reads no test called are tested, among them a channel's.
+- New tests: a controller sending 100,000 lines before it reads, end to end through
+  `tests/e2e/serve.cpp`, which now kills a run after 10 s; and the EO409 a controller raises.
+- A faster gate, measured on one shared 12-core machine: `make -j12 check` 77 s → 47 s,
+  `make sanitize` 126 s → 42 s, `make mutants` 91 s → 60 s. The suite no longer sleeps; one
+  suite is built at `-O2`, and the other standards, the sanitizer build and the mutants at
+  `-O0`; each standard is its own make target, run once; the e2e programs build in one batch;
+  and `make budget` times only what it gates, and stops once a build is under its ceiling. On
+  CI, the check workflow takes about 2m15s instead of about 3m14s.
+- `make fuzz-<harness>` runs one harness, and `make -j fuzz` all of them side by side. A pull
+  request now fuzzes all harnesses together in one job for 90 s instead of in six 45 s jobs, at
+  under a third of the runner time. That is less fuzzing per harness: about 40 % of the
+  executions for the number parser, the fastest harness, and 71 % to 102 % for the others. The
+  push job keeps its own corpus rather than starting from the nightly ones. The nightly run
+  keeps its full depth, one 30-minute job per harness, and takes the harnesses from the files
+  in `tests/fuzz/`.
+- `tests/e2e/run.sh` names every failing check with the first line of its log, and builds with
+  the Makefile's `WARNINGS`. The tools take `CXX`, `CXXSTD` and `WARNINGS` from
+  `tools/common.py`, which splits `CXX` as a command line, so `CXX="ccache g++"` works in every
+  tool and in `make e2e`. `tools/version.py --print` is the one reader of the version, and the
+  release job uses it.
+- The gate is described once, in the table in
+  [docs/README.md](docs/README.md#building-and-testing), and `make codes` checks the count of
+  built codes on [docs/warnings.md](docs/warnings.md).
+
 ## 2.0.0
 
 This release changes verdicts, so it is a major version. Every verdict change moves a run
@@ -62,6 +111,10 @@ behaviour.
 - An interactor that sends more than 64 KB before reading, to a solution that answers as it
   reads: a deadlock, a time limit or an idleness verdict, → accept, taking in up to 16 MB of
   answers meanwhile; beyond that, warning EO409 and the old deadlock.
+- A controller that sends an instance more than 64 KB before reading, to an instance that
+  answers as it reads: a deadlock, a time limit or an idleness verdict, → the controller's own
+  verdict, taking in up to 16 MB of that instance's answers meanwhile; beyond that, warning
+  EO409 and the old deadlock. Only the instance being written to is taken in from.
 - An inherited non-blocking pipe: a jury error, "Resource temporarily unavailable", → the real
   verdict.
 - A controller with many instances: about 1 GB per 1000 instances, which could reach the
@@ -77,6 +130,9 @@ behaviour.
   `-march=native` or `haswell`, GCC on arm64) now draws the same bits as g++ on x86, so tests
   those builds generated before come out different. GCC on x86 without FMA, the judge's
   build, is unchanged.
+- A real that is not a number, written by `{}` or `eo::fixed` into a message, a log or a
+  generated test, is spelt `nan`, `-nan`, `inf` or `-inf` under every C library. Built on
+  macOS, a negative NaN used to come out as `nan`.
 - New or changed warnings, which change no verdict except under `EOLYMP_STRICT` or
   `eo-judge --strict`: EO206 (points the judge's float rounds up to the cost), EO208 (now a
   warning, and right that the run is accepted), EO213, EO409 and EO112.

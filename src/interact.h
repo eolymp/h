@@ -183,9 +183,9 @@ private:
     }
 
     void write_while_listening() {
-        detail::write_while_absorbing(1, pending_, contestant.inside(), deaf_, "the solution", "interactor",
-                                      "read the solution's answers between sends instead of sending everything "
-                                      "first");
+        detail::write_while_absorbing(
+            1, pending_, contestant.inside(), deaf_, [] { return std::string("the solution"); }, "interactor",
+            "read the solution's answers between sends instead of sending everything first");
     }
 
     void waiting_and_flush() {
@@ -257,13 +257,4 @@ private:
     long long budgets_ = 0;
 };
 
-
-namespace detail {
-
-inline interactor& the_interactor() {
-    if (live_interactor() == nullptr) library_error("this verdict needs an eo::interactor");
-    return *live_interactor();
-}
-
-}  // namespace detail
 }  // namespace eo

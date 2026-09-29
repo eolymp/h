@@ -3,7 +3,10 @@ import re
 import subprocess
 import sys
 
+from common import ROOT
+
 RELEASED = ["eolymp.h", "eolymp-shapes.h", "judge", ":(exclude)judge/*_test.go", ":(exclude)judge/testdata"]
+HEADER_VERSION = re.compile(r'^#define EOLYMP_H_VERSION "(.*)"$', re.M)
 JUDGE_VERSION = re.compile(r'^const version = "(.*)"$', re.M)
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
 
@@ -12,14 +15,44 @@ class Refused(Exception):
     pass
 
 
+def version_in(text, where):
+    found = HEADER_VERSION.search(text)
+    if found is None:
+        raise Refused(f"{where} defines no EOLYMP_H_VERSION")
+    return found.group(1)
+
+
 def version(ref):
     shown = subprocess.run(["git", "show", f"{ref}:src/core.h"], capture_output=True, text=True)
     if shown.returncode != 0:
         raise Refused(f"cannot read src/core.h at {ref}; fetch that commit, or pass BASE=<ref>")
-    found = re.search(r'^#define EOLYMP_H_VERSION "(.*)"$', shown.stdout, re.M)
-    if found is None:
-        raise Refused(f"src/core.h at {ref} defines no EOLYMP_H_VERSION")
-    return found.group(1)
+    return version_in(shown.stdout, f"src/core.h at {ref}")
+
+
+def current():
+    return version_in((ROOT / "src" / "core.h").read_text(), "src/core.h")
+
+
+def judge_disagrees(main_go, header):
+    stated = JUDGE_VERSION.search(main_go)
+    if stated is not None and stated.group(1) == header:
+        return None
+    return (f"judge/main.go says eo-judge is {stated.group(1) if stated else 'unversioned'}, "
+            f"but EOLYMP_H_VERSION is {header}; the two are one version")
+
+
+def print_current():
+    try:
+        header = current()
+    except Refused as reason:
+        print(f"version: {reason}", file=sys.stderr)
+        return 1
+    disagreement = judge_disagrees((ROOT / "judge" / "main.go").read_text(), header)
+    if disagreement:
+        print(f"version: {disagreement}", file=sys.stderr)
+        return 1
+    print(header)
+    return 0
 
 
 def ordered(text):
@@ -35,6 +68,8 @@ def ordered(text):
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--print"]:
+        return print_current()
     base = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
     try:
         before, after = version(base), version("HEAD")
@@ -43,10 +78,9 @@ def main() -> int:
         print(f"version: {reason}", file=sys.stderr)
         return 1
     judge = subprocess.run(["git", "show", "HEAD:judge/main.go"], capture_output=True, text=True)
-    stated = JUDGE_VERSION.search(judge.stdout)
-    if stated is None or stated.group(1) != after:
-        print(f"version: judge/main.go says eo-judge is {stated.group(1) if stated else 'unversioned'}, "
-              f"but EOLYMP_H_VERSION is {after}; the two are one version", file=sys.stderr)
+    disagreement = judge_disagrees(judge.stdout, after)
+    if disagreement:
+        print(f"version: {disagreement}", file=sys.stderr)
         return 1
     changed = subprocess.run(["git", "diff", "--quiet", base, "HEAD", "--", *RELEASED]).returncode != 0
     if later < earlier:

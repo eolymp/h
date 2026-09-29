@@ -161,16 +161,7 @@ private:
     static void emit_from_hook() { shared().emit(); }
 
     bool record(char const* code, severity level, std::string const& message, std::string fix, site where) {
-        for (allowance& permitted : allowed_)
-            if (permitted.code == code) {
-                permitted.count++;
-                return false;
-            }
-        for (raised& already : entries_)
-            if (already.code == code && already.where.line == where.line) {
-                already.count++;
-                return false;
-            }
+        if (again(code, where)) return false;
         entries_.push_back({code, level, where, message, std::move(fix), 1});
         return true;
     }

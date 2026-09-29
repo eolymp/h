@@ -20,11 +20,14 @@ amalgamate:
 amalgamation-check:
 	python3 tools/amalgamate.py --check
 
-STANDARDS := c++17 c++20 c++23
+STANDARDS := $(filter-out $(CXXSTD),c++17 c++20 c++23)
+OPTIMIZED := $(CXXSTD) c++23
+
+build/tests-%: OPTIMIZATION = $(if $(filter $*,$(OPTIMIZED)),-O2,-O0)
 
 build/tests-%: eolymp.h eolymp-shapes.h $(TESTS)
 	@mkdir -p build
-	$(CXX) -std=$* -O2 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
+	$(CXX) -std=$* $(OPTIMIZATION) $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
 
 test: build/tests-$(CXXSTD)
 	./build/tests-$(CXXSTD)
@@ -35,8 +38,13 @@ coverage: eolymp.h eolymp-shapes.h
 e2e: eolymp.h eolymp-shapes.h
 	sh tests/e2e/run.sh
 
-standards: $(STANDARDS:%=build/tests-%)
-	@for standard in $(STANDARDS); do echo "standards: $$standard"; ./build/tests-$$standard || exit 1; done
+standards: $(STANDARDS:%=standard-%)
+
+standard-%: build/tests-%
+	@echo "standards: $*"
+	@./build/tests-$*
+
+.PRECIOUS: build/tests-%
 
 hostile: eolymp.h eolymp-shapes.h
 	sh tests/hostile/run.sh
@@ -59,7 +67,7 @@ SANITIZED := ASAN_OPTIONS=exitcode=86:halt_on_error=1 UBSAN_OPTIONS=exitcode=86:
 
 sanitize: eolymp.h eolymp-shapes.h $(TESTS)
 	@mkdir -p build
-	$(CXX) -std=$(CXXSTD) -O1 -g $(WARNINGS) $(SANITIZERS) -DEOLYMP_TESTING -o build/tests-sanitized tests/all.cpp
+	$(CXX) -std=$(CXXSTD) -O0 -g $(WARNINGS) $(SANITIZERS) -DEOLYMP_TESTING -o build/tests-sanitized tests/all.cpp
 	$(SANITIZED) ./build/tests-sanitized
 	$(SANITIZED) E2E_BUILD="$(CURDIR)/build/e2e-sanitized" CXX="$(CXX) $(SANITIZERS)" sh tests/e2e/run.sh
 
@@ -72,13 +80,15 @@ build/fuzz/%: tests/fuzz/%.cpp tests/fuzz/fuzz.h eolymp.h eolymp-shapes.h
 	@mkdir -p build/fuzz
 	$(FUZZ_CXX) $(FUZZ_FLAGS) -o $@ $<
 
-fuzz: $(addprefix build/fuzz/,$(or $(FUZZER),$(FUZZERS)))
-	@for one in $(or $(FUZZER),$(FUZZERS)); do \
-		mkdir -p build/fuzz/corpus/$$one build/fuzz/crashes && \
-		echo "fuzz: $$one for $(FUZZ_SECONDS) s" && \
-		./build/fuzz/$$one -max_total_time=$(FUZZ_SECONDS) -timeout=10 -rss_limit_mb=2048 -close_fd_mask=3 \
-			-artifact_prefix=build/fuzz/crashes/$$one- -print_final_stats=1 build/fuzz/corpus/$$one || exit 1; \
-	done
+fuzz: $(addprefix fuzz-,$(or $(FUZZER),$(FUZZERS)))
+
+fuzz-%: build/fuzz/%
+	@mkdir -p build/fuzz/corpus/$* build/fuzz/crashes
+	@echo "fuzz: $* for $(FUZZ_SECONDS) s"
+	./build/fuzz/$* -max_total_time=$(FUZZ_SECONDS) -timeout=10 -rss_limit_mb=2048 -close_fd_mask=3 \
+		-artifact_prefix=build/fuzz/crashes/$*- -print_final_stats=1 build/fuzz/corpus/$*
+
+.PRECIOUS: build/fuzz/%
 
 mutants: eolymp.h eolymp-shapes.h
 	@mkdir -p build

@@ -25,26 +25,28 @@ directly in `eolymp.h` is lost and breaks the build.
 ## 2. `make check` is the whole gate
 
 ```bash
-make check      # the C++ gate: 9 parts, what CI runs on four toolchains
-make judge      # gofmt, go vet and the eo-judge tests
-make mutants    # a changed operator or bound must make the suite fail
-make sanitize   # the suite and the end-to-end programs under ASan and UBSan
-make fuzz       # six libFuzzer harnesses, 45 s each; needs clang++
-make version    # changed headers or eo-judge need a raised version
+make check      # the C++ gate
+make judge      # the eo-judge gate
+make mutants
+make sanitize
+make fuzz       # needs clang++
+make version
 ```
 
-CI runs all six: `make check` on g++, clang++, musl and macOS, `make judge`,
-`make mutants` and `make sanitize` once each, `make fuzz` for 45 s a harness on every push
-and pull request and for 30 minutes a harness every night, and `make version` on every pull
-request.
+What each of them proves, and where CI runs it, is in the table in
+[docs/README.md](docs/README.md#building-and-testing); that table is the one description of
+the gate, so a change to a gate changes it there.
 
 Two parts fail for reasons worth knowing in advance:
 
 - **`coverage` demands that every line of both headers runs at least once.** A new branch
-  needs a test in the same change. The gate needs GNU `gcov`; under LLVM's emulation it
+  needs a test in the same change, and so does a new inline function, even one nothing calls
+  yet. The gate needs GNU `gcov`; under LLVM's emulation it
   reports lines it cannot see and says so rather than failing.
 - **`codes` demands that every warning code the sources raise has a row in
-  `docs/warnings.md`.** A new code without a row fails the build.
+  `docs/warnings.md`.** A new code without a row fails the build, and so does the page's
+  sentence that counts them, "All N designed codes are built." or "N of the M designed codes
+  are built.", left at the old numbers.
 
 Run `make check` on its own and read its exit code. Piping it into `grep` inside an `&&`
 chain returns grep's status, which has hidden a real failure here before.
@@ -97,7 +99,7 @@ Every code has one self-contained row in [docs/warnings.md](docs/warnings.md):
 grep EO807 docs/warnings.md
 ```
 
-The row says what fired it, who reported it, and what to do. All 77 codes are built.
+The row says what fired it, who reported it, and what to do.
 
 ## Using the library on a problem
 

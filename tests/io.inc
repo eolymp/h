@@ -285,8 +285,8 @@ EO_TEST(a_non_blocking_pipe_is_waited_on_both_ways) {
     std::string const whole(1 << 18, 'x');
     bool deaf = false;
     eo::detail::source heard = eo::detail::source::over_descriptor(back[0], true, false);
-    eo::detail::write_while_absorbing(towards[1], whole, heard, deaf, "the child", "test",
-                                      "read between sends");
+    eo::detail::write_while_absorbing(
+        towards[1], whole, heard, deaf, [] { return std::string("the child"); }, "test", "read between sends");
     EO_CHECK(!deaf);
     ::close(towards[1]);
     EO_CHECK_EQ(drain(heard), std::string("262144\n"));

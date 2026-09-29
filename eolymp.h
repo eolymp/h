@@ -1,4 +1,4 @@
-// eolymp.h 2.0.0 — a judging library for the Eolymp platform.
+// eolymp.h 2.0.1 — a judging library for the Eolymp platform.
 // https://github.com/eolymp/h
 //
 // SPDX-License-Identifier: MIT
@@ -48,10 +48,10 @@
 #include <utility>
 #include <vector>
 
-#define EOLYMP_H_VERSION "2.0.0"
+#define EOLYMP_H_VERSION "2.0.1"
 #define EOLYMP_H_VERSION_MAJOR 2
 #define EOLYMP_H_VERSION_MINOR 0
-#define EOLYMP_H_VERSION_PATCH 0
+#define EOLYMP_H_VERSION_PATCH 1
 
 namespace eo {
 
@@ -610,16 +610,7 @@ private:
     static void emit_from_hook() { shared().emit(); }
 
     bool record(char const* code, severity level, std::string const& message, std::string fix, site where) {
-        for (allowance& permitted : allowed_)
-            if (permitted.code == code) {
-                permitted.count++;
-                return false;
-            }
-        for (raised& already : entries_)
-            if (already.code == code && already.where.line == where.line) {
-                already.count++;
-                return false;
-            }
+        if (again(code, where)) return false;
         entries_.push_back({code, level, where, message, std::move(fix), 1});
         return true;
     }
@@ -975,9 +966,9 @@ private:
 
 inline std::size_t constexpr absorb_limit = std::size_t{1} << 24;
 
-template <class Reading>
+template <class Reading, class Naming>
 inline void write_while_absorbing(int to, std::string const& bytes, Reading& from, bool& deaf,
-                                  std::string const& who, char const* role, char const* instead) {
+                                  Naming const& who, char const* role, char const* instead) {
     std::size_t sent = 0;
     bool listening = true;
     while (sent < bytes.size()) {
@@ -992,7 +983,7 @@ inline void write_while_absorbing(int to, std::string const& bytes, Reading& fro
                 warn_at_once("EO409",
                              fmt("{} sent more than {} MB while the {} was still writing to it, and the rest "
                                  "of it waits in the pipe",
-                                 who, absorb_limit >> 20, role),
+                                 who(), absorb_limit >> 20, role),
                              instead, site::here());
             listening = what == absorbed::some;
         }
@@ -1243,11 +1234,9 @@ public:
     long long line() const { return from_.line(); }
     bool carriage_returns() const { return from_.carriage_returns(); }
     std::string last_value() const { return last_indexed_ ? fmt("{}[{}]", last_value_, last_index_) : last_value_; }
-    bool separated() const { return separated_; }
     void mark_separated() { separated_ = true; }
     std::map<std::string, seen_bounds> const& bounds() const { return bounds_; }
     bool read_anything() const { return read_anything_; }
-    void saw_something() { read_anything_ = true; }
     void exponents(bool allowed) { exponents_ = allowed; }
 
     void before_blocking(void (*hook)(void*), void* owner) {
@@ -2759,14 +2748,6 @@ private:
         return from_.rest_of_line(least, most, allowed, bounds, name, where);
     }
 
-    std::string take_word(detail::value_name const& name, detail::site where, char const* expected) {
-        return from_.take_word(name, where, expected);
-    }
-
-    [[noreturn]] void invalid_here(detail::value_name const& name, std::string what) {
-        from_.refuse(name, what);
-    }
-
     template <class T, class Read>
     std::vector<T> many(long long count, detail::value_name const& name, Read read_one) {
         std::vector<T> values;
@@ -3683,9 +3664,9 @@ private:
     }
 
     void write_while_listening() {
-        detail::write_while_absorbing(1, pending_, contestant.inside(), deaf_, "the solution", "interactor",
-                                      "read the solution's answers between sends instead of sending everything "
-                                      "first");
+        detail::write_while_absorbing(
+            1, pending_, contestant.inside(), deaf_, [] { return std::string("the solution"); }, "interactor",
+            "read the solution's answers between sends instead of sending everything first");
     }
 
     void waiting_and_flush() {
@@ -3757,15 +3738,6 @@ private:
     long long budgets_ = 0;
 };
 
-
-namespace detail {
-
-inline interactor& the_interactor() {
-    if (live_interactor() == nullptr) library_error("this verdict needs an eo::interactor");
-    return *live_interactor();
-}
-
-}  // namespace detail
 }  // namespace eo
 
 namespace eo {
@@ -4252,10 +4224,9 @@ inline void channel::flush() {
     if (pending_.empty() || shut_) return;
     spoken_to_ = true;
     if (!deaf_)
-        detail::write_while_absorbing(writes_, pending_, reads_->inside(), deaf_, fmt("instance {}", index_),
-                                      "controller",
-                                      "read the instances' answers between sends instead of sending everything "
-                                      "first");
+        detail::write_while_absorbing(
+            writes_, pending_, reads_->inside(), deaf_, [this] { return fmt("instance {}", index_); }, "controller",
+            "read the instances' answers between sends instead of sending everything first");
     owner_->sent_bytes_ += static_cast<long long>(pending_.size());
     pending_.clear();
 }

@@ -138,10 +138,20 @@ wrong answer: instance 1, line 1, message: instance 1 ended the dialogue early
 a line that is still in the controller's buffer. A write to an instance that stopped reading
 is not a verdict: what could not be written is dropped, nothing more is written to that
 instance, and the next read from it decides, so sending a last line and closing a channel
-is safe. `SIGPIPE` is ignored. Unlike an interactor, a controller does not take in an
-instance's answers while it waits to write: sending one instance more than a pipe holds,
-about 64 KB, before reading its answers, while that instance answers each line as it reads
-it, leaves both waiting. Read the answers in between, or send less at a time.
+is safe. `SIGPIPE` is ignored.
+
+**A large send cannot deadlock an instance either.** When the controller sends an instance
+more than a pipe holds, about 64 KB, while that instance answers each line as it reads it,
+the instance's answers fill the other pipe while the controller is still writing. As in an
+interactor, the library keeps taking them in while it waits for room, up to 16 MB for each
+instance, and they are read from there as usual; past that it stops, says so with warning
+EO409, and the two can wait for each other until the time limit. EO409 goes to stderr the
+moment it is raised, since a run killed at the limit never writes its report.
+
+What is taken in is only the answers of the instance being written to. While the controller
+writes to instance 1, whatever instance 2 sends stays in instance 2's pipe, and once that
+pipe is full, instance 2 waits until the controller reads from it. That wait is the
+protocol's to end, not the library's: the controller has to reach its read of instance 2.
 
 **Read the channels in an order your code fixes**, such as instance 1, then 2, then 3. Never
 let the dialogue depend on which instance happens to answer first: that depends on the
@@ -174,6 +184,7 @@ The rules are those of every eolymp.h program, and the codes are the interactor'
 | EO403 | a budget was declared and never spent |
 | EO405 | the controller accepted without reading anything from any instance |
 | EO408 | an instance was started and never talked to |
+| EO409 | an instance sent more than 16 MB while the controller was still writing to it |
 
 ## Testing a controller locally
 

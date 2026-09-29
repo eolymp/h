@@ -78,11 +78,9 @@ public:
     long long line() const { return from_.line(); }
     bool carriage_returns() const { return from_.carriage_returns(); }
     std::string last_value() const { return last_indexed_ ? fmt("{}[{}]", last_value_, last_index_) : last_value_; }
-    bool separated() const { return separated_; }
     void mark_separated() { separated_ = true; }
     std::map<std::string, seen_bounds> const& bounds() const { return bounds_; }
     bool read_anything() const { return read_anything_; }
-    void saw_something() { read_anything_ = true; }
     void exponents(bool allowed) { exponents_ = allowed; }
 
     void before_blocking(void (*hook)(void*), void* owner) {

@@ -38,7 +38,7 @@ validator.cpp:6: line 1, a[1]: a line break follows n; read it with read_eoln()
 | [docs/checker.md](docs/checker.md) | writing a checker: the three streams, scores as a fraction of the test, and the log |
 | [docs/interactor.md](docs/interactor.md) | writing an interactor: sends that do not deadlock the pair, the summary the checker reads, and `run_count` phases |
 | [docs/generator.md](docs/generator.md) | writing a generator: declared options, named random streams, and a writer that cannot leave a trailing space |
-| [docs/controller.md](docs/controller.md) | writing a controller: spawning instances, channels, and the flush that keeps them all moving |
+| [docs/controller.md](docs/controller.md) | writing a controller: spawning instances, channels, and the flush and large sends that keep them all moving |
 | [docs/README.md](docs/README.md) | the repository: what the library gives you, how a problem gets the header, what each directory holds, and what every gate proves |
 | [docs/warnings.md](docs/warnings.md) | every warning code, one self-contained row each |
 | [docs/testlib.md](docs/testlib.md) | coming from testlib: each call beside its eolymp.h counterpart, and what behaves differently |
@@ -57,17 +57,10 @@ make
 make check
 ```
 
-`make check` is the whole gate, and it is what CI runs on GCC, clang, musl and macOS: the
-tests, every line of both headers covered, C++17, 20 and 23 at `-O2` under `-Wall -Wextra
--Wshadow -Werror`, the judge's real exit codes from a compiled validator, builds in hostile
-surroundings, every example in these pages compiled, and every warning code the sources raise
-documented. CI also runs `make judge` for the `eo-judge` tests; `make mutants`, which
-requires the suite to notice a changed operator or bound; `make sanitize`, which runs the
-suite and the end-to-end programs under ASan and UBSan; and `make fuzz`, which runs six
-libFuzzer harnesses over the number parsers, the reader, the checker's comparisons, the
-generator's options, the interactor's summary and the phases handoff. On a pull request it
-also runs `make version`, which fails a change to the headers or to eo-judge that leaves the
-version where it was.
+`make check` is the whole C++ gate, and CI runs it on GCC, clang, musl and macOS beside
+`make judge`, `make mutants`, `make sanitize`, `make fuzz` and, on a pull request,
+`make version`. What each part proves is in
+[docs/README.md](docs/README.md#building-and-testing).
 
 ## Where to read
 

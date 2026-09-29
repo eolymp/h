@@ -144,7 +144,7 @@ get between the judge's parser and the score it is looking for:
 
 ```
 points 25 matched 10 of 40
-eolymp.h 2.0.0
+eolymp.h 2.0.1
 warning EO203 ./eolymp.h:NNNN the answer file still holds "40" when the checker finished
 note EO106 checker.cpp:4 the bounds 1..200001 are one away from a round number
 eo-report {"version":1,"warnings":[{"code":"EO106","at":"checker.cpp:4","count":1},{"code":"EO203","at":"./eolymp.h:NNNN","count":1}]}
@@ -188,7 +188,7 @@ validator:
 | `core.h` | the environment the judge sets, and the single exit every verdict leaves through |
 | `fmt.h` | `eo::fmt`, the `{}` messages the API takes everywhere |
 | `parse.h` | the strict number syntax |
-| `io.h` | the reader: one buffer of a fixed size, grown only to hold what an interactor takes in while a large send waits, no copy of what it has read, `read()` refills so a pipe cannot deadlock it, and the line and column a message needs |
+| `io.h` | the reader: one buffer of a fixed size, grown only to hold what an interactor or a controller takes in while a large send waits, no copy of what it has read, `read()` refills so a pipe cannot deadlock it, and the line and column a message needs |
 | `diag.h` | the warnings: codes, call sites, counts, the report, strict mode, `eo::allow` |
 | `read.h` | `eo::charset`, names, and the vocabulary the readers share |
 | `structure.h` | `all_distinct`, `is_sorted`, `is_permutation`, `is_tree`, `is_connected`, `is_simple_graph` |
@@ -211,24 +211,27 @@ does not match.
 make check
 ```
 
-That is the whole gate — nine parts — and it is what CI runs on four toolchains: g++,
-clang++, musl and macOS. Each part answers a question:
+That is the whole C++ gate, and CI runs it on g++, clang++, musl and macOS. CI also runs
+`make judge`, `make mutants`, `make sanitize` and `make fuzz`, and `make version` on a pull
+request. This table is the one description of the gate: the rows down to `budget` are what
+`make check` runs, the rest run on their own, and each answers a question:
 
 | Target | Proves |
 | --- | --- |
 | `amalgamation-check` | the committed `eolymp.h` and `eolymp-shapes.h` are what `src/` generates |
-| `test` | the suite passes |
-| `coverage` | every line of both headers runs at least once, and fails the build if one does not |
-| `standards` | it compiles and passes as C++17, C++20 and C++23, at `-O2` under `-Wall -Wextra -Wshadow -Werror`, which is where GCC's flow warnings such as `-Wstringop-overflow` appear; the suite calls every role and every shape |
+| `test` | the suite passes, built in `CXXSTD` (C++17 unless set) at `-O2` under `-Wall -Wextra -Wshadow -Werror`, which is where GCC's flow warnings such as `-Wstringop-overflow` appear; the suite calls every role and every shape |
+| `coverage` | every line of both headers runs at least once, including inline functions nothing calls, and fails the build if one does not |
+| `standards` | it also compiles and passes in the other two of C++17, C++20 and C++23, at `-O0` under the same warnings, which proves the language and library differences in a third of the build time |
 | `e2e` | a real compiled validator gives the judge's exit codes and messages, through the exit path the tests cannot reach |
 | `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals |
-| `codes` | every warning code the sources raise has a row in `docs/warnings.md` |
+| `examples` | every example in `docs/` compiles |
+| `codes` | every warning code the sources raise has a row in `docs/warnings.md`, and the page's count of built codes is right |
+| `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
 | `mutants` | a changed operator or bound in either header makes the suite fail; run with `make mutants` |
 | `sanitize` | the suite and the end-to-end programs pass under ASan and UBSan; run with `make sanitize` |
-| `fuzz` | six libFuzzer harnesses find no crash, sanitizer report or broken property in 45 s each (30 minutes each nightly); needs clang++, and `FUZZER` and `FUZZ_SECONDS` pick one harness and the time; run with `make fuzz` |
+| `fuzz` | every libFuzzer harness in `tests/fuzz/` finds no crash, sanitizer report or broken property in 45 s each (in CI, 90 s for all of them side by side on a push or pull request, and 30 minutes each nightly); needs clang++; `make fuzz-<harness>` or `FUZZER` runs one harness, `FUZZ_SECONDS` sets the time, and `make -j fuzz` runs them side by side; run with `make fuzz` |
+| `judge` | `gofmt` and `go vet` are clean and the `eo-judge` tests pass; run with `make judge` |
 | `version` | a change to the headers or to eo-judge raises `EOLYMP_H_VERSION`, and eo-judge's version is the same number; CI runs `make version` on every pull request |
-| `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
-| `examples` | every example in `docs/` compiles |
 
 Set `CXX` and `CXXSTD` to choose a toolchain, and `GCOV` to the matching coverage tool:
 
@@ -239,7 +242,10 @@ CXX=g++-16 GCOV=gcov-16 make check
 **One caveat about coverage.** The line gate needs GNU `gcov`. LLVM's `gcov` emulation loses
 a basic block whose only exit is a throw, so it reports lines as unrun that the tests
 provably run; under it the tool prints what it found and says the gate is elsewhere rather
-than failing or passing quietly. CI runs the real gate on the GCC and musl legs.
+than failing or passing quietly. CI runs the real gate on the GCC and musl legs. Under GNU
+`gcov` the suite is built with `-fkeep-inline-functions`, because without it an inline function
+that nothing calls is never emitted, so `gcov` cannot see it and it passes as covered; a
+template that nothing instantiates is still invisible.
 
 Tests are one translation unit — `tests/all.cpp` including `tests/*.inc` — so coverage is
 measured on the shipped header rather than on the sources it came from. Set `EOT_TRACE=1` to
