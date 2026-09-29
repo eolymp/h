@@ -327,6 +327,20 @@ EO_TEST(a_stress_run_that_draws_nothing_is_reported) {
     EO_CHECK(!eot::contains(checker_warnings(), "EO501"));
 }
 
+EO_TEST(a_value_that_prints_nothing_at_the_end_of_a_line_leaves_its_space) {
+    made const result = generate({}, [](eo::generator& g) {
+        g.out.line("a", "");
+        g.out.line(0, std::vector<int>{});
+        g.out.line("a", "", "");
+        g.out.line("a", "", "b");
+        g.out.line("", "a");
+        g.out.line("x ");
+        g.out.line("");
+    });
+    EO_CHECK(!result.stopped);
+    EO_CHECK_EQ(result.test, std::string("a \n0\na  \na  b\n a\nx \n\n"));
+}
+
 EO_TEST(bytes_written_around_the_writer_land_ahead_of_the_lines_it_holds) {
     made const result = generate({}, [](eo::generator& g) {
         g.out.line("first");
