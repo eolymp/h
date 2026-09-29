@@ -339,6 +339,31 @@ EO_TEST(structural_readers_read_and_check_in_one_call) {
     EO_CHECK_IN(repeated.text, "p: elements 1 and 2 are both 2");
 }
 
+EO_TEST(tree_and_graph_readers_refuse_in_a_fixed_order_with_fixed_words) {
+    auto const graph = [](char const* text, int n, int m, eo::graph_shape shape) {
+        return validate(text, [n, m, shape](eo::validator& v) { v.read_graph(n, m, shape, "edge"); }).text;
+    };
+    EO_CHECK_EQ(graph("1 9\n1 1\n", 3, 2, eo::simple | eo::connected),
+                std::string("line 3: edge: edge 1 is (1, 9), outside 1..3"));
+    EO_CHECK_EQ(graph("1 2\n1 1\n", 3, 2, eo::simple), std::string("line 3: edge: edge 2 is a loop at vertex 1"));
+    EO_CHECK_EQ(graph("1 2\n2 1\n", 3, 2, eo::simple | eo::connected),
+                std::string("line 3: edge: edges 1 and 2 are both (1, 2)"));
+    EO_CHECK_EQ(graph("1 2\n2 1\n", 3, 2, eo::connected),
+                std::string("line 3: edge: vertex 3 cannot be reached from vertex 1"));
+    EO_CHECK_EQ(graph("1 1\n", 1, 1, eo::any_graph), std::string(""));
+    EO_CHECK_EQ(graph("", 3, 0, eo::connected), std::string("line 1: edge: vertex 2 cannot be reached from vertex 1"));
+    EO_CHECK_EQ(graph("", 3, -1, eo::any_graph), std::string(""));
+    EO_CHECK_EQ(graph("1 2 \n", 3, 1, eo::any_graph),
+                std::string("line 1: expected a line break after edge[1], found a space"));
+    auto const tree = [](char const* text, int n) {
+        return validate(text, [n](eo::validator& v) { v.read_tree(n, eo::unnamed); }).text;
+    };
+    EO_CHECK_EQ(tree("", 0), std::string("line 1: a tree on 0 vertices has -1 edges, not 0"));
+    EO_CHECK_EQ(tree("", 1), std::string(""));
+    EO_CHECK_EQ(tree("1 2\n1 2\n", 3), std::string("line 3: edges 1 and 2 are both (1, 2)"));
+    EO_CHECK_EQ(tree("1 x\n", 2), std::string("line 1: expected an integer, found \"x\""));
+}
+
 namespace {
 
 struct limits {
