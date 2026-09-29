@@ -167,6 +167,30 @@ EO_TEST(every_option_is_declared_with_its_range) {
     EO_CHECK_EQ(defaults.text, std::string("-kind is required"));
 }
 
+EO_TEST(an_optional_option_is_nothing_when_it_is_not_given) {
+    made const given = generate({"-n=7", "-p=0.5"}, [](eo::generator& g) {
+        std::optional<int> const n = g.option<std::optional<int>>("n", 1, 9);
+        std::optional<long long> const big = g.option<std::optional<long long>>("big", 1, 1000);
+        std::optional<double> const p = g.option<std::optional<double>>("p", 0, 1);
+        EO_CHECK(n.has_value() && *n == 7);
+        EO_CHECK(!big.has_value());
+        EO_CHECK(p.has_value() && *p == 0.5);
+        g.out.line("ok");
+    });
+    EO_CHECK(!given.stopped);
+    made const outside = generate({"-n=10"}, [](eo::generator& g) {
+        (void)g.option<std::optional<int>>("n", 1, 9);
+    });
+    EO_CHECK(outside.stopped);
+    EO_CHECK_EQ(outside.text, std::string("-n=10 is above 9"));
+    made const described = generate({"--eo-describe"}, [](eo::generator& g) {
+        EO_CHECK(!g.option<std::optional<int>>("n", 1, 9).has_value());
+        g.out.line("this is not printed");
+    });
+    EO_CHECK(!described.stopped);
+    EO_CHECK_IN(described.test, "eo-describe option n an integer 1..9 optional\n");
+}
+
 EO_TEST(an_option_the_declaration_refuses_stops_the_generator) {
     auto const with = [](std::vector<char const*> given) {
         return generate(given, [](eo::generator& g) {

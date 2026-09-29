@@ -105,6 +105,7 @@ See [interactor.md](interactor.md).
 | `registerGen(argc, argv, 1);` | `eo::generator g(argc, argv);` |
 | `opt<int>("n")` | `g.option<int>("n", 1, 200000)`, with its range |
 | `opt<int>("n", 10)` | `g.option<int>("n", 1, 200000, 10)` |
+| `has_opt("m") ? opt<int>("m") : n - 1` | `g.option<std::optional<int>>("m", 0, 200000).value_or(n - 1)` |
 | `atoi(argv[1])`, `opt<int>(1)` | no positional arguments: `-n=10` |
 | `rnd.next(a, b)` | `r.uniform(a, b)` |
 | `rnd.next(n)` | `r.uniform(0, n - 1)` |

@@ -82,6 +82,7 @@ allow.
 | `g.option<int>("n", low, high)` | a required integer in `[low, high]` |
 | `g.option<int>("n", low, high, def)` | the same, with a default |
 | `g.option<long long>(…)`, `g.option<double>(…)` | the same for other number types |
+| `g.option<std::optional<int>>("n", low, high)` | an integer in `[low, high]` that may be left out: `std::nullopt` when it is; `long long` and `double` too |
 | `g.option<std::string>("shape", {"random", "path"})` | a required choice from a list |
 | `g.option<std::string>("shape", {"random", "path"}, "random")` | a choice with a default |
 | `g.option<bool>("distinct", false)` | a flag, written `-distinct=true` or `-distinct=false` (or `1`, `0`) |
@@ -114,11 +115,26 @@ Options that only make sense together go through `g.require`:
 g.require(total >= t, "-total={} is smaller than -t={}", total, t);
 ```
 
+An optional option is for a value with no sensible default, one the generator works out when
+it is not given:
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::generator g(argc, argv);
+    int n = g.option<int>("n", 1, 200000);
+    std::optional<int> m = g.option<std::optional<int>>("m", 0, 200000);
+    g.out.line(n, m.value_or(n - 1));
+}
+```
+
 `gen --eo-describe` prints the declarations instead of generating:
 
 ```
 eo-describe option n an integer 1..200000
 eo-describe option max an integer 1..1000000000 default=1000000000
+eo-describe option m an integer 0..200000 optional
 eo-describe option shape choice random, sorted default=random
 ```
 
@@ -254,6 +270,7 @@ valid test) are run by `eo-judge check`; see [judge.md](judge.md).
 | --- | --- |
 | `eo::generator g(argc, argv)` | makes the program a generator; derives the seed |
 | `g.option<T>(name, low, high)`, `(name, low, high, def)` | a number option |
+| `g.option<std::optional<T>>(name, low, high)` | a number option that may be left out |
 | `g.option<std::string>(name, {choices})`, `(name, {choices}, def)` | a choice |
 | `g.option<bool>(name, def)` | a flag |
 | `-seed=…` | built in: varies the test without meaning anything else |

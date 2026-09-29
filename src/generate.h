@@ -2,6 +2,7 @@
 
 #include <exception>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -37,7 +38,14 @@ struct declared_option {
     std::string kind;
     std::string range;
     std::string fallback;
+    bool optional = false;
 };
+
+template <class T>
+struct is_optional : std::false_type {};
+
+template <class T>
+struct is_optional<std::optional<T>> : std::true_type {};
 
 inline bool looks_like_a_seed(std::string const& word) {
     if (word.size() != 16) return false;
@@ -114,6 +122,16 @@ public:
         std::string const* const found = look(name);
         if (found == nullptr) return fallback;
         return bounded<T>(name, *found, low, high, where);
+    }
+
+    template <class T, class = std::enable_if_t<detail::is_optional<T>::value>>
+    [[nodiscard]] T option(std::string name, typename T::value_type low, typename T::value_type high,
+                           detail::site where = detail::site::here()) {
+        using value = typename T::value_type;
+        declare(name, kind_of<value>(), fmt("{}..{}", low, high), "", true);
+        std::string const* const found = look(name);
+        if (found == nullptr) return std::nullopt;
+        return bounded<value>(name, *found, low, high, where);
     }
 
     template <class T>
@@ -231,10 +249,11 @@ private:
 
     [[noreturn]] void refuse(std::string const& message) { detail::finish(3, message); }
 
-    void declare(std::string const& name, char const* kind, std::string range, std::string fallback) {
+    void declare(std::string const& name, char const* kind, std::string range, std::string fallback,
+                 bool optional = false) {
         for (detail::declared_option const& one : shape_)
             if (one.name == name) return;
-        shape_.push_back({name, kind, std::move(range), std::move(fallback)});
+        shape_.push_back({name, kind, std::move(range), std::move(fallback), optional});
     }
 
     std::string const* look(std::string const& name) {
@@ -312,8 +331,8 @@ private:
     void describe() {
         std::string said;
         for (detail::declared_option const& one : shape_)
-            said += fmt("eo-describe option {} {} {}{}\n", one.name, one.kind, one.range,
-                        one.fallback.empty() ? "" : " default=" + one.fallback);
+            said += fmt("eo-describe option {} {} {}{}{}\n", one.name, one.kind, one.range,
+                        one.fallback.empty() ? "" : " default=" + one.fallback, one.optional ? " optional" : "");
         std::fwrite(said.data(), 1, said.size(), stdout);
         std::fflush(stdout);
     }
