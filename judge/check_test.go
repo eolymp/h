@@ -164,7 +164,7 @@ func judgeAll(t *testing.T, shop *Workspace) map[string]*Attempt {
 	return out
 }
 
-func TestAValidatorThatReadsStdinGetsNothingThere(t *testing.T) {
+func TestAValidatorThatReadsStdinGetsTheTestThere(t *testing.T) {
 	t.Parallel()
 	needsACompiler(t)
 	dir := t.TempDir()
@@ -187,8 +187,8 @@ func TestAValidatorThatReadsStdinGetsNothingThere(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, made := range shop.sorted() {
-		if made.Valid || made.Why != "no n on stdin" {
-			t.Errorf("test %d:%d: valid %v, %q; the validator is given the path and an empty stdin",
+		if !made.Valid || made.Why != "" {
+			t.Errorf("test %d:%d: valid %v, %q; the judge gives the validator the test on stdin too",
 				made.Group, made.Test.Index, made.Valid, made.Why)
 		}
 	}

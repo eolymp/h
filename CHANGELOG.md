@@ -19,6 +19,12 @@
 - **`g.require` exits 4.** A generator whose options do not go together still fails its
   generation, with the same message on stderr; the exit code says why, for eo-judge's EO813.
 
+### eo-judge
+
+- **A validator gets the test on stdin as well as by its path**, as on the judge. A validator
+  that reads stdin, which is every testlib validator, called every test invalid under
+  eo-judge; an eolymp.h validator reads the path and sees no difference.
+
 ### Warnings
 
 - **EO106 no longer fires on a bound computed from the input.** A bound within one of a value

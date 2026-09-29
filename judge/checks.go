@@ -238,7 +238,7 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 
 	for _, made := range w.sorted() {
 		where := fmt.Sprintf("test %d:%d", made.Group, made.Test.Index)
-		status, err := built.jury(ctx, validatorLimit, Invocation{Args: []string{made.Input}})
+		status, err := validating(ctx, built, made.Input)
 		if err != nil {
 			return err
 		}
@@ -256,8 +256,7 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 			if !dependsOn(testset, made.Group) {
 				continue
 			}
-			status, err := built.jury(ctx, validatorLimit,
-				Invocation{Args: []string{made.Input, "--group", fmt.Sprint(testset.Index)}})
+			status, err := validating(ctx, built, made.Input, "--group", fmt.Sprint(testset.Index))
 			if err != nil {
 				return err
 			}
@@ -520,7 +519,7 @@ func (w *Workspace) validateBody(ctx context.Context, body []byte) string {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		return err.Error()
 	}
-	status, err := built.jury(ctx, validatorLimit, Invocation{Args: []string{path}})
+	status, err := validating(ctx, built, path)
 	if err != nil {
 		return err.Error()
 	}
