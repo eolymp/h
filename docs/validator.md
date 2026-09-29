@@ -284,6 +284,8 @@ int main(int argc, char** argv) {
 - **A group missing from the table** makes the test invalid: `no subtask 7; known: 0, 1, 2`.
   A testset added to the problem cannot slip through unchecked.
 - **Two rows with the same limits** get warning EO302, which usually means a copy and paste.
+  Group 0 is left out of the comparison, because the examples usually have the full limits of
+  the last subtask.
   It needs `operator==` on your struct; without one the check is skipped.
 - **A problem with subtasks and no table** raises EO301 when a test arrives with `--group 2`
   or higher.
@@ -428,7 +430,7 @@ as invalid ones.
 | EO109 | a real number is read with no rule on its digits |
 | EO110 | a local input has CRLF line endings (a note) |
 | EO301 | a test comes with `--group 2` or higher and the validator has no table |
-| EO302 | two rows of the table have the same limits |
+| EO302 | two rows of the table other than group 0 have the same limits |
 | EO304 | `cases` is used with no `sum_limit` (a note) |
 
 **Strict mode** turns every warning into an invalid test. Notes stay notes. Turn it on with

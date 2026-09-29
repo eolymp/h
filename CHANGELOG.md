@@ -22,6 +22,8 @@
 - **EO106 no longer fires on a bound computed from the input.** A bound within one of a value
   already read under a name, `read_int(1, n - 1, "m")` or `read_int(1, q, "x")`, is taken as
   computed; a literal such as `200001` is noted as before.
+- **EO302 leaves group 0 out.** The examples' row, which validator.md tells authors to list and
+  which usually has the full limits, is no longer called a copy and paste of the last subtask.
 
 ## 2.1.0
 

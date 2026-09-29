@@ -69,7 +69,7 @@ Every role reads through the same engine, so these fire anywhere.
 | Code | Severity | Reporter | Fires when | What to do |
 | --- | --- | --- | --- | --- |
 | `EO301` | warning | the program | a test is in a subtask and the validator declares no table | declare `v.subtasks<Limits>({...})`, which is what buys the per-subtask checks |
-| `EO302` | warning | the program | two subtasks have identical limits | one of them is probably a copy and paste |
+| `EO302` | warning | the program | two subtasks other than group 0 have identical limits; group 0, the examples, usually shares the full limits and is not compared | one of them is probably a copy and paste |
 | `EO303` | warning | the program | the validator ran for more than half of the judge's 30 000 ms wall limit | a slower machine or a busy judge would not finish it in time |
 | `EO304` | note | the program | `cases` is used with no `sum_limit` | most multi-test statements bound the sum of n |
 | `EO305` | warning | compiler | a structural check was computed and its result ignored, as in `eo::is_tree(…)` with no `v.require` | pass it to `v.require`; the check is `[[nodiscard]]` |

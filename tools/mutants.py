@@ -18,6 +18,8 @@ from common import ROOT, compiler
 MUTANTS = [
     ("a sum limit that allows one more", "src/validate.h",
      "if (total_ > limit_)", "if (total_ > limit_ + 1)"),
+    ("the examples' row compared when it is listed last", "src/validate.h",
+     "rows_[at].group != 0 && rows_[other].group != 0 &&", "rows_[at].group != 0 &&"),
     ("a test whose earlier write failed passed as written", "src/generate.h",
      "        if (std::ferror(stdout))\n            detail::finish(3, \"the test could not be written: an",
      "        if (false)\n            detail::finish(3, \"the test could not be written: an"),

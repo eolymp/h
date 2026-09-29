@@ -512,10 +512,18 @@ EO_TEST(two_rows_with_the_same_limits_are_a_copy_and_paste) {
         v.read_eoln();
     });
     EO_CHECK(!same.stopped);
-    EO_CHECK_IN(warnings_of_last_run(), "warning EO302: subtasks 0 and 1 have the same limits");
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO302"));
+    eot::outcome const copied = validate("5\n", [](eo::validator& v) {
+        v.subtasks<limits>({{0, {10, 100, false}}, {1, {10, 100, false}}, {2, {10, 100, false}}})
+            .without_group({10, 100, false});
+        v.read_int(1, 10, "n");
+        v.read_eoln();
+    });
+    EO_CHECK(!copied.stopped);
+    EO_CHECK_IN(warnings_of_last_run(), "warning EO302: subtasks 1 and 2 have the same limits");
 }
 
-EO_TEST(the_examples_row_with_the_full_limits_is_called_a_copy_and_paste) {
+EO_TEST(the_examples_row_may_have_the_full_limits) {
     eot::outcome const documented = validate("5\n", [](eo::validator& v) {
         v.subtasks<limits>({
             {0, {200000, 1000000000, false}},
@@ -526,7 +534,18 @@ EO_TEST(the_examples_row_with_the_full_limits_is_called_a_copy_and_paste) {
         v.read_eoln();
     });
     EO_CHECK(!documented.stopped);
-    EO_CHECK_IN(warnings_of_last_run(), "warning EO302: subtasks 0 and 2 have the same limits");
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO302"));
+    eot::outcome const last = validate("5\n", [](eo::validator& v) {
+        v.subtasks<limits>({
+            {1, {200000, 1000000000, false}},
+            {2, {10, 100, false}},
+            {0, {200000, 1000000000, false}},
+        }).without_group({200000, 1000000000, false});
+        v.read_int(1, 10, "n");
+        v.read_eoln();
+    });
+    EO_CHECK(!last.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO302"));
 }
 
 EO_TEST(a_problem_with_subtasks_and_no_table_is_reported) {

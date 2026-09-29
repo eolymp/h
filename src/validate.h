@@ -583,7 +583,7 @@ inline subtask_table<Limits>::subtask_table(validator& owner, std::vector<subtas
                 detail::library_error(
                     fmt("{}: subtask {} is listed twice", detail::where_of(where), rows_[at].group));
             if constexpr (detail::comparable<Limits>::value)
-                if (rows_[at].limits == rows_[other].limits)
+                if (rows_[at].group != 0 && rows_[other].group != 0 && rows_[at].limits == rows_[other].limits)
                     detail::warn("EO302",
                                  fmt("subtasks {} and {} have the same limits", rows_[at].group,
                                      rows_[other].group),
