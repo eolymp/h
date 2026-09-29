@@ -569,6 +569,30 @@ EO_TEST(a_bare_wrong_inside_a_shared_reader_is_mapped_too) {
     EO_CHECK_IN(contestant.text, "wrong answer: output.txt");
 }
 
+EO_TEST(a_real_optimum_without_a_tolerance_compares_with_equals) {
+    auto const run = [](char const* out, char const* ans) {
+        return check_run("1\n", out, ans, [](eo::checker& c) {
+            double const by_jury = c.jury.read_real(eo::any, "cost");
+            double const found = c.output.read_real(eo::any, "cost");
+            c.optimum(by_jury, found, eo::minimize);
+        });
+    };
+    eot::outcome const moved = run("0.30000000000000004\n", "0.3\n");
+    EO_CHECK_EQ(moved.code, 1);
+    EO_CHECK_EQ(moved.text, std::string("wrong answer the answer is 0.30000000000000004; the optimum is 0.3"));
+    EO_CHECK(!eot::contains(checker_warnings(), "EO214"));
+    eot::outcome const under = run("0.29999999999999999\n", "0.30000000000000004\n");
+    EO_CHECK_EQ(under.code, 3);
+    EO_CHECK_IN(under.text, "the contestant's 0.3 beats the jury's 0.30000000000000004");
+    EO_CHECK_EQ(run("0.3\n", "0.3\n").code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO214"));
+    eot::outcome const whole = check_run("1\n", "10\n", "10\n", [](eo::checker& c) {
+        c.optimum(c.jury.read_long(eo::any, "cost"), c.output.read_long(eo::any, "cost"), eo::minimize);
+    });
+    EO_CHECK_EQ(whole.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO214"));
+}
+
 EO_TEST(an_optimum_has_three_outcomes) {
     auto const run = [](char const* out, char const* ans) {
         return check_run("1\n", out, ans, [](eo::checker& c) {
