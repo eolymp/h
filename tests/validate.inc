@@ -515,6 +515,20 @@ EO_TEST(two_rows_with_the_same_limits_are_a_copy_and_paste) {
     EO_CHECK_IN(warnings_of_last_run(), "warning EO302: subtasks 0 and 1 have the same limits");
 }
 
+EO_TEST(the_examples_row_with_the_full_limits_is_called_a_copy_and_paste) {
+    eot::outcome const documented = validate("5\n", [](eo::validator& v) {
+        v.subtasks<limits>({
+            {0, {200000, 1000000000, false}},
+            {1, {10, 100, false}},
+            {2, {200000, 1000000000, false}},
+        }).without_group({200000, 1000000000, false});
+        v.read_int(1, 10, "n");
+        v.read_eoln();
+    });
+    EO_CHECK(!documented.stopped);
+    EO_CHECK_IN(warnings_of_last_run(), "warning EO302: subtasks 0 and 2 have the same limits");
+}
+
 EO_TEST(a_problem_with_subtasks_and_no_table_is_reported) {
     eot::outcome const untable = validate("5\n", [](eo::validator& v) {
         v.read_int(1, 10, "n");
