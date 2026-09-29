@@ -211,7 +211,9 @@ does not match.
 make check
 ```
 
-That is the whole C++ gate, and CI runs it on g++, clang++, musl and macOS. CI also runs
+That is the whole C++ gate, and CI runs it on g++, clang++, musl and macOS, and its `test`,
+`hostile` and `examples` parts on GCC 9, whose warnings differ from today's compilers' and
+fail the build under `-Werror` in every program that includes the header. CI also runs
 `make judge`, `make mutants`, `make sanitize` and `make fuzz`, and `make version` on a pull
 request. This table is the one description of the gate: the rows down to `budget` are what
 `make check` runs, the rest run on their own, and each answers a question:
