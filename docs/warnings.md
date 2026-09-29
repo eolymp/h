@@ -122,7 +122,7 @@ the author writes no test code for any of them.
 | `EO810` | warning | `eo-judge check` | a test is invalid under a testset that depends on its own | the groups do not nest the way the scoring assumes |
 | `EO811` | note | `eo-judge check` | a subtask has fewer than two tests | one input decides the whole subtask |
 | `EO812` | warning | `eo-judge check` | a generator gives different bytes twice, or under GCC and clang | unspecified argument order, `std::shuffle`, unordered iteration or signed `char` |
-| `EO813` | warning | `eo-judge check` | an extreme value of a declared `g.option` does not produce a valid test | overflow and edge cases at the bounds |
+| `EO813` | warning | `eo-judge check` | an extreme value of a declared `g.option` does not produce a valid test. Each extreme replaces the option in the stored tests' arguments, one test after another, until the generator accepts it; a refusal by `g.require`, exit 4, moves on to the next test, and an extreme that every stored test's options refuse that way is not reported; any other failure, a crash or a timeout, is reported at once | overflow and edge cases at the bounds |
 | `EO814` | warning | `eo-judge check` | a hostile client gets an interaction failure rather than a wrong answer or a time limit | the clients exit at once, print garbage, go silent and flood the pipe |
 | `EO815` | warning | `eo-judge check` | the same solution run twice gives a different verdict or score | something in the problem uses the clock or unseeded randomness |
 | `EO816` | warning | `eo-judge check` | a correct solution uses more than half of a limit | a rejudge on a slower machine would fail it |

@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -488,7 +487,7 @@ func TestCheckFindsAnInteractorThatFailsOnABadClient(t *testing.T) {
 	}
 }
 
-func TestCheckTriesAnOptionExtremeOnlyWithTheFirstTestsArguments(t *testing.T) {
+func TestCheckTriesAnOptionExtremeWithEveryTestsArguments(t *testing.T) {
 	t.Parallel()
 	needsACompiler(t)
 	found, err := workshop(t, "testdata/dependent").Check(context.Background(), false)
@@ -501,10 +500,49 @@ func TestCheckTriesAnOptionExtremeOnlyWithTheFirstTestsArguments(t *testing.T) {
 			extremes = append(extremes, one.Where+": "+one.Message)
 		}
 	}
-	sort.Strings(extremes)
-	want := []string{"script gen: m=1000 does not generate: ", "script gen: n=1 does not generate: "}
-	if len(extremes) != len(want) || !strings.HasPrefix(extremes[0], want[0]) || !strings.HasPrefix(extremes[1], want[1]) {
-		t.Errorf("EO813 said %q; it tries the extremes with -n=10 -m=5 alone, so it calls m=1000 and n=1 failures", extremes)
+	if len(extremes) != 0 {
+		t.Errorf("EO813 said %q; m=1000 generates with -n=1000, and n=1 is refused by g.require, not broken", extremes)
+	}
+}
+
+func TestCheckStillBlamesAnExtremeThatFailsForAnotherReason(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs.txt")
+	writeFile(t, filepath.Join(dir, "gen.cpp"), "#include <cstdio>\n#include <cstring>\n"+
+		"int main(int argc, char** argv) {\n"+
+		"    if (argc > 1 && std::strcmp(argv[1], \"--eo-describe\") == 0) {\n"+
+		"        std::printf(\"eo-describe option n an integer 1..9\\n\");\n        return 0;\n    }\n"+
+		"    if (argc > 1 && std::strcmp(argv[1], \"-n=9\") == 0) {\n"+
+		"        std::FILE* ran = std::fopen(\""+runs+"\", \"a\");\n"+
+		"        std::fputs(\"n=9\\n\", ran);\n        std::fclose(ran);\n"+
+		"        std::fprintf(stderr, \"n is 9\\n\");\n        return 3;\n    }\n"+
+		"    if (argc > 1 && std::strcmp(argv[1], \"-n=1\") == 0) { std::fprintf(stderr, \"too few\\n\"); return 4; }\n"+
+		"    std::printf(\"1\\n\");\n}\n")
+	writeFile(t, filepath.Join(dir, "answer.cpp"), "int main() {}\n")
+	writeFile(t, filepath.Join(dir, "problem.json"), `{"type": "PROGRAM",
+		"scripts": {"gen": {"source": "gen.cpp"}, "answer": {"source": "answer.cpp"}},
+		"testsets": [{"index": 1, "tests": [
+			{"index": 1, "score": 40, "generator": {"script": "gen", "arguments": ["-n=5", "-k=1"]}, "answerGenerator": "answer"},
+			{"index": 2, "score": 30, "generator": {"script": "gen", "arguments": ["-n=5", "-k=2"]}, "answerGenerator": "answer"},
+			{"index": 3, "score": 30, "generator": {"script": "gen", "arguments": ["-n=6", "-k=3"]}, "answerGenerator": "answer"}]}]}`)
+	found, err := workshop(t, dir).Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var extremes []string
+	for _, one := range found {
+		if one.Code == "EO813" {
+			extremes = append(extremes, one.Message)
+		}
+	}
+	if len(extremes) != 1 || extremes[0] != "n=9 does not generate: exit 3: n is 9" {
+		t.Errorf("EO813 said %q; n=9 fails with exit 3, and n=1 is only refused with exit 4", extremes)
+	}
+	ran, err := os.ReadFile(runs)
+	if err != nil || string(ran) != "n=9\n" {
+		t.Errorf("the failing extreme ran %q; one failure other than exit 4 is reported at once", ran)
 	}
 }
 
