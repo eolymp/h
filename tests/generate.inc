@@ -217,6 +217,30 @@ EO_TEST(an_option_the_declaration_refuses_stops_the_generator) {
     EO_CHECK(with({"-n=5", "-flag=0"}).test == "ok\n");
 }
 
+EO_TEST(an_unknown_option_is_refused_only_after_the_test_is_written) {
+    auto const counting = [](std::vector<char const*> given) {
+        return generate(given, [](eo::generator& g) {
+            int const n = g.option<int>("n", 1, 1000000);
+            for (int at = 0; at < n; at++) g.out.line(1000000 + at);
+        });
+    };
+    made const small = counting({"-n=2", "-m=1"});
+    EO_CHECK_EQ(small.code, 3);
+    EO_CHECK_EQ(small.text, std::string("unknown option -m; the options are -n"));
+    EO_CHECK_EQ(small.test, std::string("1000000\n1000001\n"));
+    made const large = counting({"-n=300000", "-m=1"});
+    EO_CHECK_EQ(large.code, 3);
+    EO_CHECK(large.test.size() >= std::size_t{1} << 20);
+    made const late = generate({"-n=300000", "-last=7"}, [](eo::generator& g) {
+        int const n = g.option<int>("n", 1, 1000000);
+        for (int at = 0; at < n; at++) g.out.line(1000000 + at);
+        g.out.line(g.option<int>("last", 1, 9));
+    });
+    EO_CHECK(!late.stopped);
+    EO_CHECK_EQ(late.test.size(), static_cast<std::size_t>(300000 * 8 + 2));
+    EO_CHECK_EQ(late.test.substr(late.test.size() - 10), std::string("1299999\n7\n"));
+}
+
 EO_TEST(the_command_line_has_to_look_like_options) {
     made const bare = generate({"n=5"}, [](eo::generator& g) { g.out.line("never"); });
     EO_CHECK_IN(bare.text, "n=5 is not an option; write -name=value");

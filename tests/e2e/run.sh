@@ -234,7 +234,13 @@ expect_run "the validator on the generated test" 0 "*" "$build/validator" "$buil
     pass "the validator accepts what the generator wrote"
 expect_run "the generator given an option it never declared" 3 "*unknown option -oops*" \
     generate generated_bad.txt -n=20 -oops=1 &&
-    pass "an undeclared option stops the generator before it writes"
+    expect_run "a large generator given an option it never declared" 3 "*unknown option -oops*" \
+        generate generated_bad_large.txt -n=200000 -oops=1 &&
+    if [ -s "$build/generated_bad.txt" ] || [ "$(wc -c < "$build/generated_bad_large.txt")" -lt 1048576 ]; then
+        fail "an undeclared option no longer writes a large test's first megabyte and drops a small one"
+    else
+        pass "an undeclared option stops the generator, after a large test's first megabyte is written"
+    fi
 if [ -n "$fused" ]; then
     for built in ${fused#ok}; do
         drawn=$("$build/real_bits_$built")
