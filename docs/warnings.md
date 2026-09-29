@@ -43,7 +43,7 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO109` | warning | the program | a real number is read with no rule on its digits | say how many digits follow the point: `read_real(low, high, least, most, name)` |
 | `EO110` | note | the program | a local input has CRLF line endings | the judge converts them and so does a local run, so this is a note about the file, not the test |
 | `EO111` | note | the program | a token over 1 MB was held in memory | bound its length if the format allows |
-| `EO112` | warning | the program | a message has more or fewer `{}` than values, or a lone `{` or `}`, such as a printf-style `"%d"` | write one `{}` for each value and `{{` or `}}` for a brace; the message keeps every value, the extra ones appended, and the verdict stands |
+| `EO112` | warning | the program | a message has more or fewer `{}` than values, or a lone `{` or `}`, such as a printf-style `"%d"` | write one `{}` for each value and `{{` or `}}` for a brace; the message keeps every value, the extra ones appended, and the verdict stands; under C++20, `-DEOLYMP_CHECK_PATTERNS` makes a literal message like that a compile error instead |
 
 ## EO2xx — the checker
 

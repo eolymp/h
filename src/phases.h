@@ -67,7 +67,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void finish(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
+    [[noreturn]] void finish(detail::scored fraction, detail::pattern_for<Args...> pattern = "", Args const&... args) {
         if (number_ >= count_) owner_->pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
         finished_ = true;
         share_ = detail::clamped(fraction.value, fraction.where);

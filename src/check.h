@@ -338,7 +338,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void wrong(detail::pattern pattern, Args const&... args) const {
+    [[noreturn]] void wrong(detail::pattern_for<Args...> pattern, Args const&... args) const {
         reader_.refuse(detail::value_name(unnamed), fmt(pattern, args...));
     }
 

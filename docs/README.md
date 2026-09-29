@@ -64,6 +64,16 @@ its eolymp.h counterpart, for a problem moving over.
   names and no macros beyond the include guard and the version. `make check` builds the
   header after `<bits/stdc++.h>` with `using namespace std`, and beside globals named `OK`,
   `checker`, `split`, `format`, `join` and `trim`.
+- **A message with the wrong number of `{}` can fail to compile, if you ask.** Under C++20,
+  building with `-DEOLYMP_CHECK_PATTERNS` checks every literal message at compile time, in
+  `eo::wrong`, `eo::accept`, `eo::score`, `eo::points`, `eo::jury_error`, `eo::fmt`,
+  `eo::log`, `require` and a stream's `wrong`: `eo::wrong("got %d", x)`, which otherwise runs
+  with warning EO112, stops the build at
+  `a_message_needs_one_placeholder_for_each_value`, and a lone brace at
+  `a_message_needs_two_braces_to_print_one`. It is opt-in because a program that built with
+  the last release has to build with this one. C++17, and a compiler without `consteval`,
+  ignore the macro, and a message held in a `std::string` or a `char` array is still checked
+  when it runs.
 - **It checks the problem, not only the test.** A value read without bounds, a bound one away
   from a round number, a subtask table nobody declared, a `cases` loop with no sum limit —
   each becomes a warning with a stable code, the line of your source and a fix. A warning

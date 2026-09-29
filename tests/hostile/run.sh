@@ -39,3 +39,12 @@ refused_with() {
 }
 
 refused_with unprintable "eolymp.h cannot print this type"
+
+checked="-std=c++20 -DEOLYMP_CHECK_PATTERNS"
+if printf '#ifndef __cpp_consteval\n#error\n#endif\n' | $CXX $checked -fsyntax-only -x c++ - 2>/dev/null; then
+    build_and_run checked_patterns $checked -Wall -Wextra -Wshadow -Werror
+    refused_with pattern_count a_message_needs_one_placeholder_for_each_value $checked
+    refused_with pattern_brace a_message_needs_two_braces_to_print_one $checked
+else
+    echo "hostile: the compile-time check of messages skipped, this compiler has no consteval"
+fi

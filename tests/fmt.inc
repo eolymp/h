@@ -87,6 +87,35 @@ EO_TEST(fmt_keeps_a_lone_brace_and_reports_it) {
     EO_CHECK(!eo::detail::diagnostics::shared().anything());
 }
 
+EO_TEST(the_compile_time_rule_for_a_message_is_the_run_time_rule) {
+    static_assert(eo::detail::fault_of("{} and {}", 2) == eo::detail::pattern_fault::none);
+    static_assert(eo::detail::fault_of("got %d", 1) == eo::detail::pattern_fault::count);
+    static_assert(eo::detail::fault_of("a { b", 0) == eo::detail::pattern_fault::lone);
+    struct sample {
+        char const* text;
+        std::size_t values;
+    };
+    sample const samples[] = {{"", 0},        {"{}", 1},         {"{}", 0},        {"{{}}", 0},     {"{{}}", 1},
+                              {"{{{}}}", 1},  {"a { b", 0},      {"a } {} {", 1},  {"}{", 0},       {"{}}", 1},
+                              {"{{}", 1},     {"%d %s", 2},      {"{} {} {}", 2},  {"x}}", 0},      {"{", 0}};
+    for (sample const& one : samples) {
+        eo::detail::diagnostics::shared().forget_everything();
+        std::string const text = one.text;
+        if (one.values == 0) {
+            (void)eo::fmt(text);
+        } else if (one.values == 1) {
+            (void)eo::fmt(text, 1);
+        } else {
+            (void)eo::fmt(text, 1, 2);
+        }
+        bool const reported = eo::detail::diagnostics::shared().raised_already("EO112");
+        bool const refused = eo::detail::fault_of(one.text, one.values) != eo::detail::pattern_fault::none;
+        if (reported != refused) std::fprintf(stderr, "   the rules differ on \"%s\"\n", one.text);
+        EO_CHECK_EQ(reported, refused);
+    }
+    eo::detail::diagnostics::shared().forget_everything();
+}
+
 EO_TEST(fmt_keeps_every_value_when_the_count_does_not_match) {
     eo::detail::diagnostics::shared().forget_everything();
     int const line = __LINE__ + 1;
