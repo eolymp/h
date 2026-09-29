@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0
+
+### What changes for a program
+
+- **A generator given an option it does not declare writes nothing.** It exits 3 with
+  `unknown option -m` as before, but no longer writes the first megabytes of a test over
+  1 MB before it does. A generator that declares an option after its first megabyte of output
+  writes the same bytes as before, later.
+
 ## 2.1.0
 
 This release changes no verdict. The header is the same library as 2.0.1 under a new

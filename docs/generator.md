@@ -102,8 +102,10 @@ Everything is checked before the first byte of output:
 | a value of the wrong type | `-n=ten is not an integer` |
 | something that is not an option at all | `n=5 is not an option; write -name=value` |
 
-So declare every option before writing any output: the first write is what checks that every
-argument on the command line has been declared.
+Nothing is written while an argument on the command line is still undeclared: `g.out` holds
+the test in memory until every one has been declared, so an unknown option writes no byte at
+all, and an option declared late, after a megabyte of output, costs that much memory. Declare
+every option at the top of `main`.
 
 **`-seed=…` is built in.** Every argument feeds the random seed, so `gen -n=10 -seed=1` and
 `gen -n=10 -seed=2` give two different tests of the same size. `seed` needs no declaration

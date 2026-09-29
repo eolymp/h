@@ -98,9 +98,9 @@ public:
         detail::restore_channels afterwards;
         detail::live_generator() = nullptr;
         if (std::uncaught_exceptions() != 0) return;
+        every_option_was_asked_for();
         out.flush();
         if (describing_) describe();
-        every_option_was_asked_for();
         closing_warnings();
         detail::diagnostics::shared().emit();
     }
@@ -195,7 +195,7 @@ public:
         }
 
         void flush() {
-            if (held_.empty()) return;
+            if (held_.empty() || !owner_->every_argument_is_declared()) return;
             if (!owner_->describing_) std::fwrite(held_.data(), 1, held_.size(), stdout);
             owner_->written_ += static_cast<long long>(held_.size());
             held_.clear();
@@ -291,6 +291,14 @@ private:
         refuse(fmt("-{}={} is not one of {}", name, text, listed(choices)));
     }
 
+    bool every_argument_is_declared() {
+        if (declared_ || describing_) return true;
+        for (auto const& one : given_)
+            if (one.first != "seed" && asked_.count(one.first) == 0) return false;
+        declared_ = true;
+        return true;
+    }
+
     void every_option_was_asked_for() {
         if (checked_) return;
         checked_ = true;
@@ -350,6 +358,7 @@ private:
     bool drew_ = false;
     bool describing_ = false;
     bool checked_ = false;
+    bool declared_ = false;
     bool used_the_default_ = false;
     bool used_a_label_ = false;
     detail::site where_of_run_{"generator", 0};
