@@ -219,8 +219,10 @@ type`, instead of a page of template instantiations; pass the fields one by one.
 for `it.send` and every message.
 
 Anything that reaches stdout another way — `std::cout`, `printf` — still lands in the test,
-in the order it was written, and gets warning EO503, because mixing the two makes the layout
-hard to predict. The check compares what the writer wrote with how far stdout actually moved,
+but not where it was written: `g.out` holds its lines until it has a megabyte of them or the
+generator ends, so bytes written another way land ahead of every line `g.out` still holds.
+`g.out.line("first"); printf("stray\n"); g.out.line("last");` writes `stray`, `first`,
+`last`. That gets warning EO503, because mixing the two makes the layout hard to predict. The check compares what the writer wrote with how far stdout actually moved,
 so it is silent when stdout is a pipe rather than a file.
 
 ## Warnings

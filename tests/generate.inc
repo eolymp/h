@@ -327,6 +327,17 @@ EO_TEST(a_stress_run_that_draws_nothing_is_reported) {
     EO_CHECK(!eot::contains(checker_warnings(), "EO501"));
 }
 
+EO_TEST(bytes_written_around_the_writer_land_ahead_of_the_lines_it_holds) {
+    made const result = generate({}, [](eo::generator& g) {
+        g.out.line("first");
+        std::printf("stray\n");
+        g.out.line("last");
+    });
+    EO_CHECK(!result.stopped);
+    EO_CHECK_EQ(result.test, std::string("stray\nfirst\nlast\n"));
+    EO_CHECK_IN(checker_warnings(), "warning EO503: 6 bytes reached stdout without going through g.out");
+}
+
 EO_TEST(writing_around_the_writer_is_reported) {
     made const result = generate({}, [](eo::generator& g) {
         std::printf("stray\n");
