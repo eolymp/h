@@ -2953,6 +2953,39 @@ enum class towards { smaller, larger };
 inline constexpr towards minimize = towards::smaller;
 inline constexpr towards maximize = towards::larger;
 
+struct tolerance {
+    double epsilon;
+};
+
+inline tolerance within(double epsilon) {
+    if (!(epsilon >= 0)) detail::library_error(fmt("eo::within needs a tolerance of 0 or more, not {}", epsilon));
+    return tolerance{epsilon};
+}
+
+enum class standing { worse, equal, better };
+
+namespace detail {
+
+inline void the_jury_has_a_number(double value) {
+    if (std::isnan(value)) judging().fail_jury(fmt("the jury's value is {}, which no answer can equal", value));
+}
+
+}  // namespace detail
+
+template <class T>
+inline standing compare(T const& found, T const& by_the_jury, towards direction) {
+    if (found == by_the_jury) return standing::equal;
+    bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
+    return better ? standing::better : standing::worse;
+}
+
+inline standing compare(double found, double by_the_jury, towards direction, tolerance allowed) {
+    detail::the_jury_has_a_number(by_the_jury);
+    if (found == by_the_jury || close_enough(by_the_jury, found, allowed.epsilon)) return standing::equal;
+    bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
+    return better ? standing::better : standing::worse;
+}
+
 class checker;
 
 namespace detail {
@@ -3378,6 +3411,14 @@ public:
         if (found == by_the_jury) pass(1, fmt("{}", found));
         bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
         if (better)
+            fail_jury(fmt("the contestant's {} beats the jury's {}", found, by_the_jury));
+        fail_run(fmt("the answer is {}; the optimum is {}", found, by_the_jury));
+    }
+
+    [[noreturn]] void optimum(double by_the_jury, double found, towards direction, tolerance allowed) {
+        standing const said = compare(found, by_the_jury, direction, allowed);
+        if (said == standing::equal) pass(1, fmt("{}", found));
+        if (said == standing::better)
             fail_jury(fmt("the contestant's {} beats the jury's {}", found, by_the_jury));
         fail_run(fmt("the answer is {}; the optimum is {}", found, by_the_jury));
     }

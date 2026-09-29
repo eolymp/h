@@ -308,6 +308,41 @@ report a jury-side problem as a jury error.
 
 `eo::maximize` is the other direction.
 
+**A real optimum needs a tolerance.** `c.optimum(by_the_jury, found, eo::minimize)` compares
+with `==`, so a contestant whose 0.30000000000000004 is the jury's 0.3 is not equal, and is
+either a wrong answer or, when the rounding went the other way, a jury error. Say how close is
+equal:
+
+```cpp
+c.optimum(by_the_jury, found, eo::minimize, eo::within(1e-6));
+```
+
+Two reals are equal within `eo::within(eps)` when they differ by at most `eps`, or by at most
+`eps` times the jury's value: the rule of `eo::close_enough` and `c.reals(eps)`. Outside it the
+three outcomes are those above.
+
+**The comparison on its own** is `eo::compare(found, by_the_jury, direction)`, which returns
+`eo::standing::better`, `equal` or `worse` for the contestant and ends nothing, for a checker
+that scores what it finds rather than accepting or rejecting it. For reals it takes the same
+`eo::within(eps)` after the direction:
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    double by_the_jury = c.jury.read_real(0, 1e9, "length");
+    double found = c.output.read_real(0, 1e9, "length");
+    eo::standing said = eo::compare(found, by_the_jury, eo::minimize, eo::within(1e-6));
+    if (said == eo::standing::better) eo::jury_error("the contestant's {} beats the jury's {}", found, by_the_jury);
+    if (said == eo::standing::equal) eo::accept("{}", found);
+    eo::score(by_the_jury / found, "{} against the optimum {}", found, by_the_jury);
+}
+```
+
+Mind the order: `eo::compare` puts the contestant's value first and says how it stands against
+the jury's, while `c.optimum` and `eo::close_enough` put the jury's first.
+
 ## Declaring how many answers there are
 
 ```cpp
@@ -442,6 +477,7 @@ Still missing:
 | `c.read_both(reader)` | reads the jury's answer, then the output, with one function |
 | `c.answers(eo::unique)`, `c.answers(eo::many)` | how many answers are correct |
 | `c.optimum(by_the_jury, found, eo::minimize)`, `eo::maximize` | compare and end |
+| `c.optimum(by_the_jury, found, eo::minimize, eo::within(eps))` | the same for reals, equal within `eps` |
 | `c.tokens()`, `c.lines()`, `c.reals(eps)`, `c.yes_no(certificate)` | ready-made comparisons |
 | `c.cost()`, `c.group()`, `c.index()`, `c.test_id()` | the test |
 | `c.cases(t, body)` | numbers the messages of a multi-test output |
@@ -463,6 +499,7 @@ Still missing:
 | `eo::accept`, `eo::wrong`, `eo::score`, `eo::points`, `eo::jury_error` | end with a verdict |
 | `eo::ratio(a, b)`, `eo::round_to(d)` | an exact fraction, and rounding |
 | `eo::close_enough(expected, found, eps)` | compare reals |
+| `eo::compare(found, by_the_jury, direction)`, `(…, eo::within(eps))` | `eo::standing::better`, `equal` or `worse`, ending nothing |
 | `eo::fmt("…", args)`, `eo::log("…", args)` | build a string, write a line to the log |
 | `eo::any`, `eo::unnamed`, `eo::charset("a-z")` | no bounds, no name, allowed characters |
 | `eo::element(name, index)` | names one element of a sequence, without a coverage entry of its own |

@@ -616,6 +616,58 @@ EO_TEST(an_optimum_has_three_outcomes) {
     EO_CHECK_EQ(upward.code, 1);
 }
 
+EO_TEST(an_optimum_within_a_tolerance_accepts_what_rounding_moved) {
+    auto const run = [](char const* out, char const* ans, eo::towards direction) {
+        return check_run("1\n", out, ans, [direction](eo::checker& c) {
+            double const by_jury = c.jury.read_real(eo::any, "cost");
+            double const found = c.output.read_real(eo::any, "cost");
+            c.optimum(by_jury, found, direction, eo::within(1e-6));
+        });
+    };
+    eot::outcome const close = run("0.30000000000000004\n", "0.3\n", eo::minimize);
+    EO_CHECK_EQ(close.code, 0);
+    EO_CHECK_EQ(close.text, std::string("ok 0.30000000000000004"));
+    EO_CHECK_EQ(run("1000000.5\n", "1000000\n", eo::minimize).code, 0);
+    eot::outcome const worse = run("0.31\n", "0.3\n", eo::minimize);
+    EO_CHECK_EQ(worse.code, 1);
+    EO_CHECK_EQ(worse.text, std::string("wrong answer the answer is 0.31; the optimum is 0.3"));
+    eot::outcome const better = run("0.29\n", "0.3\n", eo::minimize);
+    EO_CHECK_EQ(better.code, 3);
+    EO_CHECK_IN(better.text, "the contestant's 0.29 beats the jury's 0.3");
+    EO_CHECK_EQ(run("0.29\n", "0.3\n", eo::maximize).code, 1);
+    EO_CHECK_EQ(run("0.31\n", "0.3\n", eo::maximize).code, 3);
+}
+
+EO_TEST(a_comparison_says_better_equal_or_worse) {
+    EO_CHECK(eo::compare(5, 7, eo::minimize) == eo::standing::better);
+    EO_CHECK(eo::compare(7, 7, eo::minimize) == eo::standing::equal);
+    EO_CHECK(eo::compare(5, 7, eo::maximize) == eo::standing::worse);
+    EO_CHECK(eo::compare(0.1 + 0.2, 0.3, eo::minimize, eo::within(1e-9)) == eo::standing::equal);
+    EO_CHECK(eo::compare(0.4, 0.3, eo::minimize, eo::within(1e-9)) == eo::standing::worse);
+    EO_CHECK(eo::compare(0.4, 0.3, eo::maximize, eo::within(1e-9)) == eo::standing::better);
+    EO_CHECK(eo::compare(0.3 + 1e-12, 0.3, eo::maximize, eo::within(0)) == eo::standing::better);
+    double const endless = std::numeric_limits<double>::infinity();
+    EO_CHECK(eo::compare(endless, endless, eo::minimize, eo::within(1e-9)) == eo::standing::equal);
+    EO_CHECK(eo::compare(endless, 5.0, eo::minimize, eo::within(1e-9)) == eo::standing::worse);
+    EO_CHECK(eo::compare(std::nan(""), 5.0, eo::minimize, eo::within(1e-9)) == eo::standing::worse);
+    EO_CHECK(eo::compare(5.0, 5.0 + 5e-10, eo::minimize, eo::within(1e-9)) == eo::standing::equal);
+    EO_CHECK(eo::compare(99.0, 100.0, eo::minimize, eo::within(0.0101)) == eo::standing::equal);
+    EO_CHECK(eo::compare(100.0, 99.0, eo::minimize, eo::within(0.0101)) == eo::standing::worse);
+    eot::outcome const unknown = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        (void)c.output.read_int(1, 9, "x");
+        (void)eo::compare(1.0, std::nan(""), eo::minimize, eo::within(1e-6));
+    });
+    EO_CHECK_EQ(unknown.code, 3);
+    EO_CHECK_IN(unknown.text, "the jury's value is nan, which no answer can equal");
+    eot::outcome const optimum = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.optimum(std::nan(""), static_cast<double>(c.output.read_int(1, 9, "x")), eo::minimize, eo::within(1e-6));
+    });
+    EO_CHECK_EQ(optimum.code, 3);
+    EO_CHECK_IN(eot::run_until_stop([] { (void)eo::within(-1e-6); }).text,
+                "eo::within needs a tolerance of 0 or more, not -1e-06");
+    EO_CHECK_IN(eot::run_until_stop([] { (void)eo::within(std::nan("")); }).text, "not nan");
+}
+
 EO_TEST(the_ready_made_comparisons_compare) {
     EO_CHECK_EQ(check_run("1\n", "a b\nc\n", "a\nb c\n", [](eo::checker& c) { c.tokens(); }).code, 0);
     eot::outcome const differs = check_run("1\n", "a x\n", "a b\n", [](eo::checker& c) { c.tokens(); });

@@ -60,6 +60,7 @@ input itself. See [validator.md](validator.md).
 | `quitp(p)` | `eo::score(f)` for a fraction of the test, or `eo::points(p)` for points |
 | a `readAns(ouf)` / `readAns(ans)` pair, then `quitf(_fail)` if the contestant beats the jury | `c.read_both(reader)` and `c.optimum(by_the_jury, found, eo::minimize)` |
 | `doubleCompare(expected, result, 1e-9)` | `eo::close_enough(expected, found, 1e-9)` |
+| `doubleCompare` on an optimum, then `quitf(_fail)` if the contestant's is better | `c.optimum(by_the_jury, found, eo::minimize, eo::within(1e-9))` |
 | `wcmp` | `c.tokens()` |
 | `rcmp6`, `rcmp9` | `c.reals(1e-6)`, `c.reals(1e-9)` |
 
