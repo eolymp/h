@@ -14,6 +14,10 @@
 #ifndef EOLYMP_H_INCLUDED
 #define EOLYMP_H_INCLUDED
 
+#if __cplusplus < 201703L
+#error "eolymp.h needs C++17 or later: build with -std=c++17"
+#else
+
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -4926,4 +4930,5 @@ private:
 
 }  // namespace eo
 
+#endif
 #endif

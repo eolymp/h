@@ -48,7 +48,8 @@ Include the header before anything else, because organiser code sometimes contai
 #include <eolymp.h>
 ```
 
-It needs C++17 and builds unchanged as C++20 and C++23.
+It needs C++17 and builds unchanged as C++20 and C++23; below C++17 it stops at one
+`#error` that says so.
 
 **The checker attaches nothing.** The judge's C++ runtime carries the header at
 `/usr/include/eolymp.h`, so the angle-bracket `#include` finds it.

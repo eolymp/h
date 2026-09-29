@@ -16,6 +16,8 @@
 
 #include "eolymp.h"
 
+#if __cplusplus >= 201703L
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -890,4 +892,5 @@ inline std::vector<long long> chained(rng& draw, long long count, long long limi
 }  // namespace shapes
 }  // namespace eo
 
+#endif
 #endif

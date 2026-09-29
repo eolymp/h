@@ -19,6 +19,10 @@
 - **`g.require` exits 4.** A generator whose options do not go together still fails its
   generation, with the same message on stderr; the exit code says why, for eo-judge's EO813.
 
+- **Below C++17 the header stops at one `#error`**, `eolymp.h needs C++17 or later: build
+  with -std=c++17`, instead of hundreds of errors from inside it. A program that built
+  before builds the same code.
+
 ### eo-judge
 
 - **A validator gets the test on stdin as well as by its path**, as on the judge. A validator
