@@ -37,7 +37,7 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO103` | warning | compiler | a checker reads a number with no bounds | give the bounds, or say `eo::any`; an unbounded read is how a hostile output crashes a checker |
 | `EO104` | warning | the program | the bounds are the whole range of the type | say `eo::any` if any value is allowed, so the intent is on the page |
 | `EO105` | warning | the program | a bound does not fit the type, as in `read_int(1, 3000000000)` | read a wider type with `read_long` |
-| `EO106` | note | the program | a bound is one away from a round number, such as `200001` | compare it with the statement; a bound computed from another value, like `n - 1`, raises this too |
+| `EO106` | note | the program | a bound is one away from a round number, such as `200001` | compare it with the statement. A bound within one of a value the program has already read under a name, such as `n - 1` or `n` itself, is taken as computed from it and raises nothing |
 | `EO107` | warning | the program | one name is read with different bounds, or as two different kinds, at two places | constrain it one way, or read it one way |
 | `EO108` | warning | compiler, the program | a token or a line is read with no length or no charset | give a length and the characters it may hold, or say `eo::any` |
 | `EO109` | warning | the program | a real number is read with no rule on its digits | say how many digits follow the point: `read_real(low, high, least, most, name)` |

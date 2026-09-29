@@ -810,7 +810,15 @@ EO_TEST(a_read_without_a_name_or_bounds_still_works_and_warns) {
     EO_CHECK_IN(said, "warning EO108: this token is read with no length and no charset");
 }
 
-EO_TEST(a_bound_computed_from_a_value_read_before_is_pointed_out_as_nearly_round) {
+EO_TEST(a_bound_computed_from_a_value_read_before_is_not_called_nearly_round) {
+    eot::outcome const above = validate("200000 200001\n", [](eo::validator& v) {
+        int const n = v.read_int(1, 200000, "n");
+        v.read_space();
+        v.read_int(1, n + 1, "m");
+        v.read_eoln();
+    });
+    EO_CHECK(!above.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO106"));
     eot::outcome const result = validate("200000 199999 199999\n100001 7\n", [](eo::validator& v) {
         int const n = v.read_int(1, 200000, "n");
         v.read_space();
@@ -824,10 +832,7 @@ EO_TEST(a_bound_computed_from_a_value_read_before_is_pointed_out_as_nearly_round
         v.read_eoln();
     });
     EO_CHECK(!result.stopped);
-    std::string const said = warnings_of_last_run();
-    EO_CHECK_IN(said, "note EO106: the bounds 1..199999 are one away from a round number");
-    EO_CHECK_IN(said, "note EO106: the bounds 199999..200000 are one away from a round number");
-    EO_CHECK_IN(said, "note EO106: the bounds 1..100001 are one away from a round number");
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO106"));
 }
 
 EO_TEST(bounds_that_look_wrong_are_pointed_out) {

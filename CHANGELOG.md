@@ -17,6 +17,12 @@
   separators before values that print nothing at the end of a line go; a line whose last value
   prints anything is byte for byte what it was.
 
+### Warnings
+
+- **EO106 no longer fires on a bound computed from the input.** A bound within one of a value
+  already read under a name, `read_int(1, n - 1, "m")` or `read_int(1, q, "x")`, is taken as
+  computed; a literal such as `200001` is noted as before.
+
 ## 2.1.0
 
 This release changes no verdict. The header is the same library as 2.0.1 under a new
