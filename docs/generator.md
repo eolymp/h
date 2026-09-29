@@ -211,6 +211,11 @@ g.out.line(eo::fixed(p, 6));
 The writer is buffered and never flushes per line. By construction it never writes a trailing
 space, every line ends with a single line break, and so does the file.
 
+It prints numbers, text, `eo::fixed` and containers of them. Anything else, a struct or a
+`std::pair`, does not compile, and the error says so in one line, `eolymp.h cannot print this
+type`, instead of a page of template instantiations; pass the fields one by one. The same holds
+for `it.send` and every message.
+
 Anything that reaches stdout another way — `std::cout`, `printf` — still lands in the test,
 in the order it was written, and gets warning EO503, because mixing the two makes the layout
 hard to predict. The check compares what the writer wrote with how far stdout actually moved,

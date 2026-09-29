@@ -79,6 +79,9 @@ inline void append_fixed(std::string& out, double value, int digits) {
 }
 
 template <class T>
+inline constexpr bool printable_only_by_its_fields = false;
+
+template <class T>
 inline void append_value(std::string& out, T const& value) {
     using plain = std::remove_cv_t<std::remove_reference_t<T>>;
     if constexpr (is_fixed<plain>::value) {
@@ -96,8 +99,12 @@ inline void append_value(std::string& out, T const& value) {
         append_integer(out, static_cast<long long>(value));
     } else if constexpr (std::is_integral_v<plain>) {
         append_unsigned(out, static_cast<unsigned long long>(value));
-    } else {
+    } else if constexpr (std::is_constructible_v<std::string_view, T const&>) {
         out.append(std::string_view(value));
+    } else {
+        static_assert(printable_only_by_its_fields<plain>,
+                      "eolymp.h cannot print this type: a line, a message and eo::fmt take numbers, text, "
+                      "eo::fixed and containers of them; pass the fields of a struct one by one");
     }
 }
 

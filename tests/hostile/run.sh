@@ -38,4 +38,4 @@ refused_with() {
     echo "hostile: $name is refused at compile time, saying \"$said\""
 }
 
-refused_with unprintable "string_view"
+refused_with unprintable "eolymp.h cannot print this type"

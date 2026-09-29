@@ -225,7 +225,7 @@ request. This table is the one description of the gate: the rows down to `budget
 | `coverage` | every line of both headers runs at least once, including inline functions nothing calls, and fails the build if one does not |
 | `standards` | it also compiles and passes in the other two of C++17, C++20 and C++23, at `-O0` under the same warnings, which proves the language and library differences in a third of the build time |
 | `e2e` | a real compiled validator gives the judge's exit codes and messages, through the exit path the tests cannot reach |
-| `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals; a program that prints a value the library cannot print fails to build, and the gate says with what |
+| `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals; a program that prints a value the library cannot print fails to build with the library's own message |
 | `examples` | every example in `docs/` compiles |
 | `codes` | every warning code the sources raise has a row in `docs/warnings.md`, and the page's count of built codes is right |
 | `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
