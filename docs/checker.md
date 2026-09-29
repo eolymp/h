@@ -422,6 +422,83 @@ inside it:
 wrong answer: case 2: output.txt, line 1, answer: expected an integer, found "x"
 ```
 
+## Recipes
+
+Three checkers authors keep asking for, each a whole program.
+
+**Partial credit for the right value with a bad certificate.** The task: the fewest steps from
+city 1 to city `n`, and a route that takes them. The value alone earns half; the value and a
+real route earn everything.
+
+```cpp
+#include <eolymp.h>
+
+#include <set>
+#include <string>
+#include <utility>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    int n = c.input.read_int(2, 100000, "n");
+    int m = c.input.read_int(1, 200000, "m");
+    std::set<std::pair<int, int>> joined;
+    for (eo::edge const& road : c.input.read_edges(m, n, "road")) {
+        joined.insert({road.u, road.v});
+        joined.insert({road.v, road.u});
+    }
+    int fewest = c.jury.read_int(1, n - 1, "steps");
+    c.jury.skip_rest("the jury's own route is not needed to grade this one");
+    int steps = c.output.read_int(1, n - 1, "steps");
+    std::vector<int> route = c.output.read_ints(steps + 1, 1, n, "route");
+    std::string broken;
+    if (route.front() != 1 || route.back() != n) broken = eo::fmt("the route does not go from 1 to {}", n);
+    for (int at = 0; broken.empty() && at < steps; at++)
+        if (joined.count({route[at], route[at + 1]}) == 0)
+            broken = eo::fmt("{} and {} are not joined", route[at], route[at + 1]);
+    if (broken.empty() && steps < fewest)
+        eo::jury_error("a route of {} steps exists, and the jury's fewest is {}", steps, fewest);
+    if (steps != fewest) eo::wrong("{} steps, and the fewest is {}", steps, fewest);
+    if (!broken.empty()) eo::score(eo::ratio(1, 2), "{} steps is right; {}", steps, broken);
+    eo::accept("{} steps", steps);
+}
+```
+
+A route that is not even well formed, a city outside 1..n or too few numbers, is still a wrong
+answer, from the read itself; only a well-formed route that breaks a rule earns the half. A real
+route with fewer steps than the jury's is a jury error, because the jury's answer is then wrong. The
+half pays only in a testset scored `EACH` or `WORST` (§Verdicts and scores).
+
+**An optimum that is a real number.** The contestant's value equals the jury's within `1e-6`,
+absolutely or relatively; better is a jury error and worse a wrong answer:
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    double by_the_jury = c.jury.read_real(0, 1e9, "cost");
+    double found = c.output.read_real(0, 1e9, "cost");
+    c.optimum(by_the_jury, found, eo::minimize, eo::within(1e-6));
+}
+```
+
+**A tolerance on one side only.** When the jury's value is itself approximate, from a heuristic
+or a numeric method, a contestant who beats it is not a jury error: accept anything that is not
+worse than it by more than the tolerance.
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    double by_the_jury = c.jury.read_real(0, 1e9, "area");
+    double found = c.output.read_real(0, 1e9, "area");
+    if (eo::compare(found, by_the_jury, eo::maximize, eo::within(1e-6)) == eo::standing::worse)
+        eo::wrong("the area is {}, and {} can be reached", found, by_the_jury);
+    eo::accept("the area is {}", found);
+}
+```
+
 ## Warnings
 
 A warning is about the problem, not about one run, and **it never changes a verdict**. Each
