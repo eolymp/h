@@ -232,6 +232,12 @@ if cmp -s "$build/generated.txt" "$build/generated_seeded.txt"; then
 fi
 expect_run "the validator on the generated test" 0 "*" "$build/validator" "$build/generated.txt" --group 1 &&
     pass "the validator accepts what the generator wrote"
+generate generated_syntax.txt n=5 2> "$build/generated_syntax.err"
+if grep -q "is not an option" "$build/generated_syntax.txt" && [ ! -s "$build/generated_syntax.err" ]; then
+    pass "an argument that is not an option is refused on stdout, into the test"
+else
+    fail "an argument that is not an option is no longer refused on stdout"
+fi
 expect_run "the generator given an option it never declared" 3 "*unknown option -oops*" \
     generate generated_bad.txt -n=20 -oops=1 &&
     expect_run "a large generator given an option it never declared" 3 "*unknown option -oops*" \
