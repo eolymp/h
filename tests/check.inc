@@ -1200,6 +1200,37 @@ EO_TEST(text_reads_on_a_checker_stream) {
     EO_CHECK_EQ(bounded.code, 0);
 }
 
+EO_TEST(a_checker_stream_reads_an_edge_list_and_blames_the_side_it_came_from) {
+    eot::outcome const read = check_run("3\n", "1 2\n2\n3\n", "1 2 5 2 3 6\n", [](eo::checker& c) {
+        int const n = c.input.read_int(1, 9, "n");
+        std::vector<eo::weighted_edge> const path = c.jury.read_edges(n - 1, n, eo::weighted(1, 9), "edge");
+        EO_CHECK_EQ(path[1].w, 6);
+        std::vector<eo::edge> const found = c.output.read_edges(n - 1, n, "edge");
+        EO_CHECK_EQ(found[1].u, 2);
+        EO_CHECK_EQ(found[1].v, 3);
+        eo::accept();
+    });
+    EO_CHECK_EQ(read.code, 0);
+    eot::outcome const outside = check_run("3\n", "1 4\n", "x\n", [](eo::checker& c) {
+        c.output.read_edges(1, 3, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(outside.code, 1);
+    EO_CHECK_IN(outside.text, "wrong answer: output.txt, line 1, edge[1]: 4 is above 3");
+    eot::outcome const heavy = check_run("3\n", "x\n", "1 2 10\n", [](eo::checker& c) {
+        c.jury.read_edges(1, 3, eo::weighted(1, 9), "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(heavy.code, 3);
+    EO_CHECK_IN(heavy.text, "jury error: answer.txt, line 1, edge.w[1]: 10 is above 9");
+    eot::outcome const negative = check_run("3\n", "x\n", "x\n", [](eo::checker& c) {
+        c.output.read_edges(-1, 3, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(negative.code, 1);
+    EO_CHECK_IN(negative.text, "edge: a count of -1 cannot be read");
+}
+
 EO_TEST(a_checker_stream_reads_a_token_or_a_line_by_its_length_alone) {
     eot::outcome const result = check_run("1\n", "a line, of words\nab!c\n", "x\n", [](eo::checker& c) {
         c.input.read_int(1, 9, "n");

@@ -326,18 +326,42 @@ public:
 
     std::vector<edge> read_tree(int n, detail::value_name name,
                                 detail::site where = detail::site::here()) {
-        std::vector<edge> edges = edge_lines(n - 1, name, where);
+        std::vector<edge> edges = edge_lines<edge>(n - 1, detail::stated::deliberate, n, {0, 0}, name, where);
         require(is_tree(n, edges), name);
+        return edges;
+    }
+
+    std::vector<weighted_edge> read_tree(int n, weight_bounds weights, detail::value_name name,
+                                         detail::site where = detail::site::here()) {
+        std::vector<weighted_edge> edges =
+            edge_lines<weighted_edge>(n - 1, detail::stated::deliberate, n, weights, name, where);
+        require(is_tree(n, detail::endpoints(edges)), name);
         return edges;
     }
 
     std::vector<edge> read_graph(int n, int m, graph_shape shape, detail::value_name name,
                                  detail::site where = detail::site::here()) {
-        std::vector<edge> edges = edge_lines(m, name, where);
-        require(detail::vertices_are_inside(n, edges), name);
-        if ((shape & simple) != 0) require(is_simple_graph(n, edges), name);
-        if ((shape & connected) != 0) require(is_connected(n, edges), name);
+        std::vector<edge> edges = edge_lines<edge>(m, detail::stated::deliberate, n, {0, 0}, name, where);
+        require(detail::shaped(n, edges, shape), name);
         return edges;
+    }
+
+    std::vector<weighted_edge> read_graph(int n, int m, graph_shape shape, weight_bounds weights,
+                                          detail::value_name name, detail::site where = detail::site::here()) {
+        std::vector<weighted_edge> edges =
+            edge_lines<weighted_edge>(m, detail::stated::deliberate, n, weights, name, where);
+        require(detail::shaped(n, detail::endpoints(edges), shape), name);
+        return edges;
+    }
+
+    std::vector<edge> read_edges(long long m, int n, detail::value_name name,
+                                 detail::site where = detail::site::here()) {
+        return edge_lines<edge>(m, detail::stated::yes, n, {0, 0}, name, where);
+    }
+
+    std::vector<weighted_edge> read_edges(long long m, int n, weight_bounds weights, detail::value_name name,
+                                          detail::site where = detail::site::here()) {
+        return edge_lines<weighted_edge>(m, detail::stated::yes, n, weights, name, where);
     }
 
     std::vector<int> read_permutation(int n, detail::value_name name,
@@ -470,15 +494,27 @@ private:
         return values;
     }
 
-    std::vector<edge> edge_lines(int count, detail::value_name const& name, detail::site where) {
-        std::vector<edge> edges;
-        edges.reserve(static_cast<std::size_t>(std::max(count, 0)));
-        for (int index = 1; index <= count; index++) {
-            int const u = whole_int(0, 0, detail::stated::deliberate, name.at(index), where);
+    template <class Edge>
+    std::vector<Edge> edge_lines(long long count, detail::stated ends, int n,
+                                 [[maybe_unused]] weight_bounds weights, detail::value_name const& name,
+                                 detail::site where) {
+        std::vector<Edge> edges;
+        edges.reserve(ends == detail::stated::yes ? from_.room_for(count, name)
+                                                  : static_cast<std::size_t>(std::max(count, 0LL)));
+        detail::value_name const weight = name.field(".w");
+        for (long long index = 1; index <= count; index++) {
+            int const u = whole_int(1, n, ends, name.at(index), where);
             read_space();
-            int const v = whole_int(0, 0, detail::stated::deliberate, name.at(index), where);
+            int const v = whole_int(1, n, ends, name.at(index), where);
+            if constexpr (std::is_same_v<Edge, weighted_edge>) {
+                read_space();
+                long long const w =
+                    whole_long(weights.low, weights.high, detail::stated::yes, weight.at(index), where);
+                edges.push_back(Edge{u, v, w});
+            } else {
+                edges.push_back(Edge{u, v});
+            }
             read_eoln();
-            edges.push_back(edge{u, v});
         }
         return edges;
     }

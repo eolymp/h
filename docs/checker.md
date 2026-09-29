@@ -143,6 +143,8 @@ Bounds are inclusive, and come first; the name is last.
 | `s.read_longs(count, low, high, name)` | the same, 64-bit |
 | `s.read_reals(count, low, high, name)` | `count` real numbers |
 | `s.read_tokens(count, least, most, eo::charset("a-z"), name)` | `count` tokens |
+| `s.read_edges(m, n, name)` | `m` edges, each two vertices in `[1, n]`, as `std::vector<eo::edge>` |
+| `s.read_edges(m, n, eo::weighted(low, high), name)` | the same with a weight in `[low, high]` after each, as `std::vector<eo::weighted_edge>` |
 
 `eo::any` replaces the bounds where a value really may be anything its type holds:
 `read_long(eo::any, "sum")`, `read_ints(n, eo::any, "a")`, `read_line(eo::any, "rest")`.
@@ -437,6 +439,7 @@ Still missing:
 | `read_int`, `read_long`, `read_real` | numbers |
 | `read_token`, `read_line`, `read_choice` | text |
 | `read_ints`, `read_longs`, `read_reals`, `read_tokens` | several values |
+| `read_edges(m, n, name)`, `read_edges(m, n, eo::weighted(low, high), name)` | an edge list |
 | `at_eof()`, `at_eoln()` | look ahead, skipping whitespace |
 | `wrong(…)` | a verdict blamed on this stream |
 | `numbers(eo::lenient)`, `reals(eo::plain)` | number syntax |

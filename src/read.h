@@ -64,6 +64,11 @@ public:
     bool indexed() const { return indexed_; }
     long long index() const { return index_; }
 
+    value_name field(char const* suffix) const {
+        if (!known()) return *this;
+        return value_name(text() + suffix);
+    }
+
     value_name at(long long index) const {
         if (!known()) return *this;
         value_name made(indexed_ ? text() : text_);

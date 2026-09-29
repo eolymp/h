@@ -125,8 +125,8 @@ Two rules about line breaks:
 - **The bulk reads stay inside the line.** They read the single spaces *between* their
   values, not a space before the first and not the line break after the last. End the line
   yourself with `read_eoln()`.
-- **`read_line` reads its own line break,** as do `read_tree` and `read_graph`. Do not call
-  `read_eoln()` after them.
+- **`read_line` reads its own line break,** as do `read_tree`, `read_graph` and `read_edges`.
+  Do not call `read_eoln()` after them.
 
 With `count` equal to 0 a bulk read reads nothing, so a line holding "0 values" is an empty
 line: `read_ints(0, …)` followed by `read_eoln()` expects exactly `\n`.
@@ -324,13 +324,22 @@ These read and check in one call, with vertices numbered from 1:
 | --- | --- | --- |
 | `v.read_tree(n, "edge")` | `n - 1` lines, each `u v` | every vertex in 1..n, and that the edges form a tree |
 | `v.read_graph(n, m, flags, "edge")` | `m` lines, each `u v` | every vertex in 1..n, plus the flags |
+| `v.read_edges(m, n, "edge")` | `m` lines, each `u v` | every vertex in 1..n, each read as a bounded value |
 | `v.read_permutation(n, "p")` | `n` integers inside the current line | a permutation of 1..n |
 
 Flags combine with `|`: `eo::simple`, `eo::connected`, and `eo::any_graph` for neither.
-`read_tree` and `read_graph` read whole lines; `read_permutation` stays inside the line like
-`read_ints`, so end the line yourself.
+`read_tree`, `read_graph` and `read_edges` read whole lines; `read_permutation` stays inside
+the line like `read_ints`, so end the line yourself.
 
-An edge list with weights is read with a loop and checked afterwards:
+`read_edges` is the plain list: no shape is checked, and a vertex out of range is refused where
+it stands, `line 4, edge[4]: 9 is above 5`, with its bounds recorded for coverage under the
+name. `read_tree` and `read_graph` check the whole list once it is read, and name the edge in
+their message instead: `edge: edge 4 is (1, 9), outside 1..5`.
+
+**Weights.** Each of the three takes `eo::weighted(low, high)` before the name, reads lines of
+`u v w` with `w` a `long long` in those bounds, and returns `std::vector<eo::weighted_edge>`,
+whose members are `u`, `v` and `w`. A weight is named after the list with `.w`, so a refusal
+says `edge.w[3]: 0 is below 1` and coverage records `edge.w`:
 
 ```cpp
 #include <eolymp.h>
@@ -339,17 +348,10 @@ int main(int argc, char** argv) {
     eo::validator v(argc, argv);
     int n = v.read_int(2, 1000, "n");
     v.read_eoln();
-    std::vector<eo::edge> edges;
-    for (int i = 1; i < n; i++) {
-        int x = v.read_int(1, n, "u");
-        v.read_space();
-        int y = v.read_int(1, n, "v");
-        v.read_space();
-        v.read_int(1, 1000000000, "w");
-        v.read_eoln();
-        edges.push_back({x, y});
-    }
-    v.require(eo::is_tree(n, edges), "edges");
+    std::vector<eo::weighted_edge> edges = v.read_tree(n, eo::weighted(1, 1000000000), "edge");
+    int m = v.read_int(0, 1000, "m");
+    v.read_eoln();
+    std::vector<eo::edge> queries = v.read_edges(m, n, "query");
 }
 ```
 
@@ -364,6 +366,7 @@ its upper bound:
 | `read_int`, `read_long`, `read_ints`, `read_longs` | `int` | the value equals the bound |
 | `read_real`, `read_reals` | `real` | the value equals the bound exactly |
 | `read_token`, `read_line`, `read_tokens` | `length` | the text is that many characters long |
+| `read_edges` | `int`, and the weights as `int` under the name with `.w` | a vertex is 1 or `n`, a weight equals a bound |
 
 A bound that depends on another value counts as well: `read_int(1, n, "x")` reaches its upper
 bound on a test where some `x` equals that test's `n`. A value read with `eo::any` has no
@@ -459,6 +462,8 @@ The whole-problem checks EO806–EO811 and the configuration checks EO9xx are in
 | `cases(t, body)` | numbers the messages of a multi-test input |
 | `require(cond, "…", args)`, `require(check, name)` | a condition that must hold |
 | `read_tree(n, name)`, `read_graph(n, m, flags, name)`, `read_permutation(n, name)` | structural readers |
+| `read_edges(m, n, name)` | an edge list with its vertices bounded |
+| `eo::weighted(low, high)` before the name of `read_tree`, `read_graph` or `read_edges` | the same with a weight on every edge |
 | `feature(name)`, `saw(name)` | declared features |
 | `invalid(name, text)` | reject this test with your own message |
 
@@ -467,6 +472,7 @@ The whole-problem checks EO806–EO811 and the configuration checks EO9xx are in
 | `eo::sum_limit total(limit, name)` | a total checked at the end |
 | `eo::all_distinct`, `eo::is_sorted`, `eo::is_permutation`, `eo::is_tree`, `eo::is_connected`, `eo::is_simple_graph` | structural checks |
 | `eo::simple`, `eo::connected`, `eo::any_graph` | flags for `read_graph` |
+| `eo::edge`, `eo::weighted_edge` | what the edge readers return: `u`, `v`, and `w` |
 | `eo::any`, `eo::unnamed` | "no bounds, on purpose", "no name, on purpose" |
 | `eo::charset("a-z")` | allowed characters: single ones and ranges |
 | `eo::element(name, index)` | names one element of a sequence, without a coverage entry of its own |

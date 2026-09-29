@@ -238,6 +238,16 @@ public:
         return values;
     }
 
+    std::vector<edge> read_edges(long long m, int n, detail::value_name name,
+                                 detail::site where = detail::site::here()) {
+        return edges_between<edge>(m, n, weight_bounds{0, 0}, name, where);
+    }
+
+    std::vector<weighted_edge> read_edges(long long m, int n, weight_bounds weights, detail::value_name name,
+                                          detail::site where = detail::site::here()) {
+        return edges_between<weighted_edge>(m, n, weights, name, where);
+    }
+
     bool at_eof() { return reader_.at_end(); }
     bool at_eoln() { return reader_.at_line_end(); }
 
@@ -280,6 +290,25 @@ private:
             if (fold && detail::same_folded(found, one)) return std::string(one);
         }
         reader_.refuse(name, fmt("\"{}\" is not one of {}", detail::shorten(found), listed));
+    }
+
+    template <class Edge>
+    std::vector<Edge> edges_between(long long m, int n, [[maybe_unused]] weight_bounds weights,
+                                    detail::value_name const& name, detail::site where) {
+        std::vector<Edge> edges;
+        edges.reserve(reader_.room_for(m, name));
+        detail::value_name const weight = name.field(".w");
+        for (long long at = 1; at <= m; at++) {
+            int const u = reader_.whole_int(1, n, detail::stated::yes, name.at(at), where);
+            int const v = reader_.whole_int(1, n, detail::stated::yes, name.at(at), where);
+            if constexpr (std::is_same_v<Edge, weighted_edge>)
+                edges.push_back(Edge{u, v,
+                                     reader_.whole_long(weights.low, weights.high, detail::stated::yes,
+                                                        weight.at(at), where)});
+            else
+                edges.push_back(Edge{u, v});
+        }
+        return edges;
     }
 
     detail::reader reader_;

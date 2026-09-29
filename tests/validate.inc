@@ -364,6 +364,73 @@ EO_TEST(tree_and_graph_readers_refuse_in_a_fixed_order_with_fixed_words) {
     EO_CHECK_EQ(tree("1 x\n", 2), std::string("line 1: expected an integer, found \"x\""));
 }
 
+EO_TEST(an_edge_list_is_read_line_by_line_with_its_vertices_bounded) {
+    eot::outcome const plain = validate("1 2\n3 2\n", [](eo::validator& v) {
+        std::vector<eo::edge> const edges = v.read_edges(2, 3, "edge");
+        EO_CHECK_EQ(edges.size(), static_cast<std::size_t>(2));
+        EO_CHECK_EQ(edges[1].u, 3);
+        EO_CHECK_EQ(edges[1].v, 2);
+    }, {"--eo-describe"});
+    EO_CHECK(!plain.stopped);
+    EO_CHECK_IN(plain.printed, "eo-describe value edge int 1 3 low=yes high=yes");
+    eot::outcome const weighted = validate("1 2 7\n2 3 100\n", [](eo::validator& v) {
+        std::vector<eo::weighted_edge> const edges = v.read_edges(2, 3, eo::weighted(1, 100), "edge");
+        EO_CHECK_EQ(edges[0].w, 7);
+        EO_CHECK_EQ(edges[1].w, 100);
+    }, {"--eo-describe"});
+    EO_CHECK(!weighted.stopped);
+    EO_CHECK_IN(weighted.printed, "eo-describe value edge.w int 1 100 low=no high=yes");
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO107"));
+    eot::outcome const outside = validate("1 2\n2 9\n", [](eo::validator& v) { v.read_edges(2, 3, "edge"); });
+    EO_CHECK_EQ(outside.code, 3);
+    EO_CHECK_IN(outside.text, "line 2, edge[2]: 9 is above 3");
+    eot::outcome const light =
+        validate("1 2 0\n", [](eo::validator& v) { v.read_edges(1, 3, eo::weighted(1, 100), "edge"); });
+    EO_CHECK_IN(light.text, "line 1, edge.w[1]: 0 is below 1");
+    eot::outcome const unweighted =
+        validate("1 2 5\n", [](eo::validator& v) { v.read_edges(1, 3, "edge"); });
+    EO_CHECK_IN(unweighted.text, "expected a line break after edge[1], found a space");
+    eot::outcome const quiet = validate("1 2 5\n", [](eo::validator& v) {
+        v.read_edges(1, 3, eo::weighted(1, 9), eo::unnamed);
+    });
+    EO_CHECK(!quiet.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO101"));
+    eot::outcome const none = validate("", [](eo::validator& v) { EO_CHECK(v.read_edges(0, 3, "edge").empty()); });
+    EO_CHECK(!none.stopped);
+}
+
+EO_TEST(a_weighted_tree_or_graph_is_read_and_checked_like_an_unweighted_one) {
+    eot::outcome const tree = validate("1 2 5\n3 2 9\n", [](eo::validator& v) {
+        std::vector<eo::weighted_edge> const edges = v.read_tree(3, eo::weighted(1, 9), "edge");
+        EO_CHECK_EQ(edges[1].u, 3);
+        EO_CHECK_EQ(edges[1].w, 9);
+    });
+    EO_CHECK(!tree.stopped);
+    eot::outcome const cycle =
+        validate("1 2 1\n2 1 1\n", [](eo::validator& v) { v.read_tree(3, eo::weighted(1, 9), "edge"); });
+    EO_CHECK_IN(cycle.text, "edge: edges 1 and 2 are both (1, 2)");
+    eot::outcome const graph = validate("1 2 1\n2 3 2\n1 3 3\n", [](eo::validator& v) {
+        v.read_graph(3, 3, eo::simple | eo::connected, eo::weighted(1, 3), "edge");
+    });
+    EO_CHECK(!graph.stopped);
+    eot::outcome const split = validate("1 2 1\n", [](eo::validator& v) {
+        v.read_graph(3, 1, eo::connected, eo::weighted(1, 9), "edge");
+    });
+    EO_CHECK_IN(split.text, "vertex 3 cannot be reached from vertex 1");
+    eot::outcome const doubled = validate("1 2 1\n2 1 1\n", [](eo::validator& v) {
+        v.read_graph(3, 2, eo::simple, eo::weighted(1, 9), "edge");
+    });
+    EO_CHECK_IN(doubled.text, "edge: edges 1 and 2 are both (1, 2)");
+    eot::outcome const heavy = validate("1 2 10\n", [](eo::validator& v) {
+        v.read_graph(3, 1, eo::any_graph, eo::weighted(1, 9), "edge");
+    });
+    EO_CHECK_IN(heavy.text, "line 1, edge.w[1]: 10 is above 9");
+    eot::outcome const outside = validate("1 9 1\n", [](eo::validator& v) {
+        v.read_graph(3, 1, eo::any_graph, eo::weighted(1, 9), "edge");
+    });
+    EO_CHECK_IN(outside.text, "edge 1 is (1, 9), outside 1..3");
+}
+
 namespace {
 
 struct limits {

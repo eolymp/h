@@ -16,6 +16,19 @@ struct edge {
     int v;
 };
 
+struct weighted_edge {
+    int u;
+    int v;
+    long long w;
+};
+
+struct weight_bounds {
+    long long low;
+    long long high;
+};
+
+inline weight_bounds weighted(long long low, long long high) { return weight_bounds{low, high}; }
+
 enum graph_shape {
     any_graph = 0,
     simple = 1,
@@ -164,5 +177,24 @@ inline int root_of(std::vector<int>& parent, int vertex) {
     if (check_result simple_enough = is_simple_graph(n, edges); !simple_enough) return simple_enough;
     return is_connected(n, edges);
 }
+
+namespace detail {
+
+inline std::vector<edge> endpoints(std::vector<weighted_edge> const& edges) {
+    std::vector<edge> ends;
+    ends.reserve(edges.size());
+    for (weighted_edge const& one : edges) ends.push_back(edge{one.u, one.v});
+    return ends;
+}
+
+inline check_result shaped(int n, std::vector<edge> const& edges, graph_shape shape) {
+    if (check_result inside = vertices_are_inside(n, edges); !inside) return inside;
+    if ((shape & simple) != 0)
+        if (check_result plain = is_simple_graph(n, edges); !plain) return plain;
+    if ((shape & connected) != 0) return is_connected(n, edges);
+    return {};
+}
+
+}  // namespace detail
 
 }  // namespace eo

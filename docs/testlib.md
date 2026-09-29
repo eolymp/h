@@ -16,6 +16,8 @@ in the right-hand columns is in the header; the programs below are compiled by `
 | `inf.readToken("[a-z]{1,10}", "s")` | `v.read_token(1, 10, eo::charset("a-z"), "s")` |
 | `inf.readLine("[a-z ]{1,100}", "s")` | `v.read_line(1, 100, eo::charset("a-z "), "s")` |
 | `inf.readInts(n, 1, 1000000000, "a")` | `v.read_ints(n, 1, 1000000000, "a")` |
+| a loop of `inf.readInt(1, n, "u")`, `readSpace`, `inf.readInt(1, n, "v")`, `readEoln` | `v.read_edges(m, n, "edge")`, a `std::vector<eo::edge>` |
+| the same loop with `inf.readInt(1, c, "w")` after `v` | `v.read_edges(m, n, eo::weighted(1, c), "edge")`, a `std::vector<eo::weighted_edge>` |
 | `inf.readSpace()`, `inf.readEoln()`, `inf.readEof()` | `v.read_space()`, `v.read_eoln()`, `v.read_eof()` |
 | `inf.readChar(':')` | `v.read_char(':')` |
 | `inf.eoln()`, `inf.eof()` | `v.at_eoln()`, `v.at_eof()` |
@@ -51,6 +53,7 @@ input itself. See [validator.md](validator.md).
 | `quitf(_ok, "...")` | `eo::accept("...")` |
 | `quitf(_wa, "got %d", x)`, `quitf(_pe, ...)` | `eo::wrong("got {}", x)`; Eolymp has no presentation error |
 | `quitf(_fail, ...)` | `eo::jury_error(...)` |
+| a loop of `ouf.readInt(1, n, "u")`, `ouf.readInt(1, n, "v")` | `c.output.read_edges(k, n, "edge")` |
 | `ouf.quitf(_wa, ...)` | `c.output.wrong(...)`, blamed on that stream |
 | `quitp(p)` | `eo::score(f)` for a fraction of the test, or `eo::points(p)` for points |
 | a `readAns(ouf)` / `readAns(ans)` pair, then `quitf(_fail)` if the contestant beats the jury | `c.read_both(reader)` and `c.optimum(by_the_jury, found, eo::minimize)` |
