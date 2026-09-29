@@ -327,7 +327,7 @@ EO_TEST(a_stress_run_that_draws_nothing_is_reported) {
     EO_CHECK(!eot::contains(checker_warnings(), "EO501"));
 }
 
-EO_TEST(a_value_that_prints_nothing_at_the_end_of_a_line_leaves_its_space) {
+EO_TEST(a_value_that_prints_nothing_at_the_end_of_a_line_takes_its_space_with_it) {
     made const result = generate({}, [](eo::generator& g) {
         g.out.line("a", "");
         g.out.line(0, std::vector<int>{});
@@ -336,9 +336,16 @@ EO_TEST(a_value_that_prints_nothing_at_the_end_of_a_line_leaves_its_space) {
         g.out.line("", "a");
         g.out.line("x ");
         g.out.line("");
+        g.out.line("a", std::vector<std::string>{"", ""});
     });
     EO_CHECK(!result.stopped);
-    EO_CHECK_EQ(result.test, std::string("a \n0\na  \na  b\n a\nx \n\n"));
+    EO_CHECK_EQ(result.test, std::string("a\n0\na\na  b\n a\nx \n\na\n"));
+    std::string const wide(std::size_t{1} << 20, 'w');
+    made const flushed = generate({}, [&wide](eo::generator& g) {
+        g.out.line(wide, std::vector<std::string>{"", "", ""});
+    });
+    EO_CHECK(!flushed.stopped);
+    EO_CHECK(flushed.test == wide + "\n");
 }
 
 EO_TEST(bytes_written_around_the_writer_land_ahead_of_the_lines_it_holds) {

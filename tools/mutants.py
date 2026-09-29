@@ -49,6 +49,8 @@ MUTANTS = [
     ("every random stream the same", "src/generate.h",
      "return dice_.emplace(label, eo::rng(from)).first->second;",
      "return dice_.emplace(label, eo::rng(base_)).first->second;"),
+    ("a flush inside a line that lets a trailing space out", "src/generate.h",
+     "if (held_.size() >= 1u << 20 && trailing_ == 0) flush();", "if (held_.size() >= 1u << 20) flush();"),
     ("a carriage return counted in a line's length", "src/stream.h",
      "            text.pop_back();\n            seen--;", "            text.pop_back();"),
     ("a token read past the cap it was given", "src/stream.h",

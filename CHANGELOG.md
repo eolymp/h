@@ -12,6 +12,10 @@
   already has a generator` were printed on stdout, into the test, before the generator had
   pointed its reports at stderr; the generation failed with exit 3 as it still does, and
   eo-judge, which shows a failed generator's stderr, now shows why.
+- **A generator line no longer ends in a space before an empty value.** `g.out.line("a", "")`
+  wrote `a ` and now writes `a`, which a validator's `read_eoln()` accepts. Only the
+  separators before values that print nothing at the end of a line go; a line whose last value
+  prints anything is byte for byte what it was.
 
 ## 2.1.0
 

@@ -4721,6 +4721,8 @@ public:
         void line(Args const&... values) {
             bool first = true;
             (add(values, first), ...);
+            held_.resize(held_.size() - trailing_);
+            trailing_ = 0;
             held_.push_back('\n');
             if (held_.size() >= 1u << 20) flush();
         }
@@ -4747,10 +4749,13 @@ public:
             if constexpr (detail::is_a_list<T>::value && !std::is_convertible_v<T const&, std::string_view>) {
                 for (auto const& one : value) {
                     add(one, first);
-                    if (held_.size() >= 1u << 20) flush();
+                    if (held_.size() >= 1u << 20 && trailing_ == 0) flush();
                 }
             } else {
+                std::size_t const separator = first ? 0 : 1;
+                std::size_t const before = held_.size();
                 detail::add_to_line(held_, value, first);
+                trailing_ = held_.size() == before + separator ? trailing_ + separator : 0;
             }
         }
 
@@ -4761,6 +4766,7 @@ public:
 
         generator* owner_ = nullptr;
         std::string held_;
+        std::size_t trailing_ = 0;
     };
 
     sheet out;

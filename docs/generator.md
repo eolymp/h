@@ -210,8 +210,10 @@ g.out.lines(rows);
 g.out.line(eo::fixed(p, 6));
 ```
 
-The writer is buffered and never flushes per line. By construction it never writes a trailing
-space, every line ends with a single line break, and so does the file.
+The writer is buffered and never flushes per line. It never adds a trailing space of its own:
+a value at the end of a line that prints nothing, such as an empty string, takes its separator
+with it, so `g.out.line("a", "")` writes `a`. A value that itself ends with a space is written
+as it is. Every line ends with a single line break, and so does the file.
 
 It prints numbers, text, `eo::fixed` and containers of them. Anything else, a struct or a
 `std::pair`, does not compile, and the error says so in one line, `eolymp.h cannot print this
