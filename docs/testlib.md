@@ -152,6 +152,12 @@ See [generator.md](generator.md).
   algorithm, so a test regenerated after the move is a different test of the same shape.
   `r.weighted(a, b, t)` has the distribution of `rnd.wnext(a, b, t)`, the largest of
   `t + 1` draws, but not its values.
+- **Qualify the library's names.** testlib's are global, so a ported program is often written
+  without a prefix. Writing `using namespace eo;` to get that back, next to
+  `using namespace std;`, makes `unique`, `ignore`, `any` and `ratio` ambiguous, and leaves
+  `log`, `is_sorted` and `is_permutation` to overload resolution, and a later release may add
+  names that clash too, since `using namespace eo;` is outside the compatibility promise; keep
+  `eo::` in front of the library's names instead.
 - **A read has bounds and a name, or says it has none.** `readInt()` with neither is legal in
   testlib; in eolymp.h it compiles, with warnings EO101 and EO102 (EO103 in a checker), and
   `eo::any` or `eo::unnamed` says that is deliberate.

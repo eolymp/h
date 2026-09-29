@@ -40,6 +40,9 @@ refused_with() {
 
 refused_with unprintable "eolymp.h cannot print this type"
 
+refused_with both_namespaces "ambiguous"
+build_and_run qualified_names -Wall -Wextra -Wshadow -Werror
+
 for standard in c++11 c++14; do
     refused_with too_old "eolymp.h needs C++17 or later: build with -std=c++17" -std=$standard
     if [ "$(grep -c "error:" "$build/too_old.log")" -ne 1 ]; then

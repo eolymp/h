@@ -60,10 +60,21 @@ its eolymp.h counterpart, for a problem moving over.
   measures the compiler's CPU time for both on every run of the gate, against the standard
   headers built in the same run, and fails when either takes more than 9 times as much. The judge compiles the
   validator again for every run that needs it.
-- **It cannot collide with your code.** Everything is inside `namespace eo`, with no global
-  names and no macros beyond the include guard and the version. `make check` builds the
-  header after `<bits/stdc++.h>` with `using namespace std`, and beside globals named `OK`,
-  `checker`, `split`, `format`, `join` and `trim`.
+- **It keeps out of your code's way, as long as you write `eo::`.** Everything is inside
+  `namespace eo`, with no global names and no macros beyond the include guard and the version.
+  `make check` builds the header after `<bits/stdc++.h>` with `using namespace std`, and beside
+  globals named `OK`, `checker`, `split`, `format`, `join` and `trim`.
+
+  **`using namespace eo;` is outside that, and outside the compatibility promise.** A minor
+  release adds names to `eo` the way a C++ standard adds names to `std`, and a program that
+  opens `eo` can meet an ambiguity it did not have before. Some names are in both namespaces
+  already. `unique`, `ignore`, `any` and `ratio` are a value in one and a
+  type or a function in the other, so once both are open an unqualified use, such as
+  `c.answers(unique)`, is ambiguous and does not compile; `log`, `is_sorted` and
+  `is_permutation` are functions in both, and an unqualified call picks one by its arguments,
+  which is easy to misread. Write `eo::` in front of the library's names, as every page does;
+  `using namespace std;` on its own is fine, and `make check` builds a program that uses each
+  of those names from both namespaces that way.
 - **A message with the wrong number of `{}` can fail to compile, if you ask.** Under C++20,
   building with `-DEOLYMP_CHECK_PATTERNS` checks every literal message at compile time, in
   `eo::wrong`, `eo::accept`, `eo::score`, `eo::points`, `eo::jury_error`, `eo::fmt`,
@@ -235,7 +246,7 @@ request. This table is the one description of the gate: the rows down to `budget
 | `coverage` | every line of both headers runs at least once, including inline functions nothing calls, and fails the build if one does not |
 | `standards` | it also compiles and passes in the other two of C++17, C++20 and C++23, at `-O0` under the same warnings, which proves the language and library differences in a third of the build time |
 | `e2e` | a real compiled validator gives the judge's exit codes and messages, through the exit path the tests cannot reach |
-| `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals; a program that prints a value the library cannot print fails to build with the library's own message, and one built below C++17 stops at a single `#error` that names the standard |
+| `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals; a program that prints a value the library cannot print fails to build with the library's own message, one built below C++17 stops at a single `#error` that names the standard, `using namespace eo` beside `using namespace std` is ambiguous, and `eo::` with `using namespace std` builds cleanly |
 | `examples` | every example in `docs/` compiles |
 | `codes` | every warning code the sources raise has a row in `docs/warnings.md`, and the page's count of built codes is right |
 | `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
@@ -271,7 +282,9 @@ their own. `eo::version()` and `EOLYMP_H_VERSION` say which release you have, as
 such as `"2.0.0"`; `EOLYMP_H_VERSION_MAJOR`, `EOLYMP_H_VERSION_MINOR` and
 `EOLYMP_H_VERSION_PATCH` are the same numbers for the preprocessor, as in
 `#if EOLYMP_H_VERSION_MAJOR >= 2`. [CHANGELOG.md](../CHANGELOG.md) lists every verdict a
-release changes.
+release changes, and every name a release adds to `eo`. A new name can make an unqualified use
+ambiguous in a program that says `using namespace eo;`, so that program is outside the
+promise; write `eo::` in front of the library's names.
 
 ## Licence
 
