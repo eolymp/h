@@ -81,7 +81,7 @@ func (p *Problem) Path(name string) string {
 }
 
 func (p *Problem) Interactive() bool {
-	return p.Type == "INTERACTIVE" || p.Type == "COMMUNICATION"
+	return p.Type == "INTERACTIVE"
 }
 
 func (p *Problem) Solution(name string) *Solution {
@@ -112,15 +112,11 @@ func (p *Problem) Testset(index int) *Testset {
 	return nil
 }
 
-func (t *Testset) Limit(p *Problem) (int, int64) {
-	limit, memory := t.TimeLimit, t.MemoryLimit
-	if limit == 0 {
-		limit = p.TimeLimit
+func (t *Testset) Limit(p *Problem) int {
+	if t.TimeLimit == 0 {
+		return p.TimeLimit
 	}
-	if memory == 0 {
-		memory = p.MemoryLimit
-	}
-	return limit, memory
+	return t.TimeLimit
 }
 
 func (s *Solution) Expected() (float64, bool) {
@@ -293,7 +289,7 @@ func (p *Problem) checkNames() error {
 		"INTERACTIVE", "COMMUNICATION", "WIDGET"); err != nil {
 		return err
 	}
-	if p.Type != "PROGRAM" && !p.Interactive() {
+	if p.Type != "PROGRAM" && p.Type != "COMMUNICATION" && !p.Interactive() {
 		return fmt.Errorf("eo-judge does not run %s problems", p.Type)
 	}
 	for _, testset := range p.Testsets {

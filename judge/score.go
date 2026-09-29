@@ -7,7 +7,6 @@ const (
 	WrongAnswer Verdict = "WRONG_ANSWER"
 	Partial     Verdict = "PARTIALLY_CORRECT"
 	TimeLimit   Verdict = "TIME_LIMIT_EXCEEDED"
-	MemoryLimit Verdict = "MEMORY_LIMIT_EXCEEDED"
 	RuntimeFail Verdict = "RUNTIME_ERROR"
 	Failure     Verdict = "FAILURE"
 	Skipped     Verdict = "SKIPPED"
@@ -23,7 +22,6 @@ type RunResult struct {
 	Fraction Points
 	Score    Points
 	Wall     int
-	Memory   int64
 	Message  string
 	Warnings []Warning
 }
@@ -61,12 +59,15 @@ type GroupResult struct {
 }
 
 func summarizeGroup(index int, mode string, runs []*RunResult) *GroupResult {
-	group := &GroupResult{Index: index, ScoringMode: mode, Verdict: Accepted, Runs: runs}
+	costs := make([]Points, len(runs))
+	for at, run := range runs {
+		costs[at] = run.Cost
+	}
+	group := &GroupResult{Index: index, ScoringMode: mode, Cost: costOf(mode, costs), Verdict: Accepted, Runs: runs}
 
 	scores := make([]Points, 0, len(runs))
 	complete := true
 	for _, run := range runs {
-		group.Cost += run.Cost
 		if run.Verdict == Skipped {
 			complete = false
 			continue
@@ -113,6 +114,24 @@ func summarizeGroup(index int, mode string, runs []*RunResult) *GroupResult {
 	}
 
 	return group
+}
+
+func costOf[Cost ~float32 | ~float64](mode string, costs []Cost) Cost {
+	if mode == "NO_SCORE" || len(costs) == 0 {
+		return 0
+	}
+	cost := costs[0]
+	for _, one := range costs[1:] {
+		switch mode {
+		case "WORST":
+			cost = min(cost, one)
+		case "BEST":
+			cost = max(cost, one)
+		default:
+			cost += one
+		}
+	}
+	return cost
 }
 
 func summarizeSubmission(groups []*GroupResult) (Verdict, Points) {

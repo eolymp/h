@@ -15,16 +15,16 @@ import (
 )
 
 type Built struct {
-	Name string
-	Exe  string
-	Dir  string
+	Name   string
+	Exe    string
+	Dir    string
+	Source string
 }
 
 type Status struct {
 	ExitCode int
 	Signal   bool
 	Wall     int
-	Memory   int64
 	TimedOut bool
 	Stdout   []byte
 	Stderr   []byte
@@ -56,7 +56,17 @@ func copyFile(from, to string) error {
 	return os.WriteFile(to, body, 0o644)
 }
 
-func build(ctx context.Context, problem *Problem, name string, program *Program, work string) (*Built, error) {
+type toolchain struct {
+	cxx   string
+	cache string
+}
+
+func hostToolchain() toolchain {
+	return toolchain{cxx: compiler(), cache: writable(cacheRoot())}
+}
+
+func (tools toolchain) build(ctx context.Context, problem *Problem, name string, program *Program,
+	work string) (*Built, error) {
 	if program == nil || program.Source == "" {
 		return nil, fmt.Errorf("%s has no source", name)
 	}
@@ -69,27 +79,63 @@ func build(ctx context.Context, problem *Problem, name string, program *Program,
 	if err := copyFile(problem.Path(program.Source), filepath.Join(dir, "source.cpp")); err != nil {
 		return nil, err
 	}
+	var files []string
 	for _, one := range program.Files {
 		if err := copyFile(problem.Path(one), filepath.Join(dir, filepath.Base(one))); err != nil {
 			return nil, fmt.Errorf("%s needs %s: %w", name, one, err)
 		}
+		files = append(files, filepath.Base(one))
 	}
 
-	exe := filepath.Join(dir, "program")
-	command := exec.CommandContext(ctx, compiler(), "-std="+standard(program.Runtime), "-O2", "-idirafter", dir,
-		"-o", exe, filepath.Join(dir, "source.cpp"))
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	command.Cancel = func() error { return killGroup(command) }
-	command.WaitDelay = 250 * time.Millisecond
-	said, err := command.CombinedOutput()
+	headers, err := tools.writeCarried(work)
+	if err != nil {
+		return nil, err
+	}
+	made := compilation{name: name, args: []string{"-std=" + standard(program.Runtime), "-O2"},
+		headers: headers, files: files}
+	if tools.cache != "" {
+		keyed := append(append([]string{}, made.args...), "-idirafter", headers)
+		if key, err := cacheKey(tools.cxx, keyed, dir, files); err == nil {
+			entry := filepath.Join(tools.cache, key[:2], key)
+			cached, err := tools.buildInto(ctx, made, dir, entry)
+			if err != nil {
+				return nil, err
+			}
+			if cached {
+				return &Built{Name: name, Exe: filepath.Join(entry, "program"), Dir: dir,
+					Source: filepath.Join(entry, "source.cpp")}, nil
+			}
+		}
+	}
+	if err := tools.compile(ctx, made, dir, "program", nil); err != nil {
+		return nil, err
+	}
+	return &Built{Name: name, Exe: filepath.Join(dir, "program"), Dir: dir, Source: filepath.Join(dir, "source.cpp")}, nil
+}
+
+type compilation struct {
+	name    string
+	args    []string
+	headers string
+	files   []string
+}
+
+func (tools toolchain) compile(ctx context.Context, made compilation, dir, exe string, extra []string) error {
+	name := made.name
+	line := append(append(append([]string{}, made.args...), extra...), "-idirafter", dir, "-idirafter", made.headers,
+		"-o", filepath.Join(dir, exe), filepath.Join(dir, "source.cpp"))
+	said, err := grouped(ctx, tools.cxx, line...).CombinedOutput()
 	if ctx.Err() != nil {
-		return nil, fmt.Errorf("the build of %s was interrupted", name)
+		return fmt.Errorf("the build of %s was interrupted", name)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%s does not compile:\n%s", name, strings.TrimSpace(string(said)))
+		said := strings.TrimSpace(string(said))
+		if said == "" {
+			said = err.Error()
+		}
+		return fmt.Errorf("%s does not compile:\n%s", name, said)
 	}
-
-	return &Built{Name: name, Exe: exe, Dir: dir}, nil
+	return nil
 }
 
 type Invocation struct {
@@ -111,10 +157,7 @@ func run(ctx context.Context, exe string, call Invocation) (*Status, error) {
 	inner, stop := context.WithTimeout(ctx, time.Duration(limit)*time.Millisecond)
 	defer stop()
 
-	command := exec.CommandContext(inner, exe, call.Args...)
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	command.Cancel = func() error { return killGroup(command) }
-	command.WaitDelay = 250 * time.Millisecond
+	command := grouped(inner, exe, call.Args...)
 	command.Dir = call.Dir
 	command.Env = append(os.Environ(), flatten(call.Env)...)
 	command.Stdin = call.Stdin
@@ -144,9 +187,6 @@ func run(ctx context.Context, exe string, call Invocation) (*Status, error) {
 	status := &Status{Wall: elapsed, Stdout: out.Bytes(), Stderr: errs.Bytes()}
 	if state := command.ProcessState; state != nil {
 		status.ExitCode = state.ExitCode()
-		if usage, ok := state.SysUsage().(*syscall.Rusage); ok {
-			status.Memory = int64(usage.Maxrss)
-		}
 		if wait, ok := state.Sys().(syscall.WaitStatus); ok && wait.Signaled() {
 			status.Signal = true
 		}
@@ -159,6 +199,25 @@ func run(ctx context.Context, exe string, call Invocation) (*Status, error) {
 		return status, err
 	}
 	return status, nil
+}
+
+const (
+	checkerLimit   = 10000
+	validatorLimit = 30000
+	generatorLimit = 60000
+)
+
+func (b *Built) jury(ctx context.Context, limit int, call Invocation) (*Status, error) {
+	call.Dir, call.LimitMS, call.Env = b.Dir, limit, map[string]string{"EOLYMP": "1"}
+	return run(ctx, b.Exe, call)
+}
+
+func grouped(ctx context.Context, name string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, name, args...)
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error { return killGroup(command) }
+	command.WaitDelay = 250 * time.Millisecond
+	return command
 }
 
 func killGroup(command *exec.Cmd) error {

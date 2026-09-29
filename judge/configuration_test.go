@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func fired(found Findings, code string) bool {
 	for _, one := range found {
@@ -12,6 +16,7 @@ func fired(found Findings, code string) bool {
 }
 
 func TestConfigurationChecks(t *testing.T) {
+	t.Parallel()
 	problem := &Problem{
 		Type: "PROGRAM", RunCount: 3, TimeLimit: 0,
 		Testsets: []*Testset{
@@ -35,6 +40,7 @@ func TestConfigurationChecks(t *testing.T) {
 }
 
 func TestAnEachTestsetWithExpandedIcpcFeedbackIsFlagged(t *testing.T) {
+	t.Parallel()
 	problem := &Problem{Type: "PROGRAM", RunCount: 1, Testsets: []*Testset{
 		{Index: 1, ScoringMode: "EACH", FeedbackPolicy: "ICPC_EXPANDED", Tests: []*Test{{Index: 1, Score: 100}}},
 	}}
@@ -44,6 +50,7 @@ func TestAnEachTestsetWithExpandedIcpcFeedbackIsFlagged(t *testing.T) {
 }
 
 func TestAnInteractiveProblemNeedsAWallLimit(t *testing.T) {
+	t.Parallel()
 	problem := &Problem{Type: "INTERACTIVE", RunCount: 1}
 	if !fired(Configuration(problem), "EO902") {
 		t.Fatal("EO902 did not fire")
@@ -55,11 +62,30 @@ func TestAnInteractiveProblemNeedsAWallLimit(t *testing.T) {
 }
 
 func TestTooManyTestRows(t *testing.T) {
+	t.Parallel()
 	testset := &Testset{Index: 1, ScoringMode: "EACH"}
 	for at := 1; at <= 1300; at++ {
 		testset.Tests = append(testset.Tests, &Test{Index: at})
 	}
 	if !fired(Configuration(&Problem{Type: "PROGRAM", Testsets: []*Testset{testset}}), "EO909") {
 		t.Fatal("EO909 did not fire")
+	}
+}
+
+func TestTheTotalIsWhatEachTestsetCanPay(t *testing.T) {
+	t.Parallel()
+	problem := &Problem{Type: "PROGRAM", Testsets: []*Testset{
+		{Index: 1, ScoringMode: "BEST", Tests: []*Test{{Index: 1, Score: 30}, {Index: 2, Score: 20}}},
+		{Index: 2, ScoringMode: "NO_SCORE", Tests: []*Test{{Index: 1, Score: 15}}},
+		{Index: 3, ScoringMode: "WORST", Tests: []*Test{{Index: 1, Score: 40}, {Index: 2, Score: 40}}},
+		{Index: 4, ScoringMode: "ALL", Tests: []*Test{{Index: 1, Score: 10}, {Index: 2, Score: 20}}},
+	}}
+	if fired(Configuration(problem), "EO907") {
+		t.Errorf("30 + 0 + 40 + 30 is 100, and EO907 fired: %v", Configuration(problem))
+	}
+	problem.Testsets[1].ScoringMode = "EACH"
+	found := Configuration(problem)
+	if !fired(found, "EO907") || !strings.Contains(fmt.Sprint(found), "add up to 115, not 100") {
+		t.Errorf("an EACH testset of 15 more gave %v", found)
 	}
 }

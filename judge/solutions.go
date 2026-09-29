@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -35,7 +36,7 @@ func (w *Workspace) interactiveChecks(ctx context.Context, found *Findings) erro
 		return nil
 	}
 	first := made[0]
-	limit, _ := w.Problem.Testset(first.Group).Limit(w.Problem)
+	limit := w.Problem.Testset(first.Group).Limit(w.Problem)
 
 	for name, body := range hostileClients {
 		dir := filepath.Join(w.Dir, "hostile", keyOf(name))
@@ -46,7 +47,7 @@ func (w *Workspace) interactiveChecks(ctx context.Context, found *Findings) erro
 		if err := os.WriteFile(source, []byte(body), 0o644); err != nil {
 			return err
 		}
-		client, err := build(ctx, &Problem{dir: dir}, "client", &Program{Source: "source.cpp"}, dir)
+		client, err := w.tools.build(ctx, &Problem{dir: dir}, "client", &Program{Source: "source.cpp"}, dir)
 		if err != nil {
 			return err
 		}
@@ -55,19 +56,21 @@ func (w *Workspace) interactiveChecks(ctx context.Context, found *Findings) erro
 		if err := os.MkdirAll(work, 0o755); err != nil {
 			return err
 		}
-		status, jury, err := w.onePhase(ctx, first.Input, filepath.Join(work, "summary.txt"),
+		_, jury, err := w.onePhase(ctx, first.Input, filepath.Join(work, "summary.txt"),
 			client, interactor, work, limit, w.metadata(nil), "")
 		if err != nil {
 			return err
 		}
-		_ = status
-
-		said, _ := os.ReadFile(filepath.Join(work, "interactor.log"))
-		if jury.ExitCode >= 3 {
-			found.warn("EO814", "interactor",
-				fmt.Sprintf("%s ends the run with %q", name, firstLine(string(said))),
-				"a badly behaved client must give a wrong answer or a time limit, never an interaction failure")
+		if jury.ExitCode == 0 || jury.ExitCode == 1 || jury.ExitCode == 2 {
+			continue
 		}
+		failure := fmt.Sprintf("%s ends the run in an interaction failure", name)
+		said, _ := os.ReadFile(filepath.Join(work, "interactor.log"))
+		if line := firstLine(string(said)); line != "" {
+			failure += ": " + line
+		}
+		found.warn("EO814", "interactor", failure,
+			"a badly behaved client must give a wrong answer or a time limit, never an interaction failure")
 	}
 	return nil
 }
@@ -112,7 +115,7 @@ func (w *Workspace) solutionChecks(ctx context.Context, found *Findings) error {
 
 		if one.Type == "CORRECT" {
 			if want, known := one.Expected(); known && attempt.Score != Points(want) {
-				found.warn("EO819", "solution "+one.Name,
+				found.warn("EO819", label(solutionName(one.Name)),
 					fmt.Sprintf("it is declared correct and scores %g, not %g", attempt.Score, want),
 					"a reference that does not score full marks is the first thing to fix")
 			}
@@ -124,7 +127,7 @@ func (w *Workspace) solutionChecks(ctx context.Context, found *Findings) error {
 			return err
 		}
 		if twice.Verdict != attempt.Verdict || twice.Score != attempt.Score {
-			found.warn("EO815", "solution "+one.Name,
+			found.warn("EO815", label(solutionName(one.Name)),
 				fmt.Sprintf("two runs gave %s at %g and %s at %g",
 					attempt.Verdict, attempt.Score, twice.Verdict, twice.Score),
 				"something in the problem uses the clock or unseeded randomness")
@@ -154,13 +157,13 @@ func (w *Workspace) headroom(found *Findings, solution *Solution, attempt *Attem
 		if testset == nil {
 			continue
 		}
-		limit, _ := testset.Limit(w.Problem)
+		limit := testset.Limit(w.Problem)
 		for _, one := range group.Runs {
 			if one.Verdict == Skipped || limit == 0 {
 				continue
 			}
 			if one.Wall*2 > limit {
-				found.warn("EO816", "solution "+solution.Name,
+				found.warn("EO816", label(solutionName(solution.Name)),
 					fmt.Sprintf("test %d:%d uses %d ms of the %d ms limit", one.Group, one.Index, one.Wall, limit),
 					"a reference under half the limit survives a slower machine and a rejudge")
 			}
@@ -177,7 +180,7 @@ func (w *Workspace) Check(ctx context.Context, deep bool) (Findings, error) {
 	if err := w.Generate(ctx); err != nil {
 		return found, err
 	}
-	if err := w.Validate(ctx, true); err != nil {
+	if err := w.Validate(ctx); err != nil {
 		return found, err
 	}
 	for _, made := range w.sorted() {
@@ -226,28 +229,33 @@ func (w *Workspace) findingsOf(warnings []Warning) Findings {
 }
 
 func (w *Workspace) named(one Warning) string {
-	at := strings.TrimPrefix(one.At, w.Dir+string(os.PathSeparator))
-	for name, built := range w.Programs {
-		inside := strings.TrimPrefix(built.Dir, w.Dir+string(os.PathSeparator))
-		if !strings.HasPrefix(at, inside+"/source.cpp") {
-			continue
-		}
-		if source := w.sourceOf(name); source != "" {
-			return source + strings.TrimPrefix(at, inside+"/source.cpp")
+	for _, dir := range w.tools.carriedDirs(w.Dir) {
+		if rest, inside := strings.CutPrefix(one.At, dir+string(os.PathSeparator)); inside {
+			return rest
 		}
 	}
-	return at
+	names := make([]string, 0, len(w.Programs))
+	for name := range w.Programs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		built := w.Programs[name]
+		if rest, inside := strings.CutPrefix(one.At, built.Source); inside {
+			if source := w.sourceOf(name); source != "" {
+				return source + rest
+			}
+		}
+		if rest, inside := strings.CutPrefix(one.At, filepath.Dir(built.Source)+string(os.PathSeparator)); inside {
+			return filepath.Join(strings.TrimPrefix(built.Dir, w.Dir+string(os.PathSeparator)), rest)
+		}
+	}
+	return strings.TrimPrefix(one.At, w.Dir+string(os.PathSeparator))
 }
 
 func (w *Workspace) sourceOf(name string) string {
-	if program, known := namedPrograms(w.Problem)[strings.Replace(name, ".", " ", 1)]; known {
+	if program, known := namedPrograms(w.Problem)[name]; known {
 		return program.Source
-	}
-	switch name {
-	case "checker", "validator", "interactor":
-		if program, known := namedPrograms(w.Problem)[name]; known {
-			return program.Source
-		}
 	}
 	return ""
 }

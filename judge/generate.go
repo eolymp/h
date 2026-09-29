@@ -6,11 +6,13 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -60,6 +62,10 @@ type Workspace struct {
 	Programs map[string]*Built
 	Tests    map[string]*Prepared
 	Warnings []Warning
+	Temp     string
+
+	tools          toolchain
+	generatorLimit int
 }
 
 func normalise(body []byte) []byte {
@@ -77,14 +83,15 @@ func keyOf(parts ...string) string {
 
 func NewWorkspace(problem *Problem, dir string) *Workspace {
 	return &Workspace{Problem: problem, Dir: dir,
-		Programs: map[string]*Built{}, Tests: map[string]*Prepared{}}
+		Programs: map[string]*Built{}, Tests: map[string]*Prepared{}, tools: hostToolchain(),
+		generatorLimit: generatorLimit}
 }
 
 func (w *Workspace) Build(ctx context.Context, name string, program *Program) (*Built, error) {
 	if made, known := w.Programs[name]; known {
 		return made, nil
 	}
-	made, err := build(ctx, w.Problem, name, program, w.Dir)
+	made, err := w.tools.build(ctx, w.Problem, name, program, w.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -123,10 +130,10 @@ func (w *Workspace) BuildAll(ctx context.Context, solutions []*Solution) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		jobs = append(jobs, wanted{"script." + name, problem.Scripts[name]})
+		jobs = append(jobs, wanted{scriptName(name), problem.Scripts[name]})
 	}
 	for _, one := range solutions {
-		jobs = append(jobs, wanted{"solution." + one.Name, &Program{Source: one.Source}})
+		jobs = append(jobs, wanted{solutionName(one.Name), &Program{Source: one.Source}})
 	}
 
 	var first []wanted
@@ -151,7 +158,7 @@ func (w *Workspace) BuildAll(ctx context.Context, solutions []*Solution) error {
 		go func(at int, job wanted) {
 			defer waiting.Done()
 			slots <- struct{}{}
-			built[at], failed[at] = build(ctx, problem, job.name, job.program, w.Dir)
+			built[at], failed[at] = w.tools.build(ctx, problem, job.name, job.program, w.Dir)
 			<-slots
 		}(at, job)
 	}
@@ -165,7 +172,7 @@ func (w *Workspace) BuildAll(ctx context.Context, solutions []*Solution) error {
 		if failed[at] != nil {
 			return failed[at]
 		}
-		w.Programs[job.name] = &Built{Name: job.name, Exe: built[at].Exe, Dir: built[at].Dir}
+		w.Programs[job.name] = &Built{Name: job.name, Exe: built[at].Exe, Dir: built[at].Dir, Source: built[at].Source}
 	}
 	return nil
 }
@@ -175,7 +182,7 @@ func (w *Workspace) script(ctx context.Context, name string) (*Built, error) {
 	if !known {
 		return nil, fmt.Errorf("no script named %q", name)
 	}
-	return w.Build(ctx, "script."+name, script)
+	return w.Build(ctx, scriptName(name), script)
 }
 
 func (w *Workspace) Generate(ctx context.Context) error {
@@ -187,6 +194,8 @@ func (w *Workspace) Generate(ctx context.Context) error {
 		return err
 	}
 
+	var failed []string
+	stuck := map[string]string{}
 	for _, testset := range w.Problem.Testsets {
 		for _, test := range testset.Tests {
 			made := &Prepared{Group: testset.Index, Test: test}
@@ -194,19 +203,62 @@ func (w *Workspace) Generate(ctx context.Context) error {
 			made.Input = filepath.Join(tests, name+".in")
 			made.Answer = filepath.Join(tests, name+".ans")
 
-			if err := w.makeInput(ctx, made); err != nil {
-				return err
+			if script, where := stuckOn(test, stuck); script != "" {
+				failed = append(failed, fmt.Sprintf("test %d:%d: not tried, since %s did not finish on test %s",
+					made.Group, test.Index, script, where))
+				continue
 			}
-			if err := w.makeAnswer(ctx, made); err != nil {
-				return err
-			}
-			if err := made.seal(); err != nil {
-				return err
+			if err := w.prepare(ctx, made); err != nil {
+				if ctx.Err() != nil {
+					return err
+				}
+				var late *timedOut
+				if errors.As(err, &late) {
+					stuck[late.script] = fmt.Sprintf("%d:%d", made.Group, test.Index)
+				}
+				failed = append(failed, fmt.Sprintf("test %d:%d: %v", made.Group, test.Index, err))
+				continue
 			}
 			w.Tests[reference(&Planned{Group: testset.Index, Test: test})] = made
 		}
 	}
-	return nil
+	switch len(failed) {
+	case 0:
+		return nil
+	case 1:
+		return errors.New(failed[0])
+	}
+	return fmt.Errorf("%d tests could not be made, so nothing was judged:\n  %s", len(failed),
+		strings.Join(failed, "\n  "))
+}
+
+type timedOut struct {
+	script string
+	err    error
+}
+
+func (t *timedOut) Error() string { return t.err.Error() }
+
+func stuckOn(test *Test, stuck map[string]string) (string, string) {
+	if test.Generator != nil {
+		if where, known := stuck[test.Generator.Script]; known {
+			return test.Generator.Script, where
+		}
+	}
+	if where, known := stuck[test.AnswerGenerator]; known && test.AnswerGenerator != "" {
+		return test.AnswerGenerator, where
+	}
+	return "", ""
+}
+
+func (w *Workspace) prepare(ctx context.Context, made *Prepared) error {
+	if err := w.makeInput(ctx, made); err != nil {
+		return err
+	}
+	if err := w.makeAnswer(ctx, made); err != nil {
+		return err
+	}
+	return made.seal()
 }
 
 func (w *Workspace) makeInput(ctx context.Context, made *Prepared) error {
@@ -220,7 +272,7 @@ func (w *Workspace) makeInput(ctx context.Context, made *Prepared) error {
 	}
 
 	if test.Generator == nil {
-		return fmt.Errorf("test %d:%d has neither an input nor a generator", made.Group, test.Index)
+		return errors.New("it has neither an input nor a generator")
 	}
 
 	built, err := w.script(ctx, test.Generator.Script)
@@ -232,18 +284,22 @@ func (w *Workspace) makeInput(ctx context.Context, made *Prepared) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
-	status, err := run(ctx, built.Exe, Invocation{
-		Args: test.Generator.Arguments, Dir: built.Dir, Stdout: file, LimitMS: 60000,
-		Env: map[string]string{"EOLYMP": "1"},
-	})
+	status, err := built.jury(ctx, w.generatorLimit, Invocation{Args: test.Generator.Arguments, Stdout: file})
+	closed := file.Close()
+	call := strings.Join(append([]string{test.Generator.Script}, test.Generator.Arguments...), " ")
 	if err != nil {
-		return fmt.Errorf("generator %s: %w", test.Generator.Script, err)
+		return fmt.Errorf("the generator %s: %w", call, err)
 	}
 	if status.ExitCode != 0 {
-		return fmt.Errorf("generator %s exited %d: %s", test.Generator.Script, status.ExitCode,
-			bytes.TrimSpace(status.Stderr))
+		failed := fmt.Errorf("the generator %s %s", call, ended(status, w.generatorLimit))
+		if status.TimedOut {
+			return &timedOut{script: test.Generator.Script, err: failed}
+		}
+		return failed
+	}
+	if closed != nil {
+		return fmt.Errorf("its input could not be written: %w; check the space left for the workspace", closed)
 	}
 	made.Warnings = append(made.Warnings, warningsIn(test.Generator.Script, string(status.Stderr))...)
 	return nil
@@ -262,7 +318,7 @@ func (w *Workspace) makeAnswer(ctx context.Context, made *Prepared) error {
 
 	if test.AnswerGenerator == "" {
 		if !w.Problem.Interactive() {
-			return fmt.Errorf("test %d:%d has no answer and no answerGenerator", made.Group, test.Index)
+			return errors.New("it has no answer and no answerGenerator")
 		}
 		body, err := os.ReadFile(made.Input)
 		if err != nil {
@@ -286,23 +342,26 @@ func (w *Workspace) makeAnswer(ctx context.Context, made *Prepared) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
-	status, err := run(ctx, built.Exe, Invocation{
-		Dir: built.Dir, Stdin: input, Stdout: file, LimitMS: 60000,
-		Env: map[string]string{"EOLYMP": "1"},
-	})
+	status, err := built.jury(ctx, w.generatorLimit, Invocation{Stdin: input, Stdout: file})
+	closed := file.Close()
 	if err != nil {
-		return fmt.Errorf("answer generator %s: %w", test.AnswerGenerator, err)
+		return fmt.Errorf("the answer generator %s: %w", test.AnswerGenerator, err)
 	}
 	if status.ExitCode != 0 {
-		return fmt.Errorf("answer generator %s exited %d on test %d:%d", test.AnswerGenerator,
-			status.ExitCode, made.Group, test.Index)
+		failed := fmt.Errorf("the answer generator %s %s", test.AnswerGenerator, ended(status, w.generatorLimit))
+		if status.TimedOut {
+			return &timedOut{script: test.AnswerGenerator, err: failed}
+		}
+		return failed
+	}
+	if closed != nil {
+		return fmt.Errorf("its answer could not be written: %w; check the space left for the workspace", closed)
 	}
 	return nil
 }
 
-func (w *Workspace) Validate(ctx context.Context, group bool) error {
+func (w *Workspace) Validate(ctx context.Context) error {
 	if w.Problem.Validator == nil {
 		return nil
 	}
@@ -312,13 +371,8 @@ func (w *Workspace) Validate(ctx context.Context, group bool) error {
 	}
 
 	for _, made := range w.Tests {
-		args := []string{made.Input}
-		if group {
-			args = append(args, "--group", fmt.Sprint(made.Group))
-		}
-		status, err := run(ctx, built.Exe, Invocation{
-			Args: args, Dir: built.Dir, LimitMS: 30000, Env: map[string]string{"EOLYMP": "1"},
-		})
+		status, err := built.jury(ctx, validatorLimit,
+			Invocation{Args: []string{made.Input, "--group", fmt.Sprint(made.Group)}})
 		if err != nil {
 			return err
 		}
@@ -338,14 +392,26 @@ func (w *Workspace) describe(ctx context.Context, made *Prepared) (string, error
 	if err != nil {
 		return "", err
 	}
-	status, err := run(ctx, built.Exe, Invocation{
-		Args: []string{made.Input, "--group", fmt.Sprint(made.Group), "--eo-describe"},
-		Dir:  built.Dir, LimitMS: 30000, Env: map[string]string{"EOLYMP": "1"},
-	})
+	status, err := built.jury(ctx, validatorLimit,
+		Invocation{Args: []string{made.Input, "--group", fmt.Sprint(made.Group), "--eo-describe"}})
 	if err != nil {
 		return "", err
 	}
 	return string(status.Stdout), nil
+}
+
+func ended(status *Status, limit int) string {
+	how := fmt.Sprintf("exited %d", status.ExitCode)
+	switch {
+	case status.TimedOut:
+		how = fmt.Sprintf("did not finish in %g s", float64(limit)/1000)
+	case status.Signal:
+		how = "was killed by a signal"
+	}
+	if said := bytes.TrimSpace(status.Stderr); len(said) > 0 {
+		how += ": " + string(said)
+	}
+	return how
 }
 
 func firstLine(text string) string {

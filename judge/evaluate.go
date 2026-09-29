@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Attempt struct {
@@ -17,7 +19,7 @@ type Attempt struct {
 }
 
 func (w *Workspace) Evaluate(ctx context.Context, name string, source *Program) (*Attempt, error) {
-	built, err := w.Build(ctx, "solution."+name, source)
+	built, err := w.Build(ctx, solutionName(name), source)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +98,7 @@ func (w *Workspace) plan() []*Planned {
 func (w *Workspace) judge(ctx context.Context, one *Planned, solution, checker, interactor *Built) (*RunResult, error) {
 	made := w.Tests[reference(one)]
 	testset := w.Problem.Testset(one.Group)
-	limit, _ := testset.Limit(w.Problem)
+	limit := testset.Limit(w.Problem)
 
 	result := &RunResult{Group: one.Group, Index: one.Test.Index, Cost: Points(one.Test.Score)}
 
@@ -121,7 +123,6 @@ func (w *Workspace) judge(ctx context.Context, one *Planned, solution, checker, 
 	}
 
 	result.Wall = status.Wall
-	result.Memory = status.Memory
 
 	verdict := Accepted
 	switch {
@@ -134,6 +135,12 @@ func (w *Workspace) judge(ctx context.Context, one *Planned, solution, checker, 
 
 	if verdict != Accepted {
 		result.Verdict = verdict
+		if jury != nil {
+			said, _ := os.ReadFile(filepath.Join(work, "interactor.log"))
+			if line := firstLine(string(said)); line != "" {
+				result.Message = strings.TrimPrefix(result.Message+"; the interactor said: "+line, "; ")
+			}
+		}
 		return result, nil
 	}
 
@@ -169,7 +176,7 @@ func (w *Workspace) batch(ctx context.Context, made *Prepared, solution *Built, 
 	}
 	defer file.Close()
 
-	alone, err := os.MkdirTemp("", "eo-judge-run-")
+	alone, err := os.MkdirTemp(w.Temp, "eo-judge-run-")
 	if err != nil {
 		return nil, err
 	}
@@ -179,27 +186,11 @@ func (w *Workspace) batch(ctx context.Context, made *Prepared, solution *Built, 
 
 func (w *Workspace) check(ctx context.Context, one *Planned, made *Prepared, checker *Built,
 	work, output string, result *RunResult) (*RunResult, error) {
-	log := filepath.Join(work, "checker.log")
-	file, err := os.Create(log)
+	status, said, err := runChecker(ctx, checker, made, output, work, w.metadata(one))
 	if err != nil {
 		return nil, err
 	}
 
-	status, err := run(ctx, checker.Exe, Invocation{
-		Args: []string{made.Input, output, made.Answer}, Dir: work, Stdout: file, Stderr: file,
-		LimitMS: 10000,
-		Env: map[string]string{
-			"EOLYMP": "1", "INPUT_FILE": made.Input, "OUTPUT_FILE": output, "ANSWER_FILE": made.Answer,
-			"TEST_ID": reference(one), "TEST_COST": fmt.Sprint(one.Test.Score),
-			"TEST_INDEX": fmt.Sprint(one.Test.Index), "TEST_GROUP": fmt.Sprint(one.Group),
-		},
-	})
-	file.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	said, _ := os.ReadFile(log)
 	result.Message = firstLine(string(said))
 	result.Warnings = warningsIn("checker", string(said))
 
@@ -226,6 +217,27 @@ func (w *Workspace) check(ctx context.Context, one *Planned, made *Prepared, che
 		result.Fraction = result.Cost
 	}
 	return result, nil
+}
+
+func runChecker(ctx context.Context, checker *Built, made *Prepared, output, work string,
+	metadata map[string]string) (*Status, []byte, error) {
+	log := filepath.Join(work, "checker.log")
+	file, err := os.Create(log)
+	if err != nil {
+		return nil, nil, err
+	}
+	env := maps.Clone(metadata)
+	env["INPUT_FILE"], env["OUTPUT_FILE"], env["ANSWER_FILE"] = made.Input, output, made.Answer
+	status, err := run(ctx, checker.Exe, Invocation{
+		Args: []string{made.Input, output, made.Answer}, Dir: work, Stdout: file, Stderr: file,
+		LimitMS: checkerLimit, Env: env,
+	})
+	file.Close()
+	if err != nil {
+		return nil, nil, err
+	}
+	said, _ := os.ReadFile(log)
+	return status, said, nil
 }
 
 func (w *Workspace) interact(ctx context.Context, one *Planned, made *Prepared, solution, interactor *Built,
@@ -292,7 +304,7 @@ func (w *Workspace) onePhase(ctx context.Context, input, summary string, solutio
 		arguments = append(arguments, answer)
 	}
 
-	alone, err := os.MkdirTemp("", "eo-judge-run-")
+	alone, err := os.MkdirTemp(w.Temp, "eo-judge-run-")
 	if err != nil {
 		return nil, nil, err
 	}

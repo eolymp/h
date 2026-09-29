@@ -140,11 +140,11 @@ These are the checks the platform should eventually make when a problem is saved
 | --- | --- | --- | --- | --- |
 | `EO901` | warning | `eo-judge check` | an `EACH` testset carries `ICPC` or `ICPC_EXPANDED` feedback | ICPC stops after the first test worth nothing, so the rest score 0; use `COMPLETE` |
 | `EO902` | warning | `eo-judge check` | an interactive problem has no wall `timeLimit` | the interactor is given the wall limit plus a second and nothing else bounds it |
-| `EO903` | warning | `eo-judge check` | a program includes a quoted header with no matching `files[]` entry | attach it, or the first run fails to compile and shows up only as a submission failure |
+| `EO903` | warning | `eo-judge check` | a program includes a quoted header with no matching `files[]` entry, other than `eolymp.h` and `eolymp-shapes.h`, which the judge's runtime carries | attach it, or the first run fails to compile and shows up only as a submission failure |
 | `EO904` | warning | `eo-judge check` | a testset is listed among its own dependencies | nothing in it will ever run |
 | `EO905` | warning | `eo-judge check` | an examples testset carries points, or an example is not flagged as one | samples are shown, not scored |
 | `EO906` | warning | `eo-judge check` | a `WORST` testset whose tests do not all carry the testset's full value | the group takes the smallest test score, so every test must carry it |
 | `EO907` | warning | `eo-judge check` | the testset costs do not add up to the problem's total | make them add up, or full marks are unreachable |
 | `EO908` | warning | `eo-judge check` | `runCount` is above 1 on a problem that is not interactive | `run_count` chains an interactor's output into the next run |
 | `EO909` | warning | `eo-judge check` | the problem has more than about 1,200 test rows | Basecamp stops judging above that |
-| `EO910` | note | `eo-judge check` | the programs of one problem carry different copies of a header | attach one release to every program |
+| `EO910` | note | `eo-judge check` | the programs of one problem carry different copies of a header, counting the copy eo-judge carries for a program that attaches none | attach the same release to every program, or none to use the one the judge carries |

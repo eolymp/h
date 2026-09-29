@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func needsACompiler(t *testing.T) {
@@ -29,6 +30,7 @@ func workshop(t *testing.T, dir string) *Workspace {
 }
 
 func TestCheckFindsWhatIsWrongWithABrokenProblem(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
 
 	shop := workshop(t, "testdata/broken")
@@ -49,6 +51,7 @@ func TestCheckFindsWhatIsWrongWithABrokenProblem(t *testing.T) {
 }
 
 func TestCheckReadsEveryAnswerNotOnlyTheFirst(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
 
 	shop := workshop(t, "testdata/answers")
@@ -69,6 +72,7 @@ func TestCheckReadsEveryAnswerNotOnlyTheFirst(t *testing.T) {
 }
 
 func TestRunReproducesTheJudgeOnABatchProblem(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
 
 	shop := workshop(t, "../tests/live/degrees")
@@ -90,6 +94,7 @@ func TestRunReproducesTheJudgeOnABatchProblem(t *testing.T) {
 }
 
 func TestRunReproducesTheJudgeOnAnInteractiveProblem(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
 
 	shop := workshop(t, "../tests/live/guess")
@@ -115,6 +120,7 @@ func TestRunReproducesTheJudgeOnAnInteractiveProblem(t *testing.T) {
 }
 
 func TestACrashAfterAnAcceptedDialogueIsNotForgiven(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
 
 	shop := workshop(t, "../tests/live/guess")
@@ -138,7 +144,7 @@ func judgeAll(t *testing.T, shop *Workspace) map[string]*Attempt {
 	if err := shop.Generate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := shop.Validate(ctx, true); err != nil {
+	if err := shop.Validate(ctx); err != nil {
 		t.Fatal(err)
 	}
 	for _, made := range shop.sorted() {
@@ -159,6 +165,7 @@ func judgeAll(t *testing.T, shop *Workspace) map[string]*Attempt {
 }
 
 func TestTheCopiedPointsParserMatchesTheAgent(t *testing.T) {
+	t.Parallel()
 	agent := os.Getenv("AGENT_REPO")
 	demanded := agent != ""
 	if agent == "" {
@@ -223,6 +230,7 @@ func squeeze(text string) string {
 }
 
 func TestABrokenValidatorIsNotBlamedOnTheTests(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
 
 	dir := t.TempDir()
@@ -281,9 +289,9 @@ func TestABrokenValidatorIsNotBlamedOnTheTests(t *testing.T) {
 }
 
 func TestASolutionCannotWriteTheSummary(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
-	t.Setenv("TMPDIR", t.TempDir())
-	code, out, errs := invoke("run", "testdata/forged")
+	code, out, errs := invokeIn(t.TempDir(), "run", "testdata/forged")
 	if code != 0 {
 		t.Fatalf("exit %d, said %q", code, errs)
 	}
@@ -293,9 +301,9 @@ func TestASolutionCannotWriteTheSummary(t *testing.T) {
 }
 
 func TestASolutionCannotReachTheAnswersByRelativePath(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
-	t.Setenv("TMPDIR", t.TempDir())
-	code, out, errs := invoke("run", "testdata/poisoned", "--solution", "walker")
+	code, out, errs := invokeIn(t.TempDir(), "run", "testdata/poisoned", "--solution", "walker")
 	if code != 0 {
 		t.Fatalf("exit %d, said %q", code, errs)
 	}
@@ -306,12 +314,193 @@ func TestASolutionCannotReachTheAnswersByRelativePath(t *testing.T) {
 
 func TestAnAnswerRewrittenDuringARunStopsTheRun(t *testing.T) {
 	needsACompiler(t)
-	t.Setenv("TMPDIR", t.TempDir())
-	code, out, errs := invoke("run", "testdata/poisoned", "--solution", "poisoner")
+	temporary := t.TempDir()
+	t.Setenv("TMPDIR", temporary)
+	code, out, errs := invokeIn(temporary, "run", "testdata/poisoned", "--solution", "poisoner")
 	if code != 3 || !strings.Contains(errs, "01-001.ans changed while solution.poisoner ran") {
 		t.Fatalf("exit %d, said %q", code, errs)
 	}
 	if strings.Contains(out, "poisoner: ACCEPTED") {
 		t.Errorf("printed %q", out)
+	}
+}
+
+func TestCheckSaysTheSameEveryTime(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+
+	shop := workshop(t, "testdata/broken")
+	first := ""
+	for at := 0; at < 6; at++ {
+		found, err := shop.Check(context.Background(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out strings.Builder
+		report(&out, append(found, Lint(shop.Problem)...), false)
+		if at == 0 {
+			first = out.String()
+		} else if out.String() != first {
+			t.Fatalf("check %d printed\n%s\nand check 1 printed\n%s", at+1, out.String(), first)
+		}
+	}
+}
+
+func TestFindingsAreOrderedByPlaceThenMessage(t *testing.T) {
+	t.Parallel()
+	found := Findings{
+		{Code: "EO801", Severity: "warning", Where: "test 1:10", Message: "b"},
+		{Code: "EO801", Severity: "warning", Where: "test 1:2", Message: "b"},
+		{Code: "EO801", Severity: "warning", Where: "test 1:2", Message: "a"},
+		{Code: "EO807", Severity: "note", Where: "testset 1", Message: "a"},
+		{Code: "EO807", Severity: "warning", Where: "testset 2", Message: "a"},
+		{Code: "EO807", Severity: "warning", Where: "testset 10", Message: "a"},
+	}
+	var out strings.Builder
+	report(&out, found, false)
+	var order []string
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.Contains(line, " EO8") {
+			order = append(order, line)
+		}
+	}
+	want := []string{
+		"test 1:2: warning EO801: a", "test 1:2: warning EO801: b", "test 1:10: warning EO801: b",
+		"testset 2: warning EO807: a", "testset 10: warning EO807: a", "testset 1: note EO807: a",
+	}
+	if strings.Join(order, "\n") != strings.Join(want, "\n") {
+		t.Errorf("ordered\n%s", strings.Join(order, "\n"))
+	}
+}
+
+func TestNaturalOrderComparesRunsOfDigitsAsNumbers(t *testing.T) {
+	t.Parallel()
+	for _, pair := range [][2]string{
+		{"test 1:2", "test 1:10"}, {"test 2:1", "test 10:1"}, {"a", "b"}, {"a", "a1"},
+		{"test 1:1", "test 1:01"}, {"x9", "x10"}, {"9", "a"}, {"", "a"},
+	} {
+		if !naturalLess(pair[0], pair[1]) || naturalLess(pair[1], pair[0]) {
+			t.Errorf("%q and %q are ordered the wrong way", pair[0], pair[1])
+		}
+	}
+	if naturalLess("test 1:2", "test 1:2") {
+		t.Error("a place is before itself")
+	}
+}
+
+func TestAFailedGeneratorNamesTheTestAndItsArguments(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "gen.cpp"), "#include <cstdio>\n#include <cstring>\n"+
+		"int main(int argc, char** argv) {\n"+
+		"    if (argc > 1 && std::strcmp(argv[1], \"-n=0\") == 0) { std::fprintf(stderr, \"n is 0\\n\"); return 3; }\n"+
+		"    std::printf(\"1\\n\");\n}\n")
+	writeFile(t, filepath.Join(dir, "answer.cpp"), "int main() { return 4; }\n")
+	for _, one := range []struct{ arguments, answer, said string }{
+		{`"-n=0", "-seed=7"`, "", "test 1:1: the generator gen -n=0 -seed=7 exited 3: n is 0"},
+		{`"-n=1"`, `, "answerGenerator": "answer"`, "test 1:1: the answer generator answer exited 4"},
+	} {
+		writeFile(t, filepath.Join(dir, "problem.json"), `{"type": "PROGRAM",
+			"scripts": {"gen": {"source": "gen.cpp"}, "answer": {"source": "answer.cpp"}},
+			"testsets": [{"index": 1, "tests": [{"index": 1, "score": 100,
+				"generator": {"script": "gen", "arguments": [`+one.arguments+`]}`+one.answer+`}]}]}`)
+		code, _, errs := invokeIn(t.TempDir(), "run", dir)
+		if code != 3 || errs != "eo-judge: "+one.said+"\n" {
+			t.Errorf("exit %d, said %q, not %q", code, errs, one.said)
+		}
+	}
+}
+
+func TestEveryTestThatCannotBeMadeIsNamedBeforeTheRunStops(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "gen.cpp"), "#include <cstdio>\n#include <cstring>\n"+
+		"int main(int argc, char** argv) {\n"+
+		"    if (argc > 1 && std::strcmp(argv[1], \"-n=0\") == 0) return 3;\n"+
+		"    std::printf(\"1\\n\");\n}\n")
+	writeFile(t, filepath.Join(dir, "solution.cpp"), "int main() {}\n")
+	writeFile(t, filepath.Join(dir, "problem.json"), `{"type": "PROGRAM",
+		"scripts": {"gen": {"source": "gen.cpp"}, "answer": {"source": "solution.cpp"}},
+		"solutions": [{"name": "main", "source": "solution.cpp"}],
+		"testsets": [{"index": 1, "tests": [
+			{"index": 1, "score": 50, "generator": {"script": "gen", "arguments": ["-n=0"]}, "answerGenerator": "answer"},
+			{"index": 2, "score": 25, "generator": {"script": "gen", "arguments": ["-n=1"]}, "answerGenerator": "answer"},
+			{"index": 3, "score": 25, "input": "missing.txt", "answerGenerator": "answer"}]}]}`)
+	for _, command := range []string{"run", "check"} {
+		code, out, errs := invokeIn(t.TempDir(), command, dir)
+		want := "eo-judge: 2 tests could not be made, so nothing was judged:\n" +
+			"  test 1:1: the generator gen -n=0 exited 3\n" +
+			"  test 1:3: open " + filepath.Join(dir, "missing.txt") + ": no such file or directory\n"
+		if code != 3 || errs != want || strings.Contains(out, "main:") {
+			t.Errorf("%s exited %d, printed %q, said %q", command, code, out, errs)
+		}
+	}
+}
+
+func TestAGeneratorThatTimesOutIsNotTriedAgain(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "slow.cpp"), "int main() { for (;;) {} }\n")
+	writeFile(t, filepath.Join(dir, "gen.cpp"), "#include <cstdio>\nint main() { std::printf(\"1\\n\"); }\n")
+	writeFile(t, filepath.Join(dir, "problem.json"), `{"type": "PROGRAM",
+		"scripts": {"slow": {"source": "slow.cpp"}, "gen": {"source": "gen.cpp"}},
+		"testsets": [{"index": 1, "tests": [
+			{"index": 1, "score": 30, "generator": {"script": "slow", "arguments": ["-n=1"]}, "answer": "gen.cpp"},
+			{"index": 2, "score": 30, "generator": {"script": "gen"}, "answerGenerator": "slow"},
+			{"index": 3, "score": 40, "generator": {"script": "slow", "arguments": ["-n=2"]}, "answer": "gen.cpp"}]}]}`)
+	shop := workshop(t, dir)
+	shop.generatorLimit = 300
+	started := time.Now()
+	err := shop.Generate(context.Background())
+	want := "3 tests could not be made, so nothing was judged:\n" +
+		"  test 1:1: the generator slow -n=1 did not finish in 0.3 s\n" +
+		"  test 1:2: not tried, since slow did not finish on test 1:1\n" +
+		"  test 1:3: not tried, since slow did not finish on test 1:1"
+	if err == nil || err.Error() != want {
+		t.Errorf("said %v", err)
+	}
+	if spent := time.Since(started); spent > 3*time.Second {
+		t.Errorf("generating took %v", spent)
+	}
+}
+
+func TestCheckFindsAnInteractorThatFailsOnABadClient(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	found, err := workshop(t, "testdata/fragile").Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blamed := map[string]bool{}
+	for _, one := range found {
+		if one.Code == "EO814" && one.Where == "interactor" {
+			blamed[strings.SplitN(one.Message, " ends the run", 2)[0]] = true
+		}
+	}
+	for _, client := range []string{"a client that exits at once", "a client that prints garbage"} {
+		if !blamed[client] {
+			t.Errorf("EO814 did not fire for %s: %v", client, found)
+		}
+	}
+}
+
+func TestCheckFindsAnOptionExtremeTheValidatorRefuses(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	found, err := workshop(t, "testdata/extremes").Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var extremes []string
+	for _, one := range found {
+		if one.Code == "EO813" {
+			extremes = append(extremes, one.Where+": "+one.Message)
+		}
+	}
+	if len(extremes) != 1 || !strings.HasPrefix(extremes[0], "script gen: n=2000 produces an invalid test: ") {
+		t.Errorf("EO813 said %q; only n=2000 is outside the validator's range", extremes)
 	}
 }

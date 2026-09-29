@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
 type probe struct {
@@ -25,24 +27,12 @@ func (w *Workspace) probeChecker(ctx context.Context, made *Prepared, output str
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		return probe{}, err
 	}
-	log := filepath.Join(work, "checker.log")
-	file, err := os.Create(log)
-	if err != nil {
-		return probe{}, err
-	}
-	status, err := run(ctx, checker.Exe, Invocation{
-		Args: []string{made.Input, output, made.Answer}, Dir: work, Stdout: file, Stderr: file,
-		LimitMS: 10000,
-		Env: map[string]string{
-			"EOLYMP": "1", "INPUT_FILE": made.Input, "OUTPUT_FILE": output, "ANSWER_FILE": made.Answer,
-			"TEST_ID": "probe", "TEST_COST": fmt.Sprint(cost), "TEST_INDEX": "1", "TEST_GROUP": "1",
-		},
+	status, said, err := runChecker(ctx, checker, made, output, work, map[string]string{
+		"EOLYMP": "1", "TEST_ID": "probe", "TEST_COST": fmt.Sprint(cost), "TEST_INDEX": "1", "TEST_GROUP": "1",
 	})
-	file.Close()
 	if err != nil {
 		return probe{}, err
 	}
-	said, _ := os.ReadFile(log)
 	if status.TimedOut {
 		return probe{exit: -1, log: "the checker did not finish"}, nil
 	}
@@ -100,75 +90,18 @@ func (w *Workspace) checkerChecks(ctx context.Context, found *Findings, deep boo
 		if err != nil {
 			return err
 		}
+		if err := w.ownAnswerChecks(ctx, made, answer, found); err != nil {
+			return err
+		}
+		if at > 0 {
+			continue
+		}
 		input, err := os.ReadFile(made.Input)
 		if err != nil {
 			return err
 		}
-		where := fmt.Sprintf("test %d:%d", made.Group, made.Test.Index)
-
-		got, err := w.probeChecker(ctx, made, made.Answer, made.Test.Score)
-		if err != nil {
+		if partial, err = w.hostileChecks(ctx, made, answer, input, deep, found); err != nil {
 			return err
-		}
-		if got.exit != 0 {
-			found.warn("EO801", where, fmt.Sprintf("the checker does not accept its own answer: %s", got.log),
-				"the checker and the answer files disagree; a contestant cannot pass this test")
-		}
-
-		if !w.Problem.ExactFormat {
-			loose := filepath.Join(w.Dir, "probe", "loose.txt")
-			if err := os.WriteFile(loose, spacedOut(answer), 0o644); err != nil {
-				return err
-			}
-			got, err := w.probeChecker(ctx, made, loose, made.Test.Score)
-			if err != nil {
-				return err
-			}
-			if got.exit != 0 {
-				found.warn("EO818", where,
-					fmt.Sprintf("the checker rejects its own answer with CRLF and trailing spaces: %s", got.log),
-					"a contestant's output is not normalised; accept the whitespace or declare an exact format")
-			}
-		}
-
-		if at > 0 {
-			continue
-		}
-
-		for name, body := range hostileOutputs(answer, input, deep) {
-			if name == "one token changed" && !w.Problem.Unique {
-				continue
-			}
-			path := filepath.Join(w.Dir, "probe", "hostile.txt")
-			if err := os.WriteFile(path, body, 0o644); err != nil {
-				return err
-			}
-			got, err := w.probeChecker(ctx, made, path, made.Test.Score)
-			if err != nil {
-				return err
-			}
-			if got.exit == 7 {
-				partial = true
-			}
-			switch {
-			case got.exit == 0 && name == "nothing at all":
-				found.warn("EO802", where, "the checker accepts an empty output",
-					"it is not reading the contestant's answer")
-			case got.exit == 0 && name == "the input echoed back":
-				found.warn("EO803", where, "the checker accepts the input echoed back as the output",
-					"it is not comparing enough")
-			case got.exit == 0 && name == "one token changed":
-				found.warn("EO804", where, "the checker accepts the answer with one token changed",
-					"the problem declares a unique answer, so this must be wrong")
-			case got.exit == 0:
-				continue
-			case got.exit == 1 || got.exit == 2 || got.exit == 7:
-				continue
-			default:
-				found.warn("EO805", where,
-					fmt.Sprintf("%s makes the checker exit %d: %s", name, got.exit, got.log),
-					"a contestant's output must give a wrong answer, never a crash or a jury error")
-			}
 		}
 	}
 
@@ -182,6 +115,75 @@ func (w *Workspace) checkerChecks(ctx context.Context, found *Findings, deep boo
 		}
 	}
 	return nil
+}
+
+func (w *Workspace) ownAnswerChecks(ctx context.Context, made *Prepared, answer []byte, found *Findings) error {
+	where := fmt.Sprintf("test %d:%d", made.Group, made.Test.Index)
+	got, err := w.probeChecker(ctx, made, made.Answer, made.Test.Score)
+	if err != nil {
+		return err
+	}
+	if got.exit != 0 {
+		found.warn("EO801", where, fmt.Sprintf("the checker does not accept its own answer: %s", got.log),
+			"the checker and the answer files disagree; a contestant cannot pass this test")
+	}
+	if w.Problem.ExactFormat {
+		return nil
+	}
+	loose := filepath.Join(w.Dir, "probe", "loose.txt")
+	if err := os.WriteFile(loose, spacedOut(answer), 0o644); err != nil {
+		return err
+	}
+	if got, err = w.probeChecker(ctx, made, loose, made.Test.Score); err != nil {
+		return err
+	}
+	if got.exit != 0 {
+		found.warn("EO818", where,
+			fmt.Sprintf("the checker rejects its own answer with CRLF and trailing spaces: %s", got.log),
+			"a contestant's output is not normalised; accept the whitespace or declare an exact format")
+	}
+	return nil
+}
+
+func (w *Workspace) hostileChecks(ctx context.Context, made *Prepared, answer, input []byte, deep bool,
+	found *Findings) (bool, error) {
+	where := fmt.Sprintf("test %d:%d", made.Group, made.Test.Index)
+	partial := false
+	for name, body := range hostileOutputs(answer, input, deep) {
+		if name == "one token changed" && !w.Problem.Unique {
+			continue
+		}
+		path := filepath.Join(w.Dir, "probe", "hostile.txt")
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			return false, err
+		}
+		got, err := w.probeChecker(ctx, made, path, made.Test.Score)
+		if err != nil {
+			return false, err
+		}
+		partial = partial || got.exit == 7
+		hostileFinding(name, got, where, found)
+	}
+	return partial, nil
+}
+
+func hostileFinding(name string, got probe, where string, found *Findings) {
+	switch {
+	case got.exit == 0 && name == "nothing at all":
+		found.warn("EO802", where, "the checker accepts an empty output",
+			"it is not reading the contestant's answer")
+	case got.exit == 0 && name == "the input echoed back":
+		found.warn("EO803", where, "the checker accepts the input echoed back as the output",
+			"it is not comparing enough")
+	case got.exit == 0 && name == "one token changed":
+		found.warn("EO804", where, "the checker accepts the answer with one token changed",
+			"the problem declares a unique answer, so this must be wrong")
+	case got.exit == 0, got.exit == 1, got.exit == 2, got.exit == 7:
+	default:
+		found.warn("EO805", where,
+			fmt.Sprintf("%s makes the checker exit %d: %s", name, got.exit, got.log),
+			"a contestant's output must give a wrong answer, never a crash or a jury error")
+	}
 }
 
 func (w *Workspace) sorted() []*Prepared {
@@ -235,10 +237,7 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 
 	for _, made := range w.sorted() {
 		where := fmt.Sprintf("test %d:%d", made.Group, made.Test.Index)
-		status, err := run(ctx, built.Exe, Invocation{
-			Args: []string{made.Input}, Dir: built.Dir, LimitMS: 30000,
-			Env: map[string]string{"EOLYMP": "1"},
-		})
+		status, err := built.jury(ctx, validatorLimit, Invocation{Args: []string{made.Input}})
 		if err != nil {
 			return err
 		}
@@ -253,13 +252,11 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 		}
 
 		for _, testset := range w.Problem.Testsets {
-			if !dependsOn(w.Problem, testset, made.Group) {
+			if !dependsOn(testset, made.Group) {
 				continue
 			}
-			status, err := run(ctx, built.Exe, Invocation{
-				Args: []string{made.Input, "--group", fmt.Sprint(testset.Index)}, Dir: built.Dir,
-				LimitMS: 30000, Env: map[string]string{"EOLYMP": "1"},
-			})
+			status, err := built.jury(ctx, validatorLimit,
+				Invocation{Args: []string{made.Input, "--group", fmt.Sprint(testset.Index)}})
 			if err != nil {
 				return err
 			}
@@ -274,7 +271,7 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 	return nil
 }
 
-func dependsOn(problem *Problem, testset *Testset, group int) bool {
+func dependsOn(testset *Testset, group int) bool {
 	for _, one := range testset.Dependencies {
 		if one == group {
 			return true
@@ -369,11 +366,11 @@ var describedOption = regexp.MustCompile(`^eo-describe option (\S+) an? (integer
 
 func (w *Workspace) generatorChecks(ctx context.Context, found *Findings) error {
 	for name, script := range w.Problem.Scripts {
-		built, err := w.Build(ctx, "script."+name, script)
+		built, err := w.Build(ctx, scriptName(name), script)
 		if err != nil {
 			return err
 		}
-		where := "script " + name
+		where := label(scriptName(name))
 
 		used := w.argumentsFor(name)
 		if len(used) == 0 {
@@ -393,8 +390,8 @@ func (w *Workspace) generatorChecks(ctx context.Context, found *Findings) error 
 				"unspecified argument order, std::shuffle, unordered iteration or signed char")
 		}
 
-		if other := otherCompiler(); other != "" {
-			twin, err := buildWith(ctx, other, w.Problem, "twin."+name, script, w.Dir)
+		if other := otherCompiler(ctx, w.tools.cxx); other != "" {
+			twin, err := toolchain{cxx: other, cache: w.tools.cache}.build(ctx, w.Problem, "twin."+name, script, w.Dir)
 			if err != nil {
 				found.note("EO812", where, fmt.Sprintf("it does not build with %s: %v", other, err),
 					"a generator has to build with both compilers the judge may use")
@@ -405,16 +402,13 @@ func (w *Workspace) generatorChecks(ctx context.Context, found *Findings) error 
 				}
 				if !bytes.Equal(first, crossed) {
 					found.warn("EO812", where,
-						fmt.Sprintf("%s and %s give different bytes for the same arguments", compiler(), other),
-						"the test depends on the standard library, not only on the seed")
+						fmt.Sprintf("%s and %s give different bytes for the same arguments", w.tools.cxx, other),
+						whyTheyDiffer(ctx, w.tools.cxx, other))
 				}
 			}
 		}
 
-		status, err := run(ctx, built.Exe, Invocation{
-			Args: []string{"--eo-describe"}, Dir: built.Dir, LimitMS: 30000,
-			Env: map[string]string{"EOLYMP": "1"},
-		})
+		status, err := built.jury(ctx, validatorLimit, Invocation{Args: []string{"--eo-describe"}})
 		if err != nil {
 			return err
 		}
@@ -474,10 +468,7 @@ func (w *Workspace) argumentsFor(name string) [][]string {
 
 func (w *Workspace) generateOnce(ctx context.Context, built *Built, args []string) ([]byte, error) {
 	var out bytes.Buffer
-	status, err := run(ctx, built.Exe, Invocation{
-		Args: args, Dir: built.Dir, Stdout: &out, LimitMS: 60000,
-		Env: map[string]string{"EOLYMP": "1"},
-	})
+	status, err := built.jury(ctx, generatorLimit, Invocation{Args: args, Stdout: &out})
 	if err != nil {
 		return nil, err
 	}
@@ -502,9 +493,7 @@ func (w *Workspace) validateBody(ctx context.Context, body []byte) string {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		return err.Error()
 	}
-	status, err := run(ctx, built.Exe, Invocation{
-		Args: []string{path}, Dir: built.Dir, LimitMS: 30000, Env: map[string]string{"EOLYMP": "1"},
-	})
+	status, err := built.jury(ctx, validatorLimit, Invocation{Args: []string{path}})
 	if err != nil {
 		return err.Error()
 	}
@@ -514,33 +503,77 @@ func (w *Workspace) validateBody(ctx context.Context, body []byte) string {
 	return firstLine(string(status.Stdout) + string(status.Stderr))
 }
 
-func otherCompiler() string {
-	mine := versionOf(compiler())
+func otherCompiler(ctx context.Context, cxx string) string {
+	mine := familyOf(ctx, cxx)
 	for _, candidate := range []string{"g++", "clang++"} {
-		said := versionOf(candidate)
-		if said == "" || said == mine {
-			continue
+		if family := familyOf(ctx, candidate); family != "" && family != mine {
+			return candidate
 		}
-		return candidate
 	}
 	return ""
 }
 
-func versionOf(name string) string {
-	path, err := exec.LookPath(name)
-	if err != nil {
-		return ""
+func whyTheyDiffer(ctx context.Context, cxx, other string) string {
+	why := "the bytes depend on the compiler, not only on the seed: the two may evaluate a call's arguments in different orders"
+	if mine, theirs := probed(ctx, cxx).library, probed(ctx, other).library; mine != "" && theirs != "" && mine != theirs {
+		why += fmt.Sprintf(", and with %s and %s std::shuffle and the <random> distributions differ too", mine, theirs)
 	}
-	said, err := exec.Command(path, "--version").Output()
-	if err != nil {
-		return ""
-	}
-	return firstLine(string(said))
+	return why
 }
 
-func buildWith(ctx context.Context, cxx string, problem *Problem, name string, program *Program, work string) (*Built, error) {
-	before := os.Getenv("CXX")
-	os.Setenv("CXX", cxx)
-	defer os.Setenv("CXX", before)
-	return build(ctx, problem, name, program, work)
+type compilerTraits struct {
+	family, library string
+}
+
+var families = struct {
+	sync.Mutex
+	of map[string]compilerTraits
+}{of: map[string]compilerTraits{}}
+
+const probeLimit = 10 * time.Second
+
+func familyOf(ctx context.Context, name string) string {
+	return probed(ctx, name).family
+}
+
+func probed(ctx context.Context, name string) compilerTraits {
+	families.Lock()
+	defer families.Unlock()
+	if traits, known := families.of[name]; known {
+		return traits
+	}
+	var traits compilerTraits
+	if path, err := exec.LookPath(name); err == nil {
+		limited, stop := context.WithTimeout(ctx, probeLimit)
+		defer stop()
+		command := grouped(limited, path, "-dM", "-E", "-x", "c++", "-")
+		command.Stdin = strings.NewReader("#include <cstddef>\n")
+		if out, err := command.Output(); err == nil {
+			traits = compilerTraits{family: familyIn(string(out)), library: libraryIn(string(out))}
+		}
+	}
+	if ctx.Err() == nil {
+		families.of[name] = traits
+	}
+	return traits
+}
+
+func libraryIn(macros string) string {
+	switch {
+	case strings.Contains(macros, "#define _LIBCPP_VERSION "):
+		return "libc++"
+	case strings.Contains(macros, "#define __GLIBCXX__ "):
+		return "libstdc++"
+	}
+	return ""
+}
+
+func familyIn(macros string) string {
+	switch {
+	case strings.Contains(macros, "#define __clang__ "):
+		return "clang"
+	case strings.Contains(macros, "#define __GNUC__ "):
+		return "gcc"
+	}
+	return ""
 }

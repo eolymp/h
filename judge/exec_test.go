@@ -4,12 +4,15 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
 
 func TestAnAttachedHeaderIsFoundWithAngleBrackets(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
 	dir := t.TempDir()
 	write := func(name, body string) {
@@ -20,7 +23,7 @@ func TestAnAttachedHeaderIsFoundWithAngleBrackets(t *testing.T) {
 	write("attached_helper.h", "inline int answer() { return 42; }\n")
 	write("checker.cpp", "#include <attached_helper.h>\nint main() { return answer() == 42 ? 0 : 1; }\n")
 	problem := &Problem{dir: dir}
-	built, err := build(context.Background(), problem, "checker", &Program{Source: "checker.cpp", Files: []string{"attached_helper.h"}},
+	built, err := hostToolchain().build(context.Background(), problem, "checker", &Program{Source: "checker.cpp", Files: []string{"attached_helper.h"}},
 		t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +47,7 @@ func TestTheSystemCopyOfAHeaderWinsOverAnAttachedOne(t *testing.T) {
 	write(filepath.Join(dir, "checker.cpp"), "#include <attached_helper.h>\nint main() { return answer(); }\n")
 	t.Setenv("CPLUS_INCLUDE_PATH", system)
 	problem := &Problem{dir: dir}
-	built, err := build(context.Background(), problem, "checker", &Program{Source: "checker.cpp", Files: []string{"attached_helper.h"}},
+	built, err := hostToolchain().build(context.Background(), problem, "checker", &Program{Source: "checker.cpp", Files: []string{"attached_helper.h"}},
 		t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -60,33 +63,30 @@ func TestTheSystemCopyOfAHeaderWinsOverAnAttachedOne(t *testing.T) {
 
 func TestAnInterruptStopsABuildAndWhatItStarted(t *testing.T) {
 	dir := t.TempDir()
-	marker := filepath.Join(dir, "still-running")
 	slow := filepath.Join(dir, "slow-compiler")
-	script := "#!/bin/sh\n(sleep 2; touch " + marker + ") &\nsleep 30\n"
-	if err := os.WriteFile(slow, []byte(script), 0o755); err != nil {
+	child, pid := lingering(dir)
+	if err := os.WriteFile(slow, []byte("#!/bin/sh\n"+child+"sleep 30\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	t.Parallel()
 	if err := os.WriteFile(filepath.Join(dir, "a.cpp"), []byte("int main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CXX", slow)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	_, err := build(ctx, &Problem{dir: dir}, "slow", &Program{Source: "a.cpp"}, t.TempDir())
+	_, err := toolchain{cxx: slow}.build(ctx, &Problem{dir: dir}, "slow", &Program{Source: "a.cpp"}, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "the build of slow was interrupted") {
 		t.Fatalf("said %v", err)
 	}
 	if spent := time.Since(started); spent > 5*time.Second {
 		t.Errorf("the build took %v to stop", spent)
 	}
-	time.Sleep(2500 * time.Millisecond)
-	if _, err := os.Stat(marker); err == nil {
-		t.Error("a process the compiler started outlived the build")
-	}
+	awaitGone(t, pid, "a process the compiler started outlived the build")
 }
 
 func TestATimeLimitStopsEveryProcessTheProgramStarted(t *testing.T) {
+	t.Parallel()
 	started := time.Now()
 	status, err := run(context.Background(), "/bin/sh", Invocation{Args: []string{"-c", "sleep 30 & sleep 30"},
 		LimitMS: 300})
@@ -102,10 +102,11 @@ func TestATimeLimitStopsEveryProcessTheProgramStarted(t *testing.T) {
 }
 
 func TestAChildLeftBehindIsStoppedWhenTheProgramEnds(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "still-here")
+	t.Parallel()
+	child, pid := lingering(t.TempDir())
 	started := time.Now()
 	status, err := run(context.Background(), "/bin/sh", Invocation{
-		Args: []string{"-c", "(sleep 1; touch " + marker + ") & echo started"}, LimitMS: 10000})
+		Args: []string{"-c", child + "echo started"}, LimitMS: 10000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,13 +116,11 @@ func TestAChildLeftBehindIsStoppedWhenTheProgramEnds(t *testing.T) {
 	if waited := time.Since(started); waited > 900*time.Millisecond {
 		t.Errorf("the run took %v; it waited for the child", waited)
 	}
-	time.Sleep(1500 * time.Millisecond)
-	if _, err := os.Stat(marker); err == nil {
-		t.Error("the child outlived the run")
-	}
+	awaitGone(t, pid, "the child outlived the run")
 }
 
 func TestTheSameProgramIsBuiltOnceUnderEveryName(t *testing.T) {
+	t.Parallel()
 	needsACompiler(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "gen.cpp"), []byte("int main() {}\n"), 0o644); err != nil {
@@ -147,5 +146,102 @@ func TestTheSameProgramIsBuiltOnceUnderEveryName(t *testing.T) {
 	problem.Checker = &Program{Source: "missing.cpp"}
 	if err := NewWorkspace(problem, t.TempDir()).BuildAll(context.Background(), nil); err == nil {
 		t.Error("a program that cannot be built was not reported")
+	}
+}
+
+func TestAHangingCompilerDoesNotHangTheFamilyCheck(t *testing.T) {
+	dir := t.TempDir()
+	hanging := filepath.Join(dir, "hanging-compiler")
+	child, pid := lingering(dir)
+	if err := os.WriteFile(hanging, []byte("#!/bin/sh\n"+child+"sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if family := familyOf(ctx, hanging); family != "" {
+		t.Errorf("a compiler that never answered is of the family %q", family)
+	}
+	if spent := time.Since(started); spent > 5*time.Second {
+		t.Errorf("the family check took %v to stop", spent)
+	}
+	awaitGone(t, pid, "a process the compiler started outlived the family check")
+}
+
+func lingering(dir string) (string, string) {
+	pid := filepath.Join(dir, "lingering.pid")
+	return "sh -c 'echo $$ > " + pid + ".part && mv " + pid + ".part " + pid + " && exec sleep 30' &\n" +
+		"until [ -f " + pid + " ]; do sleep 0.01; done\n", pid
+}
+
+func awaitGone(t *testing.T, pidFile, complaint string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for ; time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		body, err := os.ReadFile(pidFile)
+		if err != nil {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if syscall.Kill(pid, 0) != nil {
+			return
+		}
+	}
+	if _, err := os.Stat(pidFile); err == nil {
+		t.Error(complaint)
+	}
+}
+
+func TestACompilersFamilyIsAskedOnce(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	counted := filepath.Join(dir, "counted-compiler")
+	script := "#!/bin/sh\necho called >> " + calls + "\necho '#define __clang__ 1'\n"
+	if err := os.WriteFile(counted, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Parallel()
+	for range 3 {
+		if family := familyOf(context.Background(), counted); family != "clang" {
+			t.Fatalf("the family is %q", family)
+		}
+	}
+	body, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asked := strings.Count(string(body), "called"); asked != 1 {
+		t.Errorf("the compiler was asked for its family %d times", asked)
+	}
+}
+
+func TestTheSecondCompilerIsOfTheOtherFamily(t *testing.T) {
+	t.Parallel()
+	for macros, want := range map[string]string{
+		"#define __GNUC__ 12\n#define __clang__ 1\n": "clang", "#define __GNUC__ 12\n": "gcc", "": "",
+	} {
+		if got := familyIn(macros); got != want {
+			t.Errorf("%q is %q, not %q", macros, got, want)
+		}
+	}
+	for macros, want := range map[string]string{
+		"#define _LIBCPP_VERSION 170006\n": "libc++", "#define __GLIBCXX__ 20230528\n": "libstdc++", "": "",
+	} {
+		if got := libraryIn(macros); got != want {
+			t.Errorf("%q is %q, not %q", macros, got, want)
+		}
+	}
+	gcc, clang := familyOf(context.Background(), "g++"), familyOf(context.Background(), "clang++")
+	if gcc != "gcc" || clang != "clang" {
+		t.Skipf("g++ is %q and clang++ is %q here, not one of each", gcc, clang)
+	}
+	for mine, want := range map[string]string{"g++": "clang++", "clang++": "g++"} {
+		if got := otherCompiler(context.Background(), mine); got != want {
+			t.Errorf("the compiler beside %s is %q, not %s", mine, got, want)
+		}
 	}
 }

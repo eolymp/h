@@ -16,6 +16,7 @@ directly in `eolymp.h` is lost and breaks the build.
 | `src/*.h` | the library, one file per layer; `core.h` carries `EOLYMP_H_VERSION` |
 | `src/shapes/*.h` | the opt-in test shapes |
 | `judge/*.go` | `eo-judge`, the emulator; its own Go module, standard library only |
+| `judge/include/` | the copies of both headers that eo-judge embeds, generated with them |
 | `tests/` | one translation unit, `tests/all.cpp`, including `tests/*.inc`; plus the e2e and hostile suites |
 | `tests/fuzz/` | libFuzzer harnesses, one property each; `make fuzz` builds and runs them with clang++ |
 | `tests/live/` | two whole problems; the `eo-judge` tests run them end to end as fixtures |
@@ -75,11 +76,12 @@ with `AGENT_REPO` set the test fails instead of skipping.
 `EOLYMP_H_VERSION` in `src/core.h` is where the version is written, with
 `EOLYMP_H_VERSION_MAJOR`, `_MINOR` and `_PATCH` below it; a `static_assert` fails every build
 while the three numbers disagree with the string. `version` in `judge/main.go` is the same
-number for eo-judge, and `make version` and an eo-judge test fail while it differs. Change all
-five, run `make`, and merging to `main` publishes the release: once every other `check` job
-has passed on that commit, the `release` job reads the version, refuses to publish headers
-that are not what `src/` generates, and creates the tag `v<version>` on that commit with both
-headers attached, then `judge/v<version>` with eo-judge's binaries. It does nothing for a tag
+number for eo-judge, and `make version` and an eo-judge test fail while it differs; the same
+test holds the `version` default in `action.yml`, the eo-judge release the GitHub Action
+downloads, to it too. Change all six, run `make`, and merging to `main` publishes the release:
+once every other `check` job has passed on that commit, the `release` job reads the version,
+refuses to publish headers that are not what `src/` generates, and creates the tag
+`v<version>` on that commit with both headers attached, then `judge/v<version>` with eo-judge's binaries. It does nothing for a tag
 that already exists, so an ordinary merge is a no-op. Add a `## <version>` section to
 [CHANGELOG.md](CHANGELOG.md) in the same change, listing every verdict it changes; the
 release uses that section as its notes.
