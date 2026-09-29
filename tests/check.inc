@@ -569,7 +569,7 @@ EO_TEST(a_bare_wrong_inside_a_shared_reader_is_mapped_too) {
     EO_CHECK_IN(contestant.text, "wrong answer: output.txt");
 }
 
-EO_TEST(a_real_optimum_without_a_tolerance_compares_with_equals) {
+EO_TEST(a_real_optimum_without_a_tolerance_keeps_its_verdict_and_says_so) {
     auto const run = [](char const* out, char const* ans) {
         return check_run("1\n", out, ans, [](eo::checker& c) {
             double const by_jury = c.jury.read_real(eo::any, "cost");
@@ -580,17 +580,24 @@ EO_TEST(a_real_optimum_without_a_tolerance_compares_with_equals) {
     eot::outcome const moved = run("0.30000000000000004\n", "0.3\n");
     EO_CHECK_EQ(moved.code, 1);
     EO_CHECK_EQ(moved.text, std::string("wrong answer the answer is 0.30000000000000004; the optimum is 0.3"));
-    EO_CHECK(!eot::contains(checker_warnings(), "EO214"));
+    EO_CHECK_IN(checker_warnings(), "warning EO214: c.optimum compares two reals with ==");
+    EO_CHECK_IN(checker_warnings(), "tests/check.inc:");
     eot::outcome const under = run("0.29999999999999999\n", "0.30000000000000004\n");
     EO_CHECK_EQ(under.code, 3);
     EO_CHECK_IN(under.text, "the contestant's 0.3 beats the jury's 0.30000000000000004");
     EO_CHECK_EQ(run("0.3\n", "0.3\n").code, 0);
-    EO_CHECK(!eot::contains(checker_warnings(), "EO214"));
+    EO_CHECK_IN(checker_warnings(), "EO214");
     eot::outcome const whole = check_run("1\n", "10\n", "10\n", [](eo::checker& c) {
         c.optimum(c.jury.read_long(eo::any, "cost"), c.output.read_long(eo::any, "cost"), eo::minimize);
     });
     EO_CHECK_EQ(whole.code, 0);
     EO_CHECK(!eot::contains(checker_warnings(), "EO214"));
+    eo::detail::diagnostics::shared().forget_everything();
+    EO_CHECK(eo::compare(0.1 + 0.2, 0.3, eo::minimize) == eo::standing::worse);
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(), "warning EO214: eo::compare compares two reals");
+    eo::detail::diagnostics::shared().forget_everything();
+    EO_CHECK(eo::compare(3LL, 3LL, eo::maximize) == eo::standing::equal);
+    EO_CHECK(!eo::detail::diagnostics::shared().anything());
 }
 
 EO_TEST(an_optimum_has_three_outcomes) {
@@ -659,6 +666,11 @@ EO_TEST(a_comparison_says_better_equal_or_worse) {
     });
     EO_CHECK_EQ(unknown.code, 3);
     EO_CHECK_IN(unknown.text, "the jury's value is nan, which no answer can equal");
+    eot::outcome const exact = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        (void)c.output.read_int(1, 9, "x");
+        (void)eo::compare(1.0, std::nan(""), eo::minimize);
+    });
+    EO_CHECK_EQ(exact.code, 3);
     eot::outcome const optimum = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
         c.optimum(std::nan(""), static_cast<double>(c.output.read_int(1, 9, "x")), eo::minimize, eo::within(1e-6));
     });

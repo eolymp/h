@@ -2970,10 +2970,20 @@ inline void the_jury_has_a_number(double value) {
     if (std::isnan(value)) judging().fail_jury(fmt("the jury's value is {}, which no answer can equal", value));
 }
 
+template <class T>
+inline void compared_exactly([[maybe_unused]] char const* call, [[maybe_unused]] site where) {
+    if constexpr (std::is_floating_point_v<T>)
+        warn("EO214", fmt("{} compares two reals with ==, so a correct answer that rounding moved is not equal", call),
+             "say how close is equal with eo::within(eps) after the direction", where);
+}
+
 }  // namespace detail
 
 template <class T>
-inline standing compare(T const& found, T const& by_the_jury, towards direction) {
+inline standing compare(T const& found, T const& by_the_jury, towards direction,
+                        detail::site where = detail::site::here()) {
+    detail::compared_exactly<T>("eo::compare", where);
+    if constexpr (std::is_floating_point_v<T>) detail::the_jury_has_a_number(static_cast<double>(by_the_jury));
     if (found == by_the_jury) return standing::equal;
     bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
     return better ? standing::better : standing::worse;
@@ -3407,7 +3417,9 @@ public:
     }
 
     template <class T>
-    [[noreturn]] void optimum(T const& by_the_jury, T const& found, towards direction) {
+    [[noreturn]] void optimum(T const& by_the_jury, T const& found, towards direction,
+                              detail::site where = detail::site::here()) {
+        detail::compared_exactly<T>("c.optimum", where);
         if (found == by_the_jury) pass(1, fmt("{}", found));
         bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
         if (better)

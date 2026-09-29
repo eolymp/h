@@ -310,8 +310,9 @@ report a jury-side problem as a jury error.
 
 **A real optimum needs a tolerance.** `c.optimum(by_the_jury, found, eo::minimize)` compares
 with `==`, so a contestant whose 0.30000000000000004 is the jury's 0.3 is not equal, and is
-either a wrong answer or, when the rounding went the other way, a jury error. Say how close is
-equal:
+either a wrong answer or, when the rounding went the other way, a jury error. It still does
+exactly that, because a verdict does not change within a major version, and says so with
+warning EO214 at your line. Say how close is equal:
 
 ```cpp
 c.optimum(by_the_jury, found, eo::minimize, eo::within(1e-6));
@@ -452,6 +453,7 @@ machine-readable `eo-report` line.
 | EO211 | the checker runs as the legacy type (a note) |
 | EO212 | the problem declares `eo::many`, but the checker only compares with the jury |
 | EO213 | on the judge, `TEST_COST` is missing or not a number, so the cost is a guess |
+| EO214 | `c.optimum` or `eo::compare` compared two reals with `==`; give it `eo::within(eps)` |
 
 `EOLYMP_STRICT=1` turns every warning into a jury error while you prepare a problem. Notes
 stay notes. State the intent where there is a way to — `eo::any`, `eo::unnamed`,
