@@ -470,6 +470,18 @@ EO_TEST(points_in_convex_position_never_turn_back_at_scale) {
     EO_CHECK_EQ(reversed, static_cast<std::size_t>(0));
 }
 
+EO_TEST(points_on_a_circle_are_the_same_points_for_the_same_seed) {
+    eo::rng draw(23);
+    std::string first;
+    for (eo::point const& one : eo::shapes::cocircular(draw, 8)) first += eo::fmt("{} {};", one.x, one.y);
+    EO_CHECK_EQ(first, std::string("-3 4;3 4;0 -5;-4 3;0 5;-4 -3;-3 -4;5 0;"));
+    std::string rest;
+    for (long long const count : {20LL, 100LL, 300LL})
+        for (eo::point const& one : eo::shapes::cocircular(draw, count)) rest += eo::fmt("{} {};", one.x, one.y);
+    EO_CHECK_EQ(rest.size(), static_cast<std::size_t>(4836));
+    EO_CHECK_EQ(eo::detail::seed_of(rest), 0x95d36165e8318cb1ull);
+}
+
 EO_TEST(points_on_a_circle_are_exactly_on_it) {
     eo::rng draw(21);
     for (long long const count : {8LL, 20LL, 100LL, 300LL}) {
