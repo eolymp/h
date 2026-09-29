@@ -14,6 +14,20 @@ int main(int argc, char** argv) {
         for (int at = 1; at <= 25; at++) { std::printf("? %d\n", at); std::fflush(stdout); char r[8]; if (std::scanf("%7s", r) != 1) return 0; }
         return 0;
     }
+    if (mode == "stubborn") {
+        char reply[8] = "?";
+        for (int at = 1; at <= 25; at++) {
+            std::printf("? %d\n", at);
+            std::fflush(stdout);
+            if (std::scanf("%7s", reply) != 1) {
+                if (reply[0] != '\0') ::usleep(100000);
+                reply[0] = '\0';
+            }
+        }
+        std::printf("! 1\n");
+        std::fflush(stdout);
+        return 0;
+    }
     if (mode == "deaf") { std::printf("? 1\n"); std::fflush(stdout); return 0; }
     if (mode == "waiting") {
         std::printf("? abc\n");

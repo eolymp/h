@@ -201,6 +201,22 @@ for mode in silent garbage outofrange wrongguess greedy deaf waiting; do
 done
 pass "seven badly behaved solutions all got a wrong answer, never an interaction failure"
 
+play_to_the_end() {
+    label=$1
+    jury=$2
+    wanted=$3
+    shift 3
+    ended=$(TEST_COST=40 "$build/play" --wait "$jury" "$build/iin.txt" "$build/isummary.txt" -- "$@" \
+            2>"$build/ended.log")
+    case $ended in
+        *"$wanted"*) return 0 ;;
+    esac
+    fail "$label ended \"$ended\", expected \"$wanted\"" "$build/ended.log"
+}
+play_to_the_end "a solution that keeps asking past its budget" "$build/interactor" \
+    "interactor 1 solution signal 13" "$build/hostile" stubborn &&
+    pass "a solution that keeps asking past its budget dies of SIGPIPE once the interactor has gone"
+
 printf '123456789\n' > "$build/pin.txt"
 expect_run "phase 1 of the phased interactor" 0 "*interactor 0 *" env TEST_COST=40 "$build/play" "$build/phased" \
     "$build/pin.txt" "$build/phandoff.txt" -- "$build/phased_solution"
