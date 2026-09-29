@@ -1231,6 +1231,68 @@ EO_TEST(a_checker_stream_reads_an_edge_list_and_blames_the_side_it_came_from) {
     EO_CHECK_IN(negative.text, "edge: a count of -1 cannot be read");
 }
 
+EO_TEST(a_checker_stream_reads_a_tree_or_a_graph_as_a_validator_does) {
+    eot::outcome const tree = check_run("3\n", "1 2 2 3\n", "2 1 5\n3 1 6\n", [](eo::checker& c) {
+        int const n = c.input.read_int(1, 9, "n");
+        std::vector<eo::weighted_edge> const star = c.jury.read_tree(n, eo::weighted(1, 9), "edge");
+        EO_CHECK_EQ(star[1].w, 6);
+        std::vector<eo::edge> const path = c.output.read_tree(n, "edge");
+        EO_CHECK_EQ(path[1].v, 3);
+        eo::accept();
+    });
+    EO_CHECK_EQ(tree.code, 0);
+    eot::outcome const cycle = check_run("3\n", "1 2\n2 1\n", "x\n", [](eo::checker& c) {
+        c.output.read_tree(3, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(cycle.code, 1);
+    EO_CHECK_IN(cycle.text, "wrong answer: output.txt, line 2: edge: edges 1 and 2 are both (1, 2)");
+    eot::outcome const outside = check_run("3\n", "x\n", "1 9 1\n", [](eo::checker& c) {
+        c.jury.read_tree(2, eo::weighted(1, 9), "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(outside.code, 3);
+    EO_CHECK_IN(outside.text, "jury error: answer.txt, line 1: edge: edge 1 is (1, 9), outside 1..2");
+    eot::outcome const graph = check_run("3\n", "1 2 2 3 1 3\n", "1 2 4\n", [](eo::checker& c) {
+        EO_CHECK_EQ(c.output.read_graph(3, 3, eo::simple | eo::connected, "edge").size(), static_cast<std::size_t>(3));
+        EO_CHECK_EQ(c.jury.read_graph(3, 1, eo::any_graph, eo::weighted(1, 9), "edge")[0].w, 4);
+        eo::accept();
+    });
+    EO_CHECK_EQ(graph.code, 0);
+    eot::outcome const split = check_run("3\n", "1 2\n", "x\n", [](eo::checker& c) {
+        c.output.read_graph(3, 1, eo::connected, eo::unnamed);
+        eo::accept();
+    });
+    EO_CHECK_EQ(split.code, 1);
+    EO_CHECK_IN(split.text, "wrong answer: output.txt, line 1: vertex 3 cannot be reached from vertex 1");
+    eot::outcome const huge = check_run("3\n", "1 2\n", "x\n", [](eo::checker& c) {
+        c.output.read_graph(5, 2000000000, eo::any_graph, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(huge.code, 1);
+    EO_CHECK_IN(huge.text, "wrong answer: output.txt");
+    eot::outcome const negative = check_run("3\n", "1 2\n", "x\n", [](eo::checker& c) {
+        c.output.read_graph(5, -1, eo::any_graph, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(negative.code, 1);
+    EO_CHECK_IN(negative.text, "edge: a count of -1 cannot be read");
+    eot::outcome const empty = check_run("3\n", "\n", "x\n", [](eo::checker& c) {
+        c.output.read_tree(0, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(empty.code, 3);
+    EO_CHECK_IN(empty.text, "read_tree needs a tree of at least one vertex, not 0");
+    EO_CHECK_EQ(check_run("3\n", "\n", "x\n", [](eo::checker& c) {
+                    c.output.read_tree(0, eo::weighted(1, 2), "edge");
+                }).code, 3);
+    eot::outcome const doubled = check_run("3\n", "1 2 5 2 1 5\n", "x\n", [](eo::checker& c) {
+        c.output.read_graph(3, 2, eo::simple, eo::weighted(1, 9), "edge");
+        eo::accept();
+    });
+    EO_CHECK_IN(doubled.text, "edge: edges 1 and 2 are both (1, 2)");
+}
+
 EO_TEST(a_checker_stream_reads_a_token_or_a_line_by_its_length_alone) {
     eot::outcome const result = check_run("1\n", "a line, of words\nab!c\n", "x\n", [](eo::checker& c) {
         c.input.read_int(1, 9, "n");

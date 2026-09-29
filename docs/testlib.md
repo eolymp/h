@@ -54,6 +54,7 @@ input itself. See [validator.md](validator.md).
 | `quitf(_wa, "got %d", x)`, `quitf(_pe, ...)` | `eo::wrong("got {}", x)`; Eolymp has no presentation error |
 | `quitf(_fail, ...)` | `eo::jury_error(...)` |
 | a loop of `ouf.readInt(1, n, "u")`, `ouf.readInt(1, n, "v")` | `c.output.read_edges(k, n, "edge")` |
+| that loop over `n - 1` edges, then a union-find to see they form a tree | `c.output.read_tree(n, "edge")`; `read_graph(n, m, eo::connected, "edge")` for a graph |
 | `ouf.quitf(_wa, ...)` | `c.output.wrong(...)`, blamed on that stream |
 | `quitp(p)` | `eo::score(f)` for a fraction of the test, or `eo::points(p)` for points |
 | a `readAns(ouf)` / `readAns(ans)` pair, then `quitf(_fail)` if the contestant beats the jury | `c.read_both(reader)` and `c.optimum(by_the_jury, found, eo::minimize)` |

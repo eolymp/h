@@ -111,6 +111,20 @@ chat talk(std::string const& test, std::string const& from_solution, Body&& body
 
 }  // namespace
 
+EO_TEST(an_interactor_reads_a_tree_from_the_solution_and_blames_it) {
+    chat const good = talk("3\n", "1 2\n1 3\n", [](eo::interactor& it) {
+        std::vector<eo::edge> const edges = it.contestant.read_tree(it.input.read_int(1, 9, "n"), "edge");
+        eo::accept("{} edges", edges.size());
+    });
+    EO_CHECK_EQ(good.code, 0);
+    chat const bad = talk("3\n", "1 2\n2 1\n", [](eo::interactor& it) {
+        it.contestant.read_tree(it.input.read_int(1, 9, "n"), "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(bad.code, 1);
+    EO_CHECK_IN(bad.text, "wrong answer: the solution, line 2: edge: edges 1 and 2 are both (1, 2)");
+}
+
 EO_TEST(an_interactor_answers_and_accepts) {
     chat const result = talk("100 42\n", "? 50\n? 25\n! 42\n", [](eo::interactor& it) {
         int const n = it.input.read_int(1, 1000, "n");

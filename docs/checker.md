@@ -145,6 +145,13 @@ Bounds are inclusive, and come first; the name is last.
 | `s.read_tokens(count, least, most, eo::charset("a-z"), name)` | `count` tokens |
 | `s.read_edges(m, n, name)` | `m` edges, each two vertices in `[1, n]`, as `std::vector<eo::edge>` |
 | `s.read_edges(m, n, eo::weighted(low, high), name)` | the same with a weight in `[low, high]` after each, as `std::vector<eo::weighted_edge>` |
+| `s.read_tree(n, name)` | `n - 1` edges that form a tree on 1..n |
+| `s.read_graph(n, m, eo::simple \| eo::connected, name)` | `m` edges on 1..n with those properties; `eo::any_graph` for neither |
+
+`read_tree` and `read_graph` check what the validator's check, with the same messages, and
+blame the stream: a contestant's cycle is `wrong answer: output.txt, line 2: edge: edges 1
+and 2 are both (1, 2)`, and the same in the answer file is a jury error. Each of the three edge
+reads takes `eo::weighted(low, high)` before the name for a weight on every edge.
 
 `eo::any` replaces the bounds where a value really may be anything its type holds:
 `read_long(eo::any, "sum")`, `read_ints(n, eo::any, "a")`, `read_line(eo::any, "rest")`.
@@ -439,7 +446,7 @@ Still missing:
 | `read_int`, `read_long`, `read_real` | numbers |
 | `read_token`, `read_line`, `read_choice` | text |
 | `read_ints`, `read_longs`, `read_reals`, `read_tokens` | several values |
-| `read_edges(m, n, name)`, `read_edges(m, n, eo::weighted(low, high), name)` | an edge list |
+| `read_edges(m, n, name)`, `read_tree(n, name)`, `read_graph(n, m, flags, name)` | an edge list, a tree, a graph; `eo::weighted(low, high)` before the name adds weights |
 | `at_eof()`, `at_eoln()` | look ahead, skipping whitespace |
 | `wrong(…)` | a verdict blamed on this stream |
 | `numbers(eo::lenient)`, `reals(eo::plain)` | number syntax |

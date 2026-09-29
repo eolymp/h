@@ -3135,12 +3135,43 @@ public:
 
     std::vector<edge> read_edges(long long m, int n, detail::value_name name,
                                  detail::site where = detail::site::here()) {
-        return edges_between<edge>(m, n, weight_bounds{0, 0}, name, where);
+        return edges_between<edge>(m, detail::stated::yes, n, {0, 0}, name, where);
     }
 
     std::vector<weighted_edge> read_edges(long long m, int n, weight_bounds weights, detail::value_name name,
                                           detail::site where = detail::site::here()) {
-        return edges_between<weighted_edge>(m, n, weights, name, where);
+        return edges_between<weighted_edge>(m, detail::stated::yes, n, weights, name, where);
+    }
+
+    std::vector<edge> read_tree(int n, detail::value_name name, detail::site where = detail::site::here()) {
+        a_tree_has_a_vertex(n, where);
+        std::vector<edge> edges = edges_between<edge>(n - 1, detail::stated::deliberate, n, {0, 0}, name, where);
+        holds(is_tree(n, edges), name);
+        return edges;
+    }
+
+    std::vector<weighted_edge> read_tree(int n, weight_bounds weights, detail::value_name name,
+                                         detail::site where = detail::site::here()) {
+        a_tree_has_a_vertex(n, where);
+        std::vector<weighted_edge> edges =
+            edges_between<weighted_edge>(n - 1, detail::stated::deliberate, n, weights, name, where);
+        holds(is_tree(n, detail::endpoints(edges)), name);
+        return edges;
+    }
+
+    std::vector<edge> read_graph(int n, int m, graph_shape shape, detail::value_name name,
+                                 detail::site where = detail::site::here()) {
+        std::vector<edge> edges = edges_between<edge>(m, detail::stated::deliberate, n, {0, 0}, name, where);
+        holds(detail::shaped(n, edges, shape), name);
+        return edges;
+    }
+
+    std::vector<weighted_edge> read_graph(int n, int m, graph_shape shape, weight_bounds weights,
+                                          detail::value_name name, detail::site where = detail::site::here()) {
+        std::vector<weighted_edge> edges =
+            edges_between<weighted_edge>(m, detail::stated::deliberate, n, weights, name, where);
+        holds(detail::shaped(n, detail::endpoints(edges), shape), name);
+        return edges;
     }
 
     bool at_eof() { return reader_.at_end(); }
@@ -3188,14 +3219,15 @@ private:
     }
 
     template <class Edge>
-    std::vector<Edge> edges_between(long long m, int n, [[maybe_unused]] weight_bounds weights,
+    std::vector<Edge> edges_between(long long m, detail::stated ends, int n,
+                                    [[maybe_unused]] weight_bounds weights,
                                     detail::value_name const& name, detail::site where) {
         std::vector<Edge> edges;
         edges.reserve(reader_.room_for(m, name));
         detail::value_name const weight = name.field(".w");
         for (long long at = 1; at <= m; at++) {
-            int const u = reader_.whole_int(1, n, detail::stated::yes, name.at(at), where);
-            int const v = reader_.whole_int(1, n, detail::stated::yes, name.at(at), where);
+            int const u = reader_.whole_int(1, n, ends, name.at(at), where);
+            int const v = reader_.whole_int(1, n, ends, name.at(at), where);
             if constexpr (std::is_same_v<Edge, weighted_edge>)
                 edges.push_back(Edge{u, v,
                                      reader_.whole_long(weights.low, weights.high, detail::stated::yes,
@@ -3204,6 +3236,18 @@ private:
                 edges.push_back(Edge{u, v});
         }
         return edges;
+    }
+
+    static void a_tree_has_a_vertex(int n, detail::site where) {
+        if (n < 1)
+            detail::library_error(
+                fmt("{}: read_tree needs a tree of at least one vertex, not {}", detail::where_of(where), n));
+    }
+
+    void holds(check_result const& outcome, detail::value_name const& name) const {
+        if (outcome) return;
+        reader_.refuse(detail::value_name(unnamed),
+                       name.known() ? fmt("{}: {}", name.text(), outcome.message()) : outcome.message());
     }
 
     detail::reader reader_;
