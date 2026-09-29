@@ -795,6 +795,22 @@ EO_TEST(a_summary_with_a_field_twice_is_a_jury_error) {
     EO_CHECK_IN(value.text, "the summary has a second value called \"x\"");
 }
 
+EO_TEST(lines_skip_blank_lines_and_the_blanks_that_start_a_line) {
+    auto const lines = [](char const* out, char const* ans) {
+        return check_run("1\n", out, ans, [](eo::checker& c) { c.lines(); });
+    };
+    EO_CHECK_EQ(lines("a\n\n\nb\n", "a\nb\n").code, 0);
+    EO_CHECK_EQ(lines("a\nb\n", "a\n\nb\n").code, 0);
+    EO_CHECK_EQ(lines("*\n", " *\n").code, 0);
+    EO_CHECK_EQ(lines("  x\n\ty\n", "x\ny\n").code, 0);
+    EO_CHECK_EQ(lines("\n\na\n", "a\n").code, 0);
+    EO_CHECK_EQ(lines("a\n\n\n", "a\n").code, 0);
+    EO_CHECK_EQ(lines("a\n\n\n", "a\n").text, std::string("ok 1 lines"));
+    eot::outcome const spaced = lines("hello  world\n", "hello world\n");
+    EO_CHECK_EQ(spaced.code, 1);
+    EO_CHECK_EQ(spaced.text, std::string("wrong answer line 1 is \"hello  world\", expected \"hello world\""));
+}
+
 EO_TEST(lines_and_yes_no_read_no_more_of_a_line_than_they_need) {
     std::string const huge = "abc" + std::string(2 * 1024 * 1024, 'z') + "\n";
     eot::outcome const lines = check_run("1\n", huge, "abc\n", [](eo::checker& c) { c.lines(); });
