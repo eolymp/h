@@ -2,7 +2,7 @@
   "title": "alice and bob",
   "type": "INTERACTIVE",
   "runCount": 2,
-  "timeLimit": 1000,
+  "timeLimit": 5000,
   "memoryLimit": 268435456,
   "checker": {"source": "checker.cpp", "runtime": "cpp:20-gnu14"},
   "validator": {"source": "validator.cpp", "runtime": "cpp:20-gnu14"},

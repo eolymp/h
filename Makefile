@@ -1,5 +1,6 @@
 CXX ?= c++
 CXXSTD ?= c++17
+JUDGE_PARALLEL ?= 4
 WARNINGS := -Wall -Wextra -Wshadow -Werror
 SOURCES := $(wildcard src/*.h) $(wildcard src/shapes/*.h)
 TESTS := tests/all.cpp tests/harness.h $(wildcard tests/*.inc)
@@ -106,7 +107,7 @@ build/eo-judge: $(wildcard judge/*.go) judge/go.mod judge/include/eolymp.h judge
 judge: eolymp.h eolymp-shapes.h
 	cd judge && unformatted=$$(gofmt -l .) && \
 		if [ -n "$$unformatted" ]; then echo "judge: gofmt would change $$unformatted" >&2; exit 1; fi && \
-		go vet ./... && go test -count=1 ./...
+		go vet ./... && go test -count=1 -parallel $(JUDGE_PARALLEL) ./...
 
 pin:
 	cd judge && AGENT_REPO=$(or $(AGENT_REPO),../../agent) go test -count=1 -run TestTheCopiedPointsParser -v ./...

@@ -1,7 +1,7 @@
 {
   "title": "sum",
   "type": "PROGRAM",
-  "timeLimit": 1000,
+  "timeLimit": 5000,
   "memoryLimit": 268435456,
   "uniqueAnswer": true,
   "checker": {"source": "checker.cpp", "runtime": "cpp:20-gnu14"},
