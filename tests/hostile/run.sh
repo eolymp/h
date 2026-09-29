@@ -40,6 +40,12 @@ refused_with() {
 
 refused_with unprintable "eolymp.h cannot print this type"
 
+refused_with too_old "error" -std=c++11
+if [ "$(grep -c "error" "$build/too_old.log")" -le 1 ]; then
+    echo "hostile: too_old fails to build with one error, and it fails with hundreds today" >&2
+    exit 1
+fi
+
 checked="-std=c++20 -DEOLYMP_CHECK_PATTERNS"
 if printf '#ifndef __cpp_consteval\n#error\n#endif\n' | $CXX $checked -fsyntax-only -x c++ - 2>/dev/null; then
     build_and_run checked_patterns $checked -Wall -Wextra -Wshadow -Werror
