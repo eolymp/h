@@ -164,6 +164,36 @@ func judgeAll(t *testing.T, shop *Workspace) map[string]*Attempt {
 	return out
 }
 
+func TestAValidatorThatReadsStdinGetsNothingThere(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "validator.cpp"), "#include <cstdio>\n"+
+		"int main() {\n"+
+		"    int n = 0;\n"+
+		"    if (std::scanf(\"%d\", &n) != 1) { std::puts(\"no n on stdin\"); return 1; }\n"+
+		"    return n == 7 ? 0 : 1;\n}\n")
+	writeFile(t, filepath.Join(dir, "01.in"), "7\n")
+	writeFile(t, filepath.Join(dir, "01.ans"), "7\n")
+	writeFile(t, filepath.Join(dir, "problem.json"), `{"type": "PROGRAM",
+		"validator": {"source": "validator.cpp"},
+		"testsets": [{"index": 1, "tests": [{"index": 1, "score": 100, "input": "01.in", "answer": "01.ans"}]}]}`)
+	shop := workshop(t, dir)
+	ctx := context.Background()
+	if err := shop.Generate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := shop.Validate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, made := range shop.sorted() {
+		if made.Valid || made.Why != "no n on stdin" {
+			t.Errorf("test %d:%d: valid %v, %q; the validator is given the path and an empty stdin",
+				made.Group, made.Test.Index, made.Valid, made.Why)
+		}
+	}
+}
+
 func TestTheCopiedPointsParserMatchesTheAgent(t *testing.T) {
 	t.Parallel()
 	agent := os.Getenv("AGENT_REPO")
