@@ -399,6 +399,26 @@ EO_TEST(an_edge_list_is_read_line_by_line_with_its_vertices_bounded) {
     EO_CHECK(!none.stopped);
 }
 
+EO_TEST(a_grid_is_read_row_by_row_with_its_width_and_charset) {
+    eot::outcome const good = validate("2 3\n.#.\n##.\n", [](eo::validator& v) {
+        int const rows = v.read_int(1, 9, "rows");
+        v.read_space();
+        int const cols = v.read_int(1, 9, "cols");
+        v.read_eoln();
+        std::vector<std::string> const grid = v.read_grid(rows, cols, eo::charset(".#"), "grid");
+        EO_CHECK_EQ(grid.size(), static_cast<std::size_t>(2));
+        EO_CHECK_EQ(grid[1], std::string("##."));
+    }, {"--eo-describe"});
+    EO_CHECK(!good.stopped);
+    EO_CHECK_IN(good.printed, "eo-describe value grid length 3 3 low=yes high=yes");
+    eot::outcome const narrow =
+        validate(".#.\n#.\n", [](eo::validator& v) { v.read_grid(2, 3, eo::charset(".#"), "grid"); });
+    EO_CHECK_IN(narrow.text, "line 2, grid[2]: the line is 2 characters long, not 3..3");
+    eot::outcome const stray =
+        validate(".x.\n", [](eo::validator& v) { v.read_grid(1, 3, eo::charset(".#"), "grid"); });
+    EO_CHECK_IN(stray.text, "line 1, grid[1]: the line holds \"x\", which is not in \".#\"");
+}
+
 EO_TEST(a_weighted_tree_or_graph_is_read_and_checked_like_an_unweighted_one) {
     eot::outcome const tree = validate("1 2 5\n3 2 9\n", [](eo::validator& v) {
         std::vector<eo::weighted_edge> const edges = v.read_tree(3, eo::weighted(1, 9), "edge");

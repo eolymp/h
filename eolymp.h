@@ -2650,6 +2650,15 @@ public:
         });
     }
 
+    std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
+                                       detail::site where = detail::site::here()) {
+        std::vector<std::string> grid;
+        grid.reserve(from_.room_for(rows, name));
+        for (long long row = 1; row <= rows; row++)
+            grid.push_back(rest_of_line(cols, cols, &allowed, detail::stated::yes, name.at(row), where));
+        return grid;
+    }
+
     std::vector<edge> read_tree(int n, detail::value_name name,
                                 detail::site where = detail::site::here()) {
         std::vector<edge> edges = edge_lines<edge>(n - 1, detail::stated::deliberate, n, {0, 0}, name, where);
@@ -3131,6 +3140,14 @@ public:
         for (long long at = 1; at <= count; at++)
             values.push_back(reader_.word(least, most, &allowed, detail::stated::yes, name.at(at), where));
         return values;
+    }
+
+    std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
+                                       detail::site where = detail::site::here()) {
+        if (cols < 1)
+            detail::library_error(fmt("{}: a grid on a stream has rows of at least one character, not {}",
+                                      detail::where_of(where), cols));
+        return read_tokens(rows, cols, cols, std::move(allowed), std::move(name), where);
     }
 
     std::vector<edge> read_edges(long long m, int n, detail::value_name name,

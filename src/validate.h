@@ -324,6 +324,15 @@ public:
         });
     }
 
+    std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
+                                       detail::site where = detail::site::here()) {
+        std::vector<std::string> grid;
+        grid.reserve(from_.room_for(rows, name));
+        for (long long row = 1; row <= rows; row++)
+            grid.push_back(rest_of_line(cols, cols, &allowed, detail::stated::yes, name.at(row), where));
+        return grid;
+    }
+
     std::vector<edge> read_tree(int n, detail::value_name name,
                                 detail::site where = detail::site::here()) {
         std::vector<edge> edges = edge_lines<edge>(n - 1, detail::stated::deliberate, n, {0, 0}, name, where);

@@ -238,6 +238,14 @@ public:
         return values;
     }
 
+    std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
+                                       detail::site where = detail::site::here()) {
+        if (cols < 1)
+            detail::library_error(fmt("{}: a grid on a stream has rows of at least one character, not {}",
+                                      detail::where_of(where), cols));
+        return read_tokens(rows, cols, cols, std::move(allowed), std::move(name), where);
+    }
+
     std::vector<edge> read_edges(long long m, int n, detail::value_name name,
                                  detail::site where = detail::site::here()) {
         return edges_between<edge>(m, detail::stated::yes, n, {0, 0}, name, where);

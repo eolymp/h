@@ -1231,6 +1231,28 @@ EO_TEST(a_checker_stream_reads_an_edge_list_and_blames_the_side_it_came_from) {
     EO_CHECK_IN(negative.text, "edge: a count of -1 cannot be read");
 }
 
+EO_TEST(a_checker_stream_reads_a_grid_as_tokens) {
+    eot::outcome const good = check_run("2 3\n", ".#.\n##.\n", "x\n", [](eo::checker& c) {
+        std::vector<std::string> const grid = c.output.read_grid(2, 3, eo::charset(".#"), "grid");
+        EO_CHECK_EQ(grid[0], std::string(".#."));
+        c.jury.skip_rest("nothing to compare");
+        eo::accept();
+    });
+    EO_CHECK_EQ(good.code, 0);
+    eot::outcome const narrow = check_run("2 3\n", ".#.\n#.\n", "x\n", [](eo::checker& c) {
+        c.output.read_grid(2, 3, eo::charset(".#"), "grid");
+        eo::accept();
+    });
+    EO_CHECK_EQ(narrow.code, 1);
+    EO_CHECK_IN(narrow.text, "wrong answer: output.txt, line 2, grid[2]: \"#.\" is 2 characters long, not 3..3");
+    eot::outcome const flat = check_run("2 0\n", "\n", "x\n", [](eo::checker& c) {
+        c.output.read_grid(2, 0, eo::charset(".#"), "grid");
+        eo::accept();
+    });
+    EO_CHECK_EQ(flat.code, 3);
+    EO_CHECK_IN(flat.text, "a grid on a stream has rows of at least one character, not 0");
+}
+
 EO_TEST(a_checker_stream_reads_a_tree_or_a_graph_as_a_validator_does) {
     eot::outcome const tree = check_run("3\n", "1 2 2 3\n", "2 1 5\n3 1 6\n", [](eo::checker& c) {
         int const n = c.input.read_int(1, 9, "n");

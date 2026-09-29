@@ -119,14 +119,20 @@ Bounds are inclusive, and come first; the name is last.
 | `v.read_longs(count, low, high, name)` | the same, 64-bit | `std::vector<long long>` |
 | `v.read_reals(count, low, high, least, most, name)` | `count` decimals | `std::vector<double>` |
 | `v.read_tokens(count, least, most, eo::charset("a-z"), name)` | `count` tokens | `std::vector<std::string>` |
+| `v.read_grid(rows, cols, eo::charset(".#"), name)` | `rows` lines of exactly `cols` characters from the charset, each with its line break | `std::vector<std::string>` |
 
 Two rules about line breaks:
 
 - **The bulk reads stay inside the line.** They read the single spaces *between* their
   values, not a space before the first and not the line break after the last. End the line
   yourself with `read_eoln()`.
-- **`read_line` reads its own line break,** as do `read_tree`, `read_graph` and `read_edges`.
+- **`read_line` reads its own line break,** as do `read_grid`, `read_tree`, `read_graph` and
+  `read_edges`.
   Do not call `read_eoln()` after them.
+
+`read_grid` names each row after the grid, `grid[2]`, and says what is wrong with it:
+`line 3, grid[2]: the line is 4 characters long, not 5..5`. A row is a line, so a charset that
+holds a space allows spaces inside a row.
 
 With `count` equal to 0 a bulk read reads nothing, so a line holding "0 values" is an empty
 line: `read_ints(0, …)` followed by `read_eoln()` expects exactly `\n`.
@@ -365,7 +371,7 @@ its upper bound:
 | --- | --- | --- |
 | `read_int`, `read_long`, `read_ints`, `read_longs` | `int` | the value equals the bound |
 | `read_real`, `read_reals` | `real` | the value equals the bound exactly |
-| `read_token`, `read_line`, `read_tokens` | `length` | the text is that many characters long |
+| `read_token`, `read_line`, `read_tokens`, `read_grid` | `length` | the text is that many characters long |
 | `read_edges` | `int`, and the weights as `int` under the name with `.w` | a vertex is 1 or `n`, a weight equals a bound |
 
 A bound that depends on another value counts as well: `read_int(1, n, "x")` reaches its upper
@@ -455,6 +461,7 @@ The whole-problem checks EO806–EO811 and the configuration checks EO9xx are in
 | `read_int`, `read_long`, `read_real` | numbers |
 | `read_token`, `read_line`, `read_choice` | text |
 | `read_ints`, `read_longs`, `read_reals`, `read_tokens` | several values on one line |
+| `read_grid(rows, cols, charset, name)` | a grid, one row per line |
 | `read_space()`, `read_eoln()`, `read_char(c)`, `read_eof()` | separators |
 | `at_eoln()`, `at_eof()` | look ahead without consuming |
 | `subtasks<Limits>({rows}).without_group(row)` | the constraints table |
