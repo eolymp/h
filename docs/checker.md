@@ -362,10 +362,17 @@ Each of these gives the verdict and ends the program.
 | Call | Accepts when |
 | --- | --- |
 | `c.tokens()` | the output has exactly the answer's tokens, in order; whitespace does not matter, letter case does |
-| `c.lines()` | the output has the answer's lines, ignoring trailing spaces, tabs and carriage returns |
+| `c.lines()` | the output has the answer's non-blank lines, in order, compared without the spaces, tabs and carriage returns at the start and the end of each line; blank lines are skipped on both sides, and spacing inside a line counts |
+| `c.lines(eo::exact)` | line k of the output is line k of the answer, blank lines and the blanks that start a line included; only the spaces, tabs and carriage returns that end a line, and the blank lines that end a file, are ignored |
 | `c.reals(eps)` | token by token: numbers agree within an absolute or relative error of `eps`, other tokens are equal; a token longer than 4096 characters and than the answer's is wrong |
 | `c.yes_no(certificate)` | a `YES`/`NO` answer, with a certificate after `YES` |
 | `c.yes_no(certificate, "POSSIBLE", "IMPOSSIBLE")` | the same with other words |
+
+**`c.lines()` forgives more than it looks.** It skips every blank line and the indentation of
+every line, on both sides, so `a`, a blank line and `b` is accepted for `a` and `b`, and ` *`
+for `*`. That is kept as it is, because changing it would reject runs it accepts today. When
+blank lines or indentation are part of the answer — a grid with empty rows, a drawing, a
+pretty-printed tree — use `c.lines(eo::exact)`.
 
 Eolymp also has built-in `TOKENS` and `LINES` checkers that need no program at all. Use them
 when they are enough — but note that the built-in `TOKENS` fails with a system failure on a
@@ -557,7 +564,7 @@ Still missing:
 | `c.answers(eo::unique)`, `c.answers(eo::many)` | how many answers are correct |
 | `c.optimum(by_the_jury, found, eo::minimize)`, `eo::maximize` | compare and end |
 | `c.optimum(by_the_jury, found, eo::minimize, eo::within(eps))` | the same for reals, equal within `eps` |
-| `c.tokens()`, `c.lines()`, `c.reals(eps)`, `c.yes_no(certificate)` | ready-made comparisons |
+| `c.tokens()`, `c.lines()`, `c.lines(eo::exact)`, `c.reals(eps)`, `c.yes_no(certificate)` | ready-made comparisons |
 | `c.cost()`, `c.group()`, `c.index()`, `c.test_id()` | the test |
 | `c.cases(t, body)` | numbers the messages of a multi-test output |
 

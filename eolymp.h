@@ -3005,11 +3005,13 @@ struct ignore_t {};
 struct lenient_t {};
 struct plain_t {};
 struct any_case_t {};
+struct exact_t {};
 
 inline constexpr ignore_t ignore{};
 inline constexpr lenient_t lenient{};
 inline constexpr plain_t plain{};
 inline constexpr any_case_t any_case{};
+inline constexpr exact_t exact{};
 
 enum class answers_are { unique, many };
 
@@ -3573,6 +3575,34 @@ public:
             while (!got.empty() && trailing_blank(got.back())) got.pop_back();
             if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
                                           detail::shorten(want)));
+        }
+    }
+
+    [[noreturn]] void lines(exact_t) {
+        compared_only_ = true;
+        long long seen = 0;
+        long long last = 0;
+        while (true) {
+            bool const jury_done = jury.inside().peek() < 0;
+            bool const output_done = output.inside().peek() < 0;
+            if (jury_done && output_done) pass(1, fmt("{} lines", last));
+            seen++;
+            std::string want = jury_done ? std::string() : jury.read_line(any, fmt("line {}", seen));
+            bool longer = false;
+            std::string got = output_done ? std::string()
+                                          : output.inside().line_up_to(want.size() + 1, longer, fmt("line {}", seen));
+            want.erase(want.find_last_not_of(" \t\r") + 1);
+            got.erase(got.find_last_not_of(" \t\r") + 1);
+            if (jury_done && (longer || !got.empty()))
+                fail_run(fmt("the answer has {} lines, the output has more", last));
+            if (output_done && !want.empty())
+                fail_run(fmt("the output ended after {} lines, the answer has more", last));
+            if (longer)
+                fail_run(fmt("line {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
+            if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                                          detail::shorten(want)));
+            if (!want.empty()) last = seen;
         }
     }
 

@@ -811,6 +811,37 @@ EO_TEST(lines_skip_blank_lines_and_the_blanks_that_start_a_line) {
     EO_CHECK_EQ(spaced.text, std::string("wrong answer line 1 is \"hello  world\", expected \"hello world\""));
 }
 
+EO_TEST(exact_lines_keep_blank_lines_and_the_blanks_that_start_a_line) {
+    auto const exact = [](std::string const& out, std::string const& ans) {
+        return check_run("1\n", out, ans, [](eo::checker& c) { c.lines(eo::exact); });
+    };
+    EO_CHECK_EQ(exact("a\n\nb\n", "a\n\nb\n").text, std::string("ok 3 lines"));
+    EO_CHECK_EQ(exact(" *\n**\n", " *\n**\n").code, 0);
+    EO_CHECK_EQ(exact("one  \t\r\ntwo\n", "one\ntwo\n").code, 0);
+    EO_CHECK_EQ(exact("a\nb", "a\nb\n").code, 0);
+    EO_CHECK_EQ(exact("a\nb\n\n\n", "a\nb\n").text, std::string("ok 2 lines"));
+    EO_CHECK_EQ(exact("a\nb\n", "a\nb\n\n").text, std::string("ok 2 lines"));
+    eot::outcome const extra = exact("a\n\n\nb\n", "a\nb\n");
+    EO_CHECK_EQ(extra.code, 1);
+    EO_CHECK_EQ(extra.text, std::string("wrong answer line 2 is \"\", expected \"b\""));
+    eot::outcome const missing = exact("a\nb\n", "a\n\nb\n");
+    EO_CHECK_EQ(missing.text, std::string("wrong answer line 2 is \"b\", expected \"\""));
+    eot::outcome const indented = exact("*\n", " *\n");
+    EO_CHECK_EQ(indented.text, std::string("wrong answer line 1 is \"*\", expected \" *\""));
+    eot::outcome const shorter = exact("a\n", "a\nb\n");
+    EO_CHECK_EQ(shorter.text, std::string("wrong answer the output ended after 1 lines, the answer has more"));
+    eot::outcome const longer = exact("a\nb\nc\n", "a\nb\n");
+    EO_CHECK_EQ(longer.text, std::string("wrong answer the answer has 2 lines, the output has more"));
+    std::string const huge = "abc" + std::string(2 * 1024 * 1024, 'z') + "\n";
+    EO_CHECK_EQ(exact(huge, "abc\n").text,
+                std::string("wrong answer line 1 is longer than the expected \"abc\"; it starts \"abcz\""));
+    EO_CHECK_EQ(exact("\n\n", "").text, std::string("ok 0 lines"));
+    EO_CHECK_EQ(exact("a\n  c\n", "a\n").text, std::string("wrong answer the answer has 1 lines, the output has more"));
+    EO_CHECK_EQ(exact("a\nb\nc" + std::string(70000, 'c') + "\n", "a\nb\n").text,
+                std::string("wrong answer the answer has 2 lines, the output has more"));
+    EO_CHECK_EQ(exact("a\nb\nc\n", "a\nb\n\n").text, std::string("wrong answer line 3 is \"c\", expected \"\""));
+}
+
 EO_TEST(lines_and_yes_no_read_no_more_of_a_line_than_they_need) {
     std::string const huge = "abc" + std::string(2 * 1024 * 1024, 'z') + "\n";
     eot::outcome const lines = check_run("1\n", huge, "abc\n", [](eo::checker& c) { c.lines(); });

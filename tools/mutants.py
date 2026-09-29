@@ -44,6 +44,8 @@ MUTANTS = [
      "return std::round(value * scale) / scale;", "return std::floor(value * scale) / scale;"),
     ("an answer whose trailing spaces count", "src/check.h",
      "while (!want.empty() && trailing_blank(want.back())) want.pop_back();", ""),
+    ("an extra line that starts with a blank let through", "src/check.h",
+     "if (jury_done && (longer || !got.empty()))", "if (jury_done && !got.empty())"),
     ("every random stream the same", "src/generate.h",
      "return dice_.emplace(label, eo::rng(from)).first->second;",
      "return dice_.emplace(label, eo::rng(base_)).first->second;"),

@@ -63,6 +63,7 @@ input itself. See [validator.md](validator.md).
 | `doubleCompare` on an optimum, then `quitf(_fail)` if the contestant's is better | `c.optimum(by_the_jury, found, eo::minimize, eo::within(1e-9))` |
 | `wcmp` | `c.tokens()` |
 | `rcmp6`, `rcmp9` | `c.reals(1e-6)`, `c.reals(1e-9)` |
+| `lcmp` | `c.lines(eo::exact)`, which keeps blank lines as `lcmp` does, and compares a line character by character where `lcmp` compares its words |
 
 ```cpp
 #include <eolymp.h>
