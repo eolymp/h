@@ -2,6 +2,14 @@
 
 ## 2.2.0
 
+One verdict changes, for one kind of program: a jury program that ends before its verdict,
+through `std::exit` or `std::quick_exit` or with its role object never destroyed, now fails
+closed, where it used to pass whatever its exit code said. It is listed first below, with every
+kind of program it touches. Everything else is new API, which a program only meets when it
+calls it; bytes that broken or edge generators wrote; warnings that fire where they should;
+eo-judge; and nine new names in `eo`, which matter only to a program that says
+`using namespace eo;`.
+
 ### What changes for a program
 
 - **Any `exit()` before a verdict fails closed.** A checker, an interactor or a controller that
@@ -33,18 +41,50 @@
 - **`g.require` exits 4.** A generator whose options do not go together still fails its
   generation, with the same message on stderr; the exit code says why, for eo-judge's EO813.
 
-- **Below C++17 the header stops at one `#error`**, `eolymp.h needs C++17 or later: build
+### New
+
+- **New names in `eo`**: `exact`, `exact_t`, `within`, `tolerance`, `compare`, `standing`,
+  `weighted`, `weighted_edge` and `weight_bounds`. A program that writes `eo::` sees nothing
+  new. One that says `using namespace eo;` beside `using namespace std;`, or beside names of
+  its own, can find an unqualified use ambiguous now; that pattern is outside the compatibility
+  promise, as README.md now says, and `eo::` is the fix.
+- **Edge lists in one call.** `read_edges(m, n, name)` on the validator and on every checker
+  and interactor stream, with its vertices bounded to 1..n, and `eo::weighted(low, high)` before
+  the name for a `long long` weight on every edge, returned as `eo::weighted_edge {u, v, w}`.
+  `read_tree` and `read_graph` take `eo::weighted` too.
+- **`read_tree` and `read_graph` on checker and interactor streams**, with the validator's
+  checks and messages, blamed on the stream: a wrong answer on the output, a jury error on the
+  answer file.
+- **`read_grid(rows, cols, charset, name)`**: lines of exactly `cols` characters on a validator,
+  tokens on a stream.
+- **`g.option<std::optional<T>>(name, low, high)`**, an option with no default: `std::nullopt`
+  when it is left out; `--eo-describe` marks it `optional`.
+- **`shapes::cocircular(draw, count, limit)`**, the same points as `cocircular(draw, count)` when
+  they fit inside `limit`, and a jury error when they do not. `cocircular(draw, count)` draws
+  the same bytes as before.
+- **A tolerant optimum.** `c.optimum(by_the_jury, found, direction, eo::within(eps))` treats two
+  reals as equal within `eps`, absolutely or relatively, the rule of `eo::close_enough`; and
+  `eo::compare(found, by_the_jury, direction)`, with `eo::within(eps)` for reals, returns
+  `eo::standing::better`, `equal` or `worse` and ends nothing. The optimum without a tolerance
+  compares with `==` as before, and warns (EO214) when its type is a real.
+- **`c.lines(eo::exact)`** compares line k with line k, blank lines and indentation included.
+  `c.lines()` is unchanged, and checker.md now says exactly what it ignores.
+- **Compile-time help.** A value the library cannot print, such as a struct in `g.out.line`,
+  stops the build at one `static_assert` that says so, instead of a page of template errors.
+  Under C++20, `-DEOLYMP_CHECK_PATTERNS` checks every literal message at compile time, so
+  `eo::wrong("got %d", x)` does not build; it is opt-in, so every program that built still
+  builds. Below C++17 the header stops at one `#error`, `eolymp.h needs C++17 or later: build
   with -std=c++17`, instead of hundreds of errors from inside it. A program that built
   before builds the same code.
-
-### eo-judge
-
-- **A validator gets the test on stdin as well as by its path**, as on the judge. A validator
-  that reads stdin, which is every testlib validator, called every test invalid under
-  eo-judge; an eolymp.h validator reads the path and sees no difference.
+- checker.md gains **recipes**: half marks for the right value with a bad certificate, a real
+  optimum within a tolerance, and a tolerance on one side only. README.md and testlib.md list
+  the names `eo` shares with `std`, and say `using namespace eo;` is outside the compatibility
+  promise.
 
 ### Warnings
 
+- **EO214 (new)**: `c.optimum` or `eo::compare` compared two reals with `==`; give it
+  `eo::within(eps)`. The verdict is the one `==` gives, as before.
 - **EO106 no longer fires on a bound computed from the input.** A bound within one of a value
   already read under a name, `read_int(1, n - 1, "m")` or `read_int(1, q, "x")`, is taken as
   computed; a literal such as `200001` is noted as before.
@@ -54,6 +94,12 @@
   longer blamed for extremes that other tests' options allow.
 - **EO302 leaves group 0 out.** The examples' row, which validator.md tells authors to list and
   which usually has the full limits, is no longer called a copy and paste of the last subtask.
+
+### eo-judge
+
+- **A validator gets the test on stdin as well as by its path**, as on the judge. A validator
+  that reads stdin, which is every testlib validator, called every test invalid under
+  eo-judge; an eolymp.h validator reads the path and sees no difference.
 
 ## 2.1.0
 
