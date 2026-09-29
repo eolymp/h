@@ -21,14 +21,13 @@ amalgamation-check:
 	python3 tools/amalgamate.py --check
 
 STANDARDS := $(filter-out $(CXXSTD),c++17 c++20 c++23)
+OPTIMIZED := $(CXXSTD) c++23
 
-build/tests-$(CXXSTD): eolymp.h eolymp-shapes.h $(TESTS)
-	@mkdir -p build
-	$(CXX) -std=$(CXXSTD) -O2 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
+build/tests-%: OPTIMIZATION = $(if $(filter $*,$(OPTIMIZED)),-O2,-O0)
 
 build/tests-%: eolymp.h eolymp-shapes.h $(TESTS)
 	@mkdir -p build
-	$(CXX) -std=$* -O0 $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
+	$(CXX) -std=$* $(OPTIMIZATION) $(WARNINGS) -DEOLYMP_TESTING -o $@ tests/all.cpp
 
 test: build/tests-$(CXXSTD)
 	./build/tests-$(CXXSTD)
