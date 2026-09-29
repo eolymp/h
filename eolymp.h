@@ -4717,7 +4717,7 @@ public:
 
     template <class... Args>
     void require(bool condition, detail::pattern_for<Args...> pattern, Args const&... args) {
-        if (!condition) refuse(fmt(pattern, args...));
+        if (!condition) detail::finish(4, fmt(pattern, args...));
     }
 
     eo::rng& rng(std::string label = "") {

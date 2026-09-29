@@ -16,6 +16,8 @@
   wrote `a ` and now writes `a`, which a validator's `read_eoln()` accepts. Only the
   separators before values that print nothing at the end of a line go; a line whose last value
   prints anything is byte for byte what it was.
+- **`g.require` exits 4.** A generator whose options do not go together still fails its
+  generation, with the same message on stderr; the exit code says why, for eo-judge's EO813.
 
 ### Warnings
 

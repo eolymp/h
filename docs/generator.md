@@ -117,6 +117,10 @@ Options that only make sense together go through `g.require`:
 g.require(total >= t, "-total={} is smaller than -t={}", total, t);
 ```
 
+A refusal by `g.require` exits 4, where every other refusal exits 3. The judge fails the
+generation either way; `eo-judge check` reads the 4 as "these options do not go together", so
+EO813 does not blame an extreme that only some combinations allow.
+
 An optional option is for a value with no sensible default, one the generator works out when
 it is not given:
 

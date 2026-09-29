@@ -310,7 +310,7 @@ EO_TEST(a_generator_says_when_its_options_do_not_fit_together) {
         g.out.line(t);
     });
     EO_CHECK_EQ(result.text, std::string("-total=5 is smaller than -t=10"));
-    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_EQ(result.code, 4);
 }
 
 EO_TEST(a_stress_run_that_draws_nothing_is_reported) {
