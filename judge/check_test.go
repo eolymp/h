@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -484,6 +485,26 @@ func TestCheckFindsAnInteractorThatFailsOnABadClient(t *testing.T) {
 		if !blamed[client] {
 			t.Errorf("EO814 did not fire for %s: %v", client, found)
 		}
+	}
+}
+
+func TestCheckTriesAnOptionExtremeOnlyWithTheFirstTestsArguments(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	found, err := workshop(t, "testdata/dependent").Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var extremes []string
+	for _, one := range found {
+		if one.Code == "EO813" {
+			extremes = append(extremes, one.Where+": "+one.Message)
+		}
+	}
+	sort.Strings(extremes)
+	want := []string{"script gen: m=1000 does not generate: ", "script gen: n=1 does not generate: "}
+	if len(extremes) != len(want) || !strings.HasPrefix(extremes[0], want[0]) || !strings.HasPrefix(extremes[1], want[1]) {
+		t.Errorf("EO813 said %q; it tries the extremes with -n=10 -m=5 alone, so it calls m=1000 and n=1 failures", extremes)
 	}
 }
 
