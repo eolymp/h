@@ -530,6 +530,8 @@ namespace {
 
 int draining_pipe = -1;
 
+// The pipe's only writer is the thread this handler interrupts, so a read that
+// waited here for bytes would wait for ever: the pipe is drained without waiting.
 void drain_the_pipe(int) {
     char sink[1 << 15];
     ssize_t const got = ::read(draining_pipe, sink, sizeof(sink));
@@ -763,6 +765,7 @@ EO_TEST(a_write_cut_short_by_a_signal_is_resumed) {
         swapped_descriptors kept;
         int ends[2] = {-1, -1};
         EO_CHECK_EQ(::pipe(ends), 0);
+        ::fcntl(ends[0], F_SETFL, ::fcntl(ends[0], F_GETFL) | O_NONBLOCK);
         draining_pipe = ends[0];
         struct sigaction wanted = {};
         struct sigaction previous = {};

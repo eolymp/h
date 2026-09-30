@@ -53,6 +53,12 @@ against 2.2.0's 5,002, and 196,293 bytes against 198,331.
   with libstdc++, a program that includes only `eolymp.h` and uses `std::function`,
   `std::unordered_map`, `std::hash`, `std::bind`, `std::not_fn` and `std::invoke`, which it
   has always got through the header. CI runs `make judge` on macOS as well as Linux.
+- `a_write_cut_short_by_a_signal_is_resumed` no longer hangs the suite. Its `SIGALRM`
+  handler read the pipe the interactor writes to and waited for bytes, and the only writer is
+  the thread it interrupts, so a tick that found the pipe empty waited for ever: on every run
+  with libc++ at `-O0` on Linux, where building the interactor outlasts the first 20 ms tick,
+  now and then in macOS's `-O0` `tests-c++20`, and under load anywhere. The handler now
+  drains without waiting.
 - Left as they were:
   - An interactor still polls before each write. The poll is the only call that tells both
     whether the write can go ahead and whether the solution's output must be taken in first.
