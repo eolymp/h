@@ -82,6 +82,7 @@ allow.
 | `g.option<int>("n", low, high)` | a required integer in `[low, high]` |
 | `g.option<int>("n", low, high, def)` | the same, with a default |
 | `g.option<long long>(…)`, `g.option<double>(…)` | the same for other number types |
+| `g.option<std::optional<int>>("n", low, high)` | an integer in `[low, high]` that may be left out: `std::nullopt` when it is; `long long` and `double` too |
 | `g.option<std::string>("shape", {"random", "path"})` | a required choice from a list |
 | `g.option<std::string>("shape", {"random", "path"}, "random")` | a choice with a default |
 | `g.option<bool>("distinct", false)` | a flag, written `-distinct=true` or `-distinct=false` (or `1`, `0`) |
@@ -101,8 +102,10 @@ Everything is checked before the first byte of output:
 | a value of the wrong type | `-n=ten is not an integer` |
 | something that is not an option at all | `n=5 is not an option; write -name=value` |
 
-So declare every option before writing any output: the first write is what checks that every
-argument on the command line has been declared.
+Nothing is written while an argument on the command line is still undeclared: `g.out` holds
+the test in memory until every one has been declared, so an unknown option writes no byte at
+all, and an option declared late, after a megabyte of output, costs that much memory. Declare
+every option at the top of `main`.
 
 **`-seed=…` is built in.** Every argument feeds the random seed, so `gen -n=10 -seed=1` and
 `gen -n=10 -seed=2` give two different tests of the same size. `seed` needs no declaration
@@ -114,11 +117,30 @@ Options that only make sense together go through `g.require`:
 g.require(total >= t, "-total={} is smaller than -t={}", total, t);
 ```
 
+A refusal by `g.require` exits 4, where every other refusal exits 3. The judge fails the
+generation either way; `eo-judge check` reads the 4 as "these options do not go together", so
+EO813 does not blame an extreme that only some combinations allow.
+
+An optional option is for a value with no sensible default, one the generator works out when
+it is not given:
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::generator g(argc, argv);
+    int n = g.option<int>("n", 1, 200000);
+    std::optional<int> m = g.option<std::optional<int>>("m", 0, 200000);
+    g.out.line(n, m.value_or(n - 1));
+}
+```
+
 `gen --eo-describe` prints the declarations instead of generating:
 
 ```
 eo-describe option n an integer 1..200000
 eo-describe option max an integer 1..1000000000 default=1000000000
+eo-describe option m an integer 0..200000 optional
 eo-describe option shape choice random, sorted default=random
 ```
 
@@ -192,12 +214,30 @@ g.out.lines(rows);
 g.out.line(eo::fixed(p, 6));
 ```
 
-The writer is buffered and never flushes per line. By construction it never writes a trailing
-space, every line ends with a single line break, and so does the file.
+The writer is buffered and never flushes per line. It never adds a trailing space of its own:
+a value at the end of a line that prints nothing, such as an empty string, takes its separator
+with it, so `g.out.line("a", "")` writes `a`. A value that itself ends with a space is written
+as it is. Every line ends with a single line break, and so does the file.
+
+It prints numbers, text, `eo::fixed` and containers of them. Anything else, a struct or a
+`std::pair`, does not compile, and the error says so in one line, `eolymp.h cannot print this
+type`, instead of a page of template instantiations; pass the fields one by one. The same holds
+for `it.send` and every message.
+
+Calling `std::exit` or `std::quick_exit` ends the generator as returning from `main` does: the
+arguments are checked, `g.out` writes what it holds, and the exit code is the one given. So
+`exit(0)` part-way through writes what was written so far: the library cannot tell a
+deliberate early end from a half-written test, and the validator is what refuses the second.
+A generator that is never destroyed ends the same way. `std::_Exit` and `std::abort` run
+nothing and lose what `g.out` holds, and `std::quick_exit` does the same where the C library
+offers no `at_quick_exit`: glibc and musl have one, so the judge writes the test, and macOS has
+none, so there a `quick_exit` writes an empty test.
 
 Anything that reaches stdout another way — `std::cout`, `printf` — still lands in the test,
-in the order it was written, and gets warning EO503, because mixing the two makes the layout
-hard to predict. The check compares what the writer wrote with how far stdout actually moved,
+but not where it was written: `g.out` holds its lines until it has a megabyte of them or the
+generator ends, so bytes written another way land ahead of every line `g.out` still holds.
+`g.out.line("first"); printf("stray\n"); g.out.line("last");` writes `stray`, `first`,
+`last`. That gets warning EO503, because mixing the two makes the layout hard to predict. The check compares what the writer wrote with how far stdout actually moved,
 so it is silent when stdout is a pipe rather than a file.
 
 ## Warnings
@@ -254,6 +294,7 @@ valid test) are run by `eo-judge check`; see [judge.md](judge.md).
 | --- | --- |
 | `eo::generator g(argc, argv)` | makes the program a generator; derives the seed |
 | `g.option<T>(name, low, high)`, `(name, low, high, def)` | a number option |
+| `g.option<std::optional<T>>(name, low, high)` | a number option that may be left out |
 | `g.option<std::string>(name, {choices})`, `(name, {choices}, def)` | a choice |
 | `g.option<bool>(name, def)` | a flag |
 | `-seed=…` | built in: varies the test without meaning anything else |

@@ -16,6 +16,9 @@ in the right-hand columns is in the header; the programs below are compiled by `
 | `inf.readToken("[a-z]{1,10}", "s")` | `v.read_token(1, 10, eo::charset("a-z"), "s")` |
 | `inf.readLine("[a-z ]{1,100}", "s")` | `v.read_line(1, 100, eo::charset("a-z "), "s")` |
 | `inf.readInts(n, 1, 1000000000, "a")` | `v.read_ints(n, 1, 1000000000, "a")` |
+| a loop of `inf.readLine("[.#]{m}", "row")` | `v.read_grid(n, m, eo::charset(".#"), "row")` |
+| a loop of `inf.readInt(1, n, "u")`, `readSpace`, `inf.readInt(1, n, "v")`, `readEoln` | `v.read_edges(m, n, "edge")`, a `std::vector<eo::edge>` |
+| the same loop with `inf.readInt(1, c, "w")` after `v` | `v.read_edges(m, n, eo::weighted(1, c), "edge")`, a `std::vector<eo::weighted_edge>` |
 | `inf.readSpace()`, `inf.readEoln()`, `inf.readEof()` | `v.read_space()`, `v.read_eoln()`, `v.read_eof()` |
 | `inf.readChar(':')` | `v.read_char(':')` |
 | `inf.eoln()`, `inf.eof()` | `v.at_eoln()`, `v.at_eof()` |
@@ -51,12 +54,16 @@ input itself. See [validator.md](validator.md).
 | `quitf(_ok, "...")` | `eo::accept("...")` |
 | `quitf(_wa, "got %d", x)`, `quitf(_pe, ...)` | `eo::wrong("got {}", x)`; Eolymp has no presentation error |
 | `quitf(_fail, ...)` | `eo::jury_error(...)` |
+| a loop of `ouf.readInt(1, n, "u")`, `ouf.readInt(1, n, "v")` | `c.output.read_edges(k, n, "edge")` |
+| that loop over `n - 1` edges, then a union-find to see they form a tree | `c.output.read_tree(n, "edge")`; `read_graph(n, m, eo::connected, "edge")` for a graph |
 | `ouf.quitf(_wa, ...)` | `c.output.wrong(...)`, blamed on that stream |
 | `quitp(p)` | `eo::score(f)` for a fraction of the test, or `eo::points(p)` for points |
 | a `readAns(ouf)` / `readAns(ans)` pair, then `quitf(_fail)` if the contestant beats the jury | `c.read_both(reader)` and `c.optimum(by_the_jury, found, eo::minimize)` |
 | `doubleCompare(expected, result, 1e-9)` | `eo::close_enough(expected, found, 1e-9)` |
+| `doubleCompare` on an optimum, then `quitf(_fail)` if the contestant's is better | `c.optimum(by_the_jury, found, eo::minimize, eo::within(1e-9))` |
 | `wcmp` | `c.tokens()` |
 | `rcmp6`, `rcmp9` | `c.reals(1e-6)`, `c.reals(1e-9)` |
+| `lcmp` | `c.lines(eo::exact)`, which keeps blank lines as `lcmp` does, and compares a line character by character where `lcmp` compares its words |
 
 ```cpp
 #include <eolymp.h>
@@ -100,6 +107,7 @@ See [interactor.md](interactor.md).
 | `registerGen(argc, argv, 1);` | `eo::generator g(argc, argv);` |
 | `opt<int>("n")` | `g.option<int>("n", 1, 200000)`, with its range |
 | `opt<int>("n", 10)` | `g.option<int>("n", 1, 200000, 10)` |
+| `has_opt("m") ? opt<int>("m") : n - 1` | `g.option<std::optional<int>>("m", 0, 200000).value_or(n - 1)` |
 | `atoi(argv[1])`, `opt<int>(1)` | no positional arguments: `-n=10` |
 | `rnd.next(a, b)` | `r.uniform(a, b)` |
 | `rnd.next(n)` | `r.uniform(0, n - 1)` |
@@ -112,6 +120,7 @@ See [interactor.md](interactor.md).
 | `rnd.partition(k, sum, least)` | `r.partition(k, sum, least)` |
 | `rnd.next("[a-z]{5}")` | `r.letters(5, eo::charset("a-z"))` |
 | `println(a)`, `cout << a` | `g.out.line(a)` |
+| lattice points on a circle, found by a loop over `x` | `eo::shapes::cocircular(r, count, limit)`, from `eolymp-shapes.h` |
 
 `r` is `g.rng()`, the default stream, or `g.rng("label")`, a named one.
 
@@ -143,6 +152,12 @@ See [generator.md](generator.md).
   algorithm, so a test regenerated after the move is a different test of the same shape.
   `r.weighted(a, b, t)` has the distribution of `rnd.wnext(a, b, t)`, the largest of
   `t + 1` draws, but not its values.
+- **Qualify the library's names.** testlib's are global, so a ported program is often written
+  without a prefix. Writing `using namespace eo;` to get that back, next to
+  `using namespace std;`, makes `unique`, `ignore`, `any` and `ratio` ambiguous, and leaves
+  `log`, `is_sorted` and `is_permutation` to overload resolution, and a later release may add
+  names that clash too, since `using namespace eo;` is outside the compatibility promise; keep
+  `eo::` in front of the library's names instead.
 - **A read has bounds and a name, or says it has none.** `readInt()` with neither is legal in
   testlib; in eolymp.h it compiles, with warnings EO101 and EO102 (EO103 in a checker), and
   `eo::any` or `eo::unnamed` says that is deliberate.

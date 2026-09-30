@@ -2,6 +2,7 @@
 
 #include <exception>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -37,7 +38,14 @@ struct declared_option {
     std::string kind;
     std::string range;
     std::string fallback;
+    bool optional = false;
 };
+
+template <class T>
+struct is_optional : std::false_type {};
+
+template <class T>
+struct is_optional<std::optional<T>> : std::true_type {};
 
 inline bool looks_like_a_seed(std::string const& word) {
     if (word.size() != 16) return false;
@@ -51,6 +59,8 @@ inline bool looks_like_a_seed(std::string const& word) {
 class generator {
 public:
     generator(int argc, char** argv, detail::site where = detail::site::here()) {
+        detail::log_file() = stderr;
+        detail::emitter() = &generator::say;
         if (detail::live_generator() != nullptr)
             detail::library_error(fmt("{}: this program already has a generator", detail::where_of(where)));
         detail::diagnostics::shared().start_the_clock("EO504", "generator", 60000, where);
@@ -77,24 +87,19 @@ public:
         std::fflush(stdout);
         struct stat towards {};
         if (::fstat(1, &towards) == 0 && S_ISREG(towards.st_mode)) started_ = ::lseek(1, 0, SEEK_CUR);
-        detail::log_file() = stderr;
-        detail::emitter() = &generator::say;
         out.owner_ = this;
         detail::live_generator() = this;
+        detail::close_on_exit(&generator::exited_early);
     }
 
     generator(generator const&) = delete;
     generator& operator=(generator const&) = delete;
 
     ~generator() noexcept(false) {
-        detail::restore_channels afterwards;
+        detail::unfinished() = nullptr;
         detail::live_generator() = nullptr;
         if (std::uncaught_exceptions() != 0) return;
-        out.flush();
-        if (describing_) describe();
-        every_option_was_asked_for();
-        closing_warnings();
-        detail::diagnostics::shared().emit();
+        wrap_up();
     }
 
     template <class T>
@@ -114,6 +119,16 @@ public:
         std::string const* const found = look(name);
         if (found == nullptr) return fallback;
         return bounded<T>(name, *found, low, high, where);
+    }
+
+    template <class T, class = std::enable_if_t<detail::is_optional<T>::value>>
+    [[nodiscard]] T option(std::string name, typename T::value_type low, typename T::value_type high,
+                           detail::site where = detail::site::here()) {
+        using value = typename T::value_type;
+        declare(name, kind_of<value>(), fmt("{}..{}", low, high), "", true);
+        std::string const* const found = look(name);
+        if (found == nullptr) return std::nullopt;
+        return bounded<value>(name, *found, low, high, where);
     }
 
     template <class T>
@@ -145,8 +160,8 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, detail::pattern pattern, Args const&... args) {
-        if (!condition) refuse(fmt(pattern, args...));
+    void require(bool condition, detail::pattern_for<Args...> pattern, Args const&... args) {
+        if (!condition) detail::finish(4, fmt(pattern, args...));
     }
 
     eo::rng& rng(std::string label = "") {
@@ -165,6 +180,8 @@ public:
         void line(Args const&... values) {
             bool first = true;
             (add(values, first), ...);
+            held_.resize(held_.size() - trailing_);
+            trailing_ = 0;
             held_.push_back('\n');
             if (held_.size() >= 1u << 20) flush();
         }
@@ -177,7 +194,7 @@ public:
         }
 
         void flush() {
-            if (held_.empty()) return;
+            if (held_.empty() || !owner_->every_argument_is_declared()) return;
             if (!owner_->describing_) std::fwrite(held_.data(), 1, held_.size(), stdout);
             owner_->written_ += static_cast<long long>(held_.size());
             held_.clear();
@@ -191,10 +208,13 @@ public:
             if constexpr (detail::is_a_list<T>::value && !std::is_convertible_v<T const&, std::string_view>) {
                 for (auto const& one : value) {
                     add(one, first);
-                    if (held_.size() >= 1u << 20) flush();
+                    if (held_.size() >= 1u << 20 && trailing_ == 0) flush();
                 }
             } else {
+                std::size_t const separator = first ? 0 : 1;
+                std::size_t const before = held_.size();
                 detail::add_to_line(held_, value, first);
+                trailing_ = held_.size() == before + separator ? trailing_ + separator : 0;
             }
         }
 
@@ -205,6 +225,7 @@ public:
 
         generator* owner_ = nullptr;
         std::string held_;
+        std::size_t trailing_ = 0;
     };
 
     sheet out;
@@ -229,12 +250,28 @@ private:
         std::fflush(stderr);
     }
 
+    static void exited_early() {
+        generator* const one = detail::live_generator();
+        if (one != nullptr) one->wrap_up();
+    }
+
+    void wrap_up() {
+        if (wrapped_) return;
+        wrapped_ = true;
+        every_option_was_asked_for();
+        out.flush();
+        if (describing_) describe();
+        closing_warnings();
+        detail::diagnostics::shared().emit();
+    }
+
     [[noreturn]] void refuse(std::string const& message) { detail::finish(3, message); }
 
-    void declare(std::string const& name, char const* kind, std::string range, std::string fallback) {
+    void declare(std::string const& name, char const* kind, std::string range, std::string fallback,
+                 bool optional = false) {
         for (detail::declared_option const& one : shape_)
             if (one.name == name) return;
-        shape_.push_back({name, kind, std::move(range), std::move(fallback)});
+        shape_.push_back({name, kind, std::move(range), std::move(fallback), optional});
     }
 
     std::string const* look(std::string const& name) {
@@ -270,6 +307,14 @@ private:
         for (char const* one : choices)
             if (text == one) return T(one);
         refuse(fmt("-{}={} is not one of {}", name, text, listed(choices)));
+    }
+
+    bool every_argument_is_declared() {
+        if (declared_ || describing_) return true;
+        for (auto const& one : given_)
+            if (one.first != "seed" && asked_.count(one.first) == 0) return false;
+        declared_ = true;
+        return true;
     }
 
     void every_option_was_asked_for() {
@@ -312,14 +357,15 @@ private:
     void describe() {
         std::string said;
         for (detail::declared_option const& one : shape_)
-            said += fmt("eo-describe option {} {} {}{}\n", one.name, one.kind, one.range,
-                        one.fallback.empty() ? "" : " default=" + one.fallback);
+            said += fmt("eo-describe option {} {} {}{}{}\n", one.name, one.kind, one.range,
+                        one.fallback.empty() ? "" : " default=" + one.fallback, one.optional ? " optional" : "");
         std::fwrite(said.data(), 1, said.size(), stdout);
         std::fflush(stdout);
     }
 
     friend class sheet;
 
+    detail::restore_channels channels_;
     std::map<std::string, std::string> given_;
     std::set<std::string> asked_;
     std::vector<detail::declared_option> shape_;
@@ -331,6 +377,8 @@ private:
     bool drew_ = false;
     bool describing_ = false;
     bool checked_ = false;
+    bool declared_ = false;
+    bool wrapped_ = false;
     bool used_the_default_ = false;
     bool used_a_label_ = false;
     detail::site where_of_run_{"generator", 0};

@@ -66,6 +66,7 @@ public:
         contestant.inside().on_end("the solution ended the dialogue early");
         detail::live_interactor() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&interactor::exited_early);
     }
 
     interactor(interactor const&) = delete;
@@ -73,6 +74,7 @@ public:
 
     ~interactor() noexcept(false) {
         detail::restore_channels afterwards;
+        detail::unfinished() = nullptr;
         detail::live_interactor() = nullptr;
         detail::live_scorer() = nullptr;
         detail::current_case() = 0;
@@ -174,6 +176,12 @@ public:
 private:
 
     static void flush_from(void* owner) { static_cast<interactor*>(owner)->waiting_and_flush(); }
+
+    static void exited_early() {
+        interactor* const one = detail::live_interactor();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the interactor ended without a verdict: exit() was called, or the interactor was never destroyed");
+    }
 
     static void say(std::string const& text) {
         std::fwrite(text.data(), 1, text.size(), stderr);

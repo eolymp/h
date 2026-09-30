@@ -470,6 +470,18 @@ EO_TEST(points_in_convex_position_never_turn_back_at_scale) {
     EO_CHECK_EQ(reversed, static_cast<std::size_t>(0));
 }
 
+EO_TEST(points_on_a_circle_are_the_same_points_for_the_same_seed) {
+    eo::rng draw(23);
+    std::string first;
+    for (eo::point const& one : eo::shapes::cocircular(draw, 8)) first += eo::fmt("{} {};", one.x, one.y);
+    EO_CHECK_EQ(first, std::string("-3 4;3 4;0 -5;-4 3;0 5;-4 -3;-3 -4;5 0;"));
+    std::string rest;
+    for (long long const count : {20LL, 100LL, 300LL})
+        for (eo::point const& one : eo::shapes::cocircular(draw, count)) rest += eo::fmt("{} {};", one.x, one.y);
+    EO_CHECK_EQ(rest.size(), static_cast<std::size_t>(4836));
+    EO_CHECK_EQ(eo::detail::seed_of(rest), 0x95d36165e8318cb1ull);
+}
+
 EO_TEST(points_on_a_circle_are_exactly_on_it) {
     eo::rng draw(21);
     for (long long const count : {8LL, 20LL, 100LL, 300LL}) {
@@ -483,6 +495,35 @@ EO_TEST(points_on_a_circle_are_exactly_on_it) {
     }
     EO_CHECK_IN(refusal([&] { (void)eo::shapes::cocircular(draw, 5000); }), "convex_position scales instead");
     EO_CHECK_IN(refusal([&] { (void)eo::shapes::cocircular(draw, -1); }), "at least no points, not -1");
+}
+
+EO_TEST(points_on_a_circle_stay_inside_a_limit_and_are_otherwise_the_same) {
+    for (long long const count : {8LL, 20LL, 100LL}) {
+        eo::rng unbounded(23);
+        eo::rng bounded(23);
+        std::vector<eo::point> const loose = eo::shapes::cocircular(unbounded, count);
+        std::vector<eo::point> const kept = eo::shapes::cocircular(bounded, count, 1000000000);
+        bool same = loose.size() == kept.size();
+        for (std::size_t at = 0; same && at < loose.size(); at++)
+            same = loose[at].x == kept[at].x && loose[at].y == kept[at].y;
+        EO_CHECK(same);
+    }
+    eo::rng draw(24);
+    std::vector<eo::point> const small = eo::shapes::cocircular(draw, 12, 5);
+    bool inside = true;
+    for (eo::point const& one : small) inside = inside && one.x * one.x + one.y * one.y == 25;
+    EO_CHECK(inside);
+    EO_CHECK_IN(refusal([&] { (void)eo::shapes::cocircular(draw, 13, 64); }),
+                "have none of radius at most 64 with 13 lattice points");
+    EO_CHECK_IN(refusal([&] { (void)eo::shapes::cocircular(draw, 5000, 2000000); }), "with 5000 lattice points");
+    EO_CHECK_IN(refusal([&] { (void)eo::shapes::cocircular(draw, 5, 4); }), "none of radius at most 4 with 5");
+    std::vector<eo::point> const unit = eo::shapes::cocircular(draw, 4, 3);
+    bool round = unit.size() == 4;
+    for (eo::point const& one : unit) round = round && one.x * one.x + one.y * one.y == 1;
+    EO_CHECK(round);
+    EO_CHECK(eo::shapes::cocircular(draw, 0, 1).empty());
+    EO_CHECK_EQ(eo::shapes::cocircular(draw, 3, 4).size(), static_cast<std::size_t>(3));
+    EO_CHECK_IN(refusal([&] { (void)eo::shapes::cocircular(draw, 3, 0); }), "a coordinate bound of at least 1");
 }
 
 EO_TEST(extreme_points_sit_on_the_bound_itself) {

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -237,7 +238,7 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 
 	for _, made := range w.sorted() {
 		where := fmt.Sprintf("test %d:%d", made.Group, made.Test.Index)
-		status, err := built.jury(ctx, validatorLimit, Invocation{Args: []string{made.Input}})
+		status, err := validating(ctx, built, made.Input)
 		if err != nil {
 			return err
 		}
@@ -255,8 +256,7 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 			if !dependsOn(testset, made.Group) {
 				continue
 			}
-			status, err := built.jury(ctx, validatorLimit,
-				Invocation{Args: []string{made.Input, "--group", fmt.Sprint(testset.Index)}})
+			status, err := validating(ctx, built, made.Input, "--group", fmt.Sprint(testset.Index))
 			if err != nil {
 				return err
 			}
@@ -418,22 +418,39 @@ func (w *Workspace) generatorChecks(ctx context.Context, found *Findings) error 
 				continue
 			}
 			for _, edge := range []string{parts[3], parts[4]} {
-				args := withOption(used[0], parts[1], edge)
-				body, err := w.generateOnce(ctx, built, args)
-				if err != nil {
-					found.warn("EO813", where, fmt.Sprintf("%s=%s does not generate: %v", parts[1], edge, err),
-						"the extremes of a declared option must produce a valid test")
-					continue
-				}
-				if why := w.validateBody(ctx, body); why != "" {
-					found.warn("EO813", where,
-						fmt.Sprintf("%s=%s produces an invalid test: %s", parts[1], edge, why),
-						"the extremes of a declared option must produce a valid test")
-				}
+				w.tryAnExtreme(ctx, found, built, where, used, parts[1], edge)
 			}
 		}
 	}
 	return nil
+}
+
+func (w *Workspace) tryAnExtreme(ctx context.Context, found *Findings, built *Built, where string, used [][]string,
+	name, edge string) {
+	tried := map[string]bool{}
+	for _, stored := range used {
+		args := withOption(stored, name, edge)
+		key := strings.Join(args, "\x00")
+		if tried[key] {
+			continue
+		}
+		tried[key] = true
+		body, err := w.generateOnce(ctx, built, args)
+		var together *refusedTogether
+		if errors.As(err, &together) {
+			continue
+		}
+		if err != nil {
+			found.warn("EO813", where, fmt.Sprintf("%s=%s does not generate: %v", name, edge, err),
+				"the extremes of a declared option must produce a valid test")
+			return
+		}
+		if why := w.validateBody(ctx, body); why != "" {
+			found.warn("EO813", where, fmt.Sprintf("%s=%s produces an invalid test: %s", name, edge, why),
+				"the extremes of a declared option must produce a valid test")
+		}
+		return
+	}
 }
 
 func withOption(args []string, name, value string) []string {
@@ -466,11 +483,20 @@ func (w *Workspace) argumentsFor(name string) [][]string {
 	return out
 }
 
+type refusedTogether struct {
+	said string
+}
+
+func (refused *refusedTogether) Error() string { return "exit 4: " + refused.said }
+
 func (w *Workspace) generateOnce(ctx context.Context, built *Built, args []string) ([]byte, error) {
 	var out bytes.Buffer
 	status, err := built.jury(ctx, generatorLimit, Invocation{Args: args, Stdout: &out})
 	if err != nil {
 		return nil, err
+	}
+	if status.ExitCode == 4 {
+		return nil, &refusedTogether{said: firstLine(string(status.Stderr))}
 	}
 	if status.ExitCode != 0 {
 		return nil, fmt.Errorf("exit %d: %s", status.ExitCode, firstLine(string(status.Stderr)))
@@ -493,7 +519,7 @@ func (w *Workspace) validateBody(ctx context.Context, body []byte) string {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		return err.Error()
 	}
-	status, err := built.jury(ctx, validatorLimit, Invocation{Args: []string{path}})
+	status, err := validating(ctx, built, path)
 	if err != nil {
 		return err.Error()
 	}

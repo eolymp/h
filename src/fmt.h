@@ -79,6 +79,9 @@ inline void append_fixed(std::string& out, double value, int digits) {
 }
 
 template <class T>
+inline constexpr bool printable_only_by_its_fields = false;
+
+template <class T>
 inline void append_value(std::string& out, T const& value) {
     using plain = std::remove_cv_t<std::remove_reference_t<T>>;
     if constexpr (is_fixed<plain>::value) {
@@ -96,8 +99,12 @@ inline void append_value(std::string& out, T const& value) {
         append_integer(out, static_cast<long long>(value));
     } else if constexpr (std::is_integral_v<plain>) {
         append_unsigned(out, static_cast<unsigned long long>(value));
-    } else {
+    } else if constexpr (std::is_constructible_v<std::string_view, T const&>) {
         out.append(std::string_view(value));
+    } else {
+        static_assert(printable_only_by_its_fields<plain>,
+                      "eolymp.h cannot print this type: a line, a message and eo::fmt take numbers, text, "
+                      "eo::fixed and containers of them; pass the fields of a struct one by one");
     }
 }
 
@@ -124,10 +131,10 @@ using appender = void (*)(std::string&, void const*);
 class pattern {
 public:
     template <class T, class = std::enable_if_t<std::is_convertible_v<T const&, std::string_view>>>
-    pattern(T const& text, char const* file = __builtin_FILE(), int line = __builtin_LINE())
+    constexpr pattern(T const& text, char const* file = __builtin_FILE(), int line = __builtin_LINE())
         : text_(text), file_(file), line_(line) {}
 
-    std::string_view text() const { return text_; }
+    constexpr std::string_view text() const { return text_; }
     char const* file() const { return file_; }
     int line() const { return line_; }
 
@@ -136,6 +143,66 @@ private:
     char const* file_;
     int line_;
 };
+
+enum class pattern_fault { none, count, lone };
+
+constexpr pattern_fault fault_of(std::string_view pattern, std::size_t count) {
+    std::size_t slots = 0;
+    bool lone = false;
+    for (std::size_t at = 0; at < pattern.size(); at++) {
+        char const here = pattern[at];
+        char const next = at + 1 < pattern.size() ? pattern[at + 1] : '\0';
+        if ((here == '{' || here == '}') && next == here) {
+            at++;
+        } else if (here == '{' && next == '}') {
+            slots++;
+            at++;
+        } else if (here == '{' || here == '}') {
+            lone = true;
+        }
+    }
+    if (lone) return pattern_fault::lone;
+    return slots == count ? pattern_fault::none : pattern_fault::count;
+}
+
+#if defined(EOLYMP_CHECK_PATTERNS) && defined(__cpp_consteval)
+
+inline void a_message_needs_one_placeholder_for_each_value() {}
+inline void a_message_needs_two_braces_to_print_one() {}
+
+template <std::size_t Count>
+class counted_pattern : public pattern {
+public:
+    template <std::size_t Size>
+    consteval counted_pattern(char const (&text)[Size], char const* file = __builtin_FILE(),
+                              int line = __builtin_LINE())
+        : pattern(text, file, line) {
+        pattern_fault const fault = fault_of(this->text(), Count);
+        if (fault == pattern_fault::count) a_message_needs_one_placeholder_for_each_value();
+        if (fault == pattern_fault::lone) a_message_needs_two_braces_to_print_one();
+    }
+
+    template <std::size_t Size>
+    counted_pattern(char (&text)[Size], char const* file = __builtin_FILE(), int line = __builtin_LINE())
+        : pattern(text, file, line) {}
+
+    template <class T, class = std::enable_if_t<std::is_convertible_v<T const&, std::string_view> &&
+                                                !std::is_array_v<T>>>
+    counted_pattern(T const& text, char const* file = __builtin_FILE(), int line = __builtin_LINE())
+        : pattern(text, file, line) {}
+
+    counted_pattern(pattern const& told) : pattern(told) {}
+};
+
+template <class... Args>
+using pattern_for = counted_pattern<sizeof...(Args)>;
+
+#else
+
+template <class...>
+using pattern_for = pattern;
+
+#endif
 
 inline void (*&bad_pattern_hook())(std::string const&, char const*, int) {
     static void (*hook)(std::string const&, char const*, int) = nullptr;
@@ -196,7 +263,7 @@ inline detail::fixed_number<T> fixed(T value, int digits) {
 }
 
 template <class... Args>
-inline std::string fmt(detail::pattern pattern, Args const&... args) {
+inline std::string fmt(detail::pattern_for<Args...> pattern, Args const&... args) {
     if constexpr (sizeof...(Args) == 0) {
         return detail::assemble(pattern, nullptr, nullptr, 0);
     } else {

@@ -339,6 +339,141 @@ EO_TEST(structural_readers_read_and_check_in_one_call) {
     EO_CHECK_IN(repeated.text, "p: elements 1 and 2 are both 2");
 }
 
+EO_TEST(tree_and_graph_readers_refuse_in_a_fixed_order_with_fixed_words) {
+    auto const graph = [](char const* text, int n, int m, eo::graph_shape shape) {
+        return validate(text, [n, m, shape](eo::validator& v) { v.read_graph(n, m, shape, "edge"); }).text;
+    };
+    EO_CHECK_EQ(graph("1 9\n1 1\n", 3, 2, eo::simple | eo::connected),
+                std::string("line 3: edge: edge 1 is (1, 9), outside 1..3"));
+    EO_CHECK_EQ(graph("1 2\n1 1\n", 3, 2, eo::simple), std::string("line 3: edge: edge 2 is a loop at vertex 1"));
+    EO_CHECK_EQ(graph("1 2\n2 1\n", 3, 2, eo::simple | eo::connected),
+                std::string("line 3: edge: edges 1 and 2 are both (1, 2)"));
+    EO_CHECK_EQ(graph("1 2\n2 1\n", 3, 2, eo::connected),
+                std::string("line 3: edge: vertex 3 cannot be reached from vertex 1"));
+    EO_CHECK_EQ(graph("1 1\n", 1, 1, eo::any_graph), std::string(""));
+    EO_CHECK_EQ(graph("", 3, 0, eo::connected), std::string("line 1: edge: vertex 2 cannot be reached from vertex 1"));
+    EO_CHECK_EQ(graph("", 3, -1, eo::any_graph), std::string(""));
+    EO_CHECK_EQ(graph("1 2 \n", 3, 1, eo::any_graph),
+                std::string("line 1: expected a line break after edge[1], found a space"));
+    auto const tree = [](char const* text, int n) {
+        return validate(text, [n](eo::validator& v) { v.read_tree(n, eo::unnamed); }).text;
+    };
+    EO_CHECK_EQ(tree("", 0), std::string("line 1: a tree on 0 vertices has -1 edges, not 0"));
+    EO_CHECK_EQ(tree("", 1), std::string(""));
+    EO_CHECK_EQ(tree("1 2\n1 2\n", 3), std::string("line 3: edges 1 and 2 are both (1, 2)"));
+    EO_CHECK_EQ(tree("1 x\n", 2), std::string("line 1: expected an integer, found \"x\""));
+}
+
+EO_TEST(an_edge_list_is_read_line_by_line_with_its_vertices_bounded) {
+    eot::outcome const plain = validate("1 2\n3 2\n", [](eo::validator& v) {
+        std::vector<eo::edge> const edges = v.read_edges(2, 3, "edge");
+        EO_CHECK_EQ(edges.size(), static_cast<std::size_t>(2));
+        EO_CHECK_EQ(edges[1].u, 3);
+        EO_CHECK_EQ(edges[1].v, 2);
+    }, {"--eo-describe"});
+    EO_CHECK(!plain.stopped);
+    EO_CHECK_IN(plain.printed, "eo-describe value edge int 1 3 low=yes high=yes");
+    eot::outcome const weighted = validate("1 2 7\n2 3 100\n", [](eo::validator& v) {
+        std::vector<eo::weighted_edge> const edges = v.read_edges(2, 3, eo::weighted(1, 100), "edge");
+        EO_CHECK_EQ(edges[0].w, 7);
+        EO_CHECK_EQ(edges[1].w, 100);
+    }, {"--eo-describe"});
+    EO_CHECK(!weighted.stopped);
+    EO_CHECK_IN(weighted.printed, "eo-describe value edge.w int 1 100 low=no high=yes");
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO107"));
+    eot::outcome const outside = validate("1 2\n2 9\n", [](eo::validator& v) { v.read_edges(2, 3, "edge"); });
+    EO_CHECK_EQ(outside.code, 3);
+    EO_CHECK_IN(outside.text, "line 2, edge[2]: 9 is above 3");
+    eot::outcome const light =
+        validate("1 2 0\n", [](eo::validator& v) { v.read_edges(1, 3, eo::weighted(1, 100), "edge"); });
+    EO_CHECK_IN(light.text, "line 1, edge.w[1]: 0 is below 1");
+    eot::outcome const unweighted =
+        validate("1 2 5\n", [](eo::validator& v) { v.read_edges(1, 3, "edge"); });
+    EO_CHECK_IN(unweighted.text, "expected a line break after edge[1], found a space");
+    eot::outcome const quiet = validate("1 2 5\n", [](eo::validator& v) {
+        v.read_edges(1, 3, eo::weighted(1, 9), eo::unnamed);
+    });
+    EO_CHECK(!quiet.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO101"));
+    eot::outcome const none = validate("", [](eo::validator& v) { EO_CHECK(v.read_edges(0, 3, "edge").empty()); });
+    EO_CHECK(!none.stopped);
+}
+
+EO_TEST(a_grid_is_read_row_by_row_with_its_width_and_charset) {
+    eot::outcome const good = validate("2 3\n.#.\n##.\n", [](eo::validator& v) {
+        int const rows = v.read_int(1, 9, "rows");
+        v.read_space();
+        int const cols = v.read_int(1, 9, "cols");
+        v.read_eoln();
+        std::vector<std::string> const grid = v.read_grid(rows, cols, eo::charset(".#"), "grid");
+        EO_CHECK_EQ(grid.size(), static_cast<std::size_t>(2));
+        EO_CHECK_EQ(grid[1], std::string("##."));
+    }, {"--eo-describe"});
+    EO_CHECK(!good.stopped);
+    EO_CHECK_IN(good.printed, "eo-describe value grid length 3 3 low=yes high=yes");
+    eot::outcome const narrow =
+        validate(".#.\n#.\n", [](eo::validator& v) { v.read_grid(2, 3, eo::charset(".#"), "grid"); });
+    EO_CHECK_IN(narrow.text, "line 2, grid[2]: the line is 2 characters long, not 3..3");
+    eot::outcome const stray =
+        validate(".x.\n", [](eo::validator& v) { v.read_grid(1, 3, eo::charset(".#"), "grid"); });
+    EO_CHECK_IN(stray.text, "line 1, grid[1]: the line holds \"x\", which is not in \".#\"");
+}
+
+EO_TEST(a_validator_that_exits_early_still_checks_the_end) {
+    eot::outcome const early = validate("1\ngarbage\n", [](eo::validator& v) {
+        (void)v.read_int(1, 9, "n");
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK_EQ(early.code, 3);
+    EO_CHECK_IN(early.text, "expected the end of the input");
+    eot::outcome const summed = validate("7\n", [](eo::validator& v) {
+        eo::sum_limit total(5, "sum of n");
+        total += v.read_int(1, 9, "n");
+        v.read_eoln();
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK_EQ(summed.code, 3);
+    EO_CHECK_EQ(summed.text, std::string("sum of n is 7, above 5"));
+    eot::outcome const whole = validate("7\n", [](eo::validator& v) {
+        (void)v.read_int(1, 9, "n");
+        v.read_eoln();
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK(!whole.stopped);
+}
+
+EO_TEST(a_weighted_tree_or_graph_is_read_and_checked_like_an_unweighted_one) {
+    eot::outcome const tree = validate("1 2 5\n3 2 9\n", [](eo::validator& v) {
+        std::vector<eo::weighted_edge> const edges = v.read_tree(3, eo::weighted(1, 9), "edge");
+        EO_CHECK_EQ(edges[1].u, 3);
+        EO_CHECK_EQ(edges[1].w, 9);
+    });
+    EO_CHECK(!tree.stopped);
+    eot::outcome const cycle =
+        validate("1 2 1\n2 1 1\n", [](eo::validator& v) { v.read_tree(3, eo::weighted(1, 9), "edge"); });
+    EO_CHECK_IN(cycle.text, "edge: edges 1 and 2 are both (1, 2)");
+    eot::outcome const graph = validate("1 2 1\n2 3 2\n1 3 3\n", [](eo::validator& v) {
+        v.read_graph(3, 3, eo::simple | eo::connected, eo::weighted(1, 3), "edge");
+    });
+    EO_CHECK(!graph.stopped);
+    eot::outcome const split = validate("1 2 1\n", [](eo::validator& v) {
+        v.read_graph(3, 1, eo::connected, eo::weighted(1, 9), "edge");
+    });
+    EO_CHECK_IN(split.text, "vertex 3 cannot be reached from vertex 1");
+    eot::outcome const doubled = validate("1 2 1\n2 1 1\n", [](eo::validator& v) {
+        v.read_graph(3, 2, eo::simple, eo::weighted(1, 9), "edge");
+    });
+    EO_CHECK_IN(doubled.text, "edge: edges 1 and 2 are both (1, 2)");
+    eot::outcome const heavy = validate("1 2 10\n", [](eo::validator& v) {
+        v.read_graph(3, 1, eo::any_graph, eo::weighted(1, 9), "edge");
+    });
+    EO_CHECK_IN(heavy.text, "line 1, edge.w[1]: 10 is above 9");
+    eot::outcome const outside = validate("1 9 1\n", [](eo::validator& v) {
+        v.read_graph(3, 1, eo::any_graph, eo::weighted(1, 9), "edge");
+    });
+    EO_CHECK_IN(outside.text, "edge 1 is (1, 9), outside 1..3");
+}
+
 namespace {
 
 struct limits {
@@ -400,7 +535,40 @@ EO_TEST(two_rows_with_the_same_limits_are_a_copy_and_paste) {
         v.read_eoln();
     });
     EO_CHECK(!same.stopped);
-    EO_CHECK_IN(warnings_of_last_run(), "warning EO302: subtasks 0 and 1 have the same limits");
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO302"));
+    eot::outcome const copied = validate("5\n", [](eo::validator& v) {
+        v.subtasks<limits>({{0, {10, 100, false}}, {1, {10, 100, false}}, {2, {10, 100, false}}})
+            .without_group({10, 100, false});
+        v.read_int(1, 10, "n");
+        v.read_eoln();
+    });
+    EO_CHECK(!copied.stopped);
+    EO_CHECK_IN(warnings_of_last_run(), "warning EO302: subtasks 1 and 2 have the same limits");
+}
+
+EO_TEST(the_examples_row_may_have_the_full_limits) {
+    eot::outcome const documented = validate("5\n", [](eo::validator& v) {
+        v.subtasks<limits>({
+            {0, {200000, 1000000000, false}},
+            {1, {10, 100, false}},
+            {2, {200000, 1000000000, false}},
+        }).without_group({200000, 1000000000, false});
+        v.read_int(1, 10, "n");
+        v.read_eoln();
+    });
+    EO_CHECK(!documented.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO302"));
+    eot::outcome const last = validate("5\n", [](eo::validator& v) {
+        v.subtasks<limits>({
+            {1, {200000, 1000000000, false}},
+            {2, {10, 100, false}},
+            {0, {200000, 1000000000, false}},
+        }).without_group({200000, 1000000000, false});
+        v.read_int(1, 10, "n");
+        v.read_eoln();
+    });
+    EO_CHECK(!last.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO302"));
 }
 
 EO_TEST(a_problem_with_subtasks_and_no_table_is_reported) {
@@ -696,6 +864,31 @@ EO_TEST(a_read_without_a_name_or_bounds_still_works_and_warns) {
     EO_CHECK_IN(said, "warning EO101: this value is read without a name");
     EO_CHECK_IN(said, "warning EO102: this value is read without bounds");
     EO_CHECK_IN(said, "warning EO108: this token is read with no length and no charset");
+}
+
+EO_TEST(a_bound_computed_from_a_value_read_before_is_not_called_nearly_round) {
+    eot::outcome const above = validate("200000 200001\n", [](eo::validator& v) {
+        int const n = v.read_int(1, 200000, "n");
+        v.read_space();
+        v.read_int(1, n + 1, "m");
+        v.read_eoln();
+    });
+    EO_CHECK(!above.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO106"));
+    eot::outcome const result = validate("200000 199999 199999\n100001 7\n", [](eo::validator& v) {
+        int const n = v.read_int(1, 200000, "n");
+        v.read_space();
+        v.read_int(1, n - 1, "m");
+        v.read_space();
+        v.read_int(n - 1, n, "low");
+        v.read_eoln();
+        int const q = v.read_int(1, 1000000, "q");
+        v.read_space();
+        v.read_int(1, q, "x");
+        v.read_eoln();
+    });
+    EO_CHECK(!result.stopped);
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO106"));
 }
 
 EO_TEST(bounds_that_look_wrong_are_pointed_out) {

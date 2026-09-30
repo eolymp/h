@@ -145,6 +145,7 @@ eo::charset("ab"))` over an alphabet of two maximises repeats, borders and perio
 | `collinear(draw, count, limit)` | exactly collinear; kills cross-product sign assumptions |
 | `convex_position(draw, count, limit)` | points in convex position: the turn never reverses, so none is strictly inside the hull of the others |
 | `cocircular(draw, count)` | exact lattice points on one circle |
+| `cocircular(draw, count, limit)` | the same, on a circle of radius at most `limit`, so inside the box; up to 4 points fit any box, on the circle of radius 1 |
 | `extreme_points(draw, count, limit)` | every point on the edge of the box, so cross products reach 10^18 |
 
 **`convex_position` is convex, not strictly convex.** The steps are integer vectors inside a
@@ -156,7 +157,9 @@ three points are collinear, this is not the generator for it.
 
 **`cocircular` is bounded by arithmetic, not by the library.** Lattice points on a circle are
 scarce: the radii this library ships top out at 972 of them, and finding more costs a scan
-proportional to the radius. Asking for thousands is a jury error. Larger co-circular sets do
+proportional to the radius. Asking for thousands is a jury error. With a `limit`, the radius
+is the same one `cocircular(draw, count)` picks, and so are the points, as long as it fits;
+when it does not, that is a jury error too, rather than points outside the statement's box. Larger co-circular sets do
 exist under 10^9 — r = 48,612,265 carries 2,916 — but they are not worth the scan.
 
 ## What the shapes do not do

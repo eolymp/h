@@ -17,6 +17,7 @@ build_one() {
     build_with "$name" ${CXX:-c++} -std=${CXXSTD:-c++17} "$@" -o "$build/$name" "$root/tests/e2e/$name.cpp"
 }
 build_one exit_codes -O2 $warnings
+build_one exits -O2 $warnings
 build_one validator -O2 $warnings
 build_one checker -O2 $warnings
 build_one swallowing_checker -O2 $warnings
@@ -201,6 +202,22 @@ for mode in silent garbage outofrange wrongguess greedy deaf waiting; do
 done
 pass "seven badly behaved solutions all got a wrong answer, never an interaction failure"
 
+play_to_the_end() {
+    label=$1
+    jury=$2
+    wanted=$3
+    shift 3
+    ended=$(TEST_COST=40 "$build/play" --wait "$jury" "$build/iin.txt" "$build/isummary.txt" -- "$@" \
+            2>"$build/ended.log")
+    case $ended in
+        *"$wanted"*) return 0 ;;
+    esac
+    fail "$label ended \"$ended\", expected \"$wanted\"" "$build/ended.log"
+}
+play_to_the_end "a solution that keeps asking past its budget" "$build/interactor" \
+    "interactor 1 solution signal 13" "$build/hostile" stubborn &&
+    pass "a solution that keeps asking past its budget dies of SIGPIPE once the interactor has gone"
+
 printf '123456789\n' > "$build/pin.txt"
 expect_run "phase 1 of the phased interactor" 0 "*interactor 0 *" env TEST_COST=40 "$build/play" "$build/phased" \
     "$build/pin.txt" "$build/phandoff.txt" -- "$build/phased_solution"
@@ -232,9 +249,49 @@ if cmp -s "$build/generated.txt" "$build/generated_seeded.txt"; then
 fi
 expect_run "the validator on the generated test" 0 "*" "$build/validator" "$build/generated.txt" --group 1 &&
     pass "the validator accepts what the generator wrote"
+generate generated_syntax.txt n=5 2> "$build/generated_syntax.err"
+if grep -q "is not an option" "$build/generated_syntax.err" && [ ! -s "$build/generated_syntax.txt" ]; then
+    pass "an argument that is not an option is refused on stderr, and the test stays empty"
+else
+    fail "an argument that is not an option is not refused on stderr alone"
+fi
+quick="quick_exit(0)"
+[ "$(uname -s)" = Darwin ] && quick="exit(0) standing in for quick_exit(0), which macOS lacks,"
+printf '1\ngarbage\n' > "$build/exits_in.txt"
+printf '5\n' > "$build/exits_out.txt"
+expect_run "a checker that calls exit(0) before its verdict" 3 "jury error the checker ended without a verdict*" \
+    env ROLE=checker EOLYMP=1 TEST_COST=40 \
+    "$build/exits" "$build/exits_in.txt" "$build/exits_out.txt" "$build/exits_out.txt" &&
+    expect_run "a checker that calls quick_exit(0) before its verdict" 3 \
+        "jury error the checker ended without a verdict*" env ROLE=quick EOLYMP=1 TEST_COST=40 \
+        "$build/exits" "$build/exits_in.txt" "$build/exits_out.txt" "$build/exits_out.txt" &&
+    expect_run "a checker never destroyed that returns 0" 3 "jury error the checker ended without a verdict*" \
+        env ROLE=leaked EOLYMP=1 TEST_COST=40 \
+        "$build/exits" "$build/exits_in.txt" "$build/exits_out.txt" "$build/exits_out.txt" &&
+    expect_run "a validator that calls exit(0) half-way through its test" 3 "*expected the end of the input*" \
+        env ROLE=validator "$build/exits" "$build/exits_in.txt" &&
+    expect_run "an interactor that calls exit(0) before its verdict" 3 \
+        "*jury error the interactor ended without a verdict*" env ROLE=interactor TEST_COST=40 \
+        "$build/exits" "$build/exits_in.txt" "$build/exits_summary.txt" < /dev/null &&
+    expect_run "a controller that calls exit(0) before its verdict" 3 \
+        "jury error the controller ended without a verdict*" env ROLE=controller TEST_COST=40 \
+        "$build/exits" "$build/exits_in.txt" "$build/exits_summary.txt" &&
+    expect_run "a generator that calls exit(0) after a line" 0 "" env ROLE=generator \
+        sh -c "\"$build/exits\" -n=7 > \"$build/exits_test.txt\"" &&
+    if [ "$(cat "$build/exits_test.txt")" = "7" ]; then
+        pass "exit(0), $quick and a leaked checker are jury errors, a validator's exit runs its end checks, and a generator's writes what it holds"
+    else
+        fail "a generator that called exit(0) after a line did not write it"
+    fi
 expect_run "the generator given an option it never declared" 3 "*unknown option -oops*" \
     generate generated_bad.txt -n=20 -oops=1 &&
-    pass "an undeclared option stops the generator before it writes"
+    expect_run "a large generator given an option it never declared" 3 "*unknown option -oops*" \
+        generate generated_bad_large.txt -n=200000 -oops=1 &&
+    if [ -s "$build/generated_bad.txt" ] || [ -s "$build/generated_bad_large.txt" ]; then
+        fail "a generator given an option it never declared wrote part of its test"
+    else
+        pass "an undeclared option stops the generator before it writes"
+    fi
 if [ -n "$fused" ]; then
     for built in ${fused#ok}; do
         drawn=$("$build/real_bits_$built")

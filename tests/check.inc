@@ -569,6 +569,37 @@ EO_TEST(a_bare_wrong_inside_a_shared_reader_is_mapped_too) {
     EO_CHECK_IN(contestant.text, "wrong answer: output.txt");
 }
 
+EO_TEST(a_real_optimum_without_a_tolerance_keeps_its_verdict_and_says_so) {
+    auto const run = [](char const* out, char const* ans) {
+        return check_run("1\n", out, ans, [](eo::checker& c) {
+            double const by_jury = c.jury.read_real(eo::any, "cost");
+            double const found = c.output.read_real(eo::any, "cost");
+            c.optimum(by_jury, found, eo::minimize);
+        });
+    };
+    eot::outcome const moved = run("0.30000000000000004\n", "0.3\n");
+    EO_CHECK_EQ(moved.code, 1);
+    EO_CHECK_EQ(moved.text, std::string("wrong answer the answer is 0.30000000000000004; the optimum is 0.3"));
+    EO_CHECK_IN(checker_warnings(), "warning EO214: c.optimum compares two reals with ==");
+    EO_CHECK_IN(checker_warnings(), "tests/check.inc:");
+    eot::outcome const under = run("0.29999999999999999\n", "0.30000000000000004\n");
+    EO_CHECK_EQ(under.code, 3);
+    EO_CHECK_IN(under.text, "the contestant's 0.3 beats the jury's 0.30000000000000004");
+    EO_CHECK_EQ(run("0.3\n", "0.3\n").code, 0);
+    EO_CHECK_IN(checker_warnings(), "EO214");
+    eot::outcome const whole = check_run("1\n", "10\n", "10\n", [](eo::checker& c) {
+        c.optimum(c.jury.read_long(eo::any, "cost"), c.output.read_long(eo::any, "cost"), eo::minimize);
+    });
+    EO_CHECK_EQ(whole.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO214"));
+    eo::detail::diagnostics::shared().forget_everything();
+    EO_CHECK(eo::compare(0.1 + 0.2, 0.3, eo::minimize) == eo::standing::worse);
+    EO_CHECK_IN(eo::detail::diagnostics::shared().local_block(), "warning EO214: eo::compare compares two reals");
+    eo::detail::diagnostics::shared().forget_everything();
+    EO_CHECK(eo::compare(3LL, 3LL, eo::maximize) == eo::standing::equal);
+    EO_CHECK(!eo::detail::diagnostics::shared().anything());
+}
+
 EO_TEST(an_optimum_has_three_outcomes) {
     auto const run = [](char const* out, char const* ans) {
         return check_run("1\n", out, ans, [](eo::checker& c) {
@@ -590,6 +621,63 @@ EO_TEST(an_optimum_has_three_outcomes) {
         c.optimum(by_jury, found, eo::maximize);
     });
     EO_CHECK_EQ(upward.code, 1);
+}
+
+EO_TEST(an_optimum_within_a_tolerance_accepts_what_rounding_moved) {
+    auto const run = [](char const* out, char const* ans, eo::towards direction) {
+        return check_run("1\n", out, ans, [direction](eo::checker& c) {
+            double const by_jury = c.jury.read_real(eo::any, "cost");
+            double const found = c.output.read_real(eo::any, "cost");
+            c.optimum(by_jury, found, direction, eo::within(1e-6));
+        });
+    };
+    eot::outcome const close = run("0.30000000000000004\n", "0.3\n", eo::minimize);
+    EO_CHECK_EQ(close.code, 0);
+    EO_CHECK_EQ(close.text, std::string("ok 0.30000000000000004"));
+    EO_CHECK_EQ(run("1000000.5\n", "1000000\n", eo::minimize).code, 0);
+    eot::outcome const worse = run("0.31\n", "0.3\n", eo::minimize);
+    EO_CHECK_EQ(worse.code, 1);
+    EO_CHECK_EQ(worse.text, std::string("wrong answer the answer is 0.31; the optimum is 0.3"));
+    eot::outcome const better = run("0.29\n", "0.3\n", eo::minimize);
+    EO_CHECK_EQ(better.code, 3);
+    EO_CHECK_IN(better.text, "the contestant's 0.29 beats the jury's 0.3");
+    EO_CHECK_EQ(run("0.29\n", "0.3\n", eo::maximize).code, 1);
+    EO_CHECK_EQ(run("0.31\n", "0.3\n", eo::maximize).code, 3);
+}
+
+EO_TEST(a_comparison_says_better_equal_or_worse) {
+    EO_CHECK(eo::compare(5, 7, eo::minimize) == eo::standing::better);
+    EO_CHECK(eo::compare(7, 7, eo::minimize) == eo::standing::equal);
+    EO_CHECK(eo::compare(5, 7, eo::maximize) == eo::standing::worse);
+    EO_CHECK(eo::compare(0.1 + 0.2, 0.3, eo::minimize, eo::within(1e-9)) == eo::standing::equal);
+    EO_CHECK(eo::compare(0.4, 0.3, eo::minimize, eo::within(1e-9)) == eo::standing::worse);
+    EO_CHECK(eo::compare(0.4, 0.3, eo::maximize, eo::within(1e-9)) == eo::standing::better);
+    EO_CHECK(eo::compare(0.3 + 1e-12, 0.3, eo::maximize, eo::within(0)) == eo::standing::better);
+    double const endless = std::numeric_limits<double>::infinity();
+    EO_CHECK(eo::compare(endless, endless, eo::minimize, eo::within(1e-9)) == eo::standing::equal);
+    EO_CHECK(eo::compare(endless, 5.0, eo::minimize, eo::within(1e-9)) == eo::standing::worse);
+    EO_CHECK(eo::compare(std::nan(""), 5.0, eo::minimize, eo::within(1e-9)) == eo::standing::worse);
+    EO_CHECK(eo::compare(5.0, 5.0 + 5e-10, eo::minimize, eo::within(1e-9)) == eo::standing::equal);
+    EO_CHECK(eo::compare(99.0, 100.0, eo::minimize, eo::within(0.0101)) == eo::standing::equal);
+    EO_CHECK(eo::compare(100.0, 99.0, eo::minimize, eo::within(0.0101)) == eo::standing::worse);
+    eot::outcome const unknown = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        (void)c.output.read_int(1, 9, "x");
+        (void)eo::compare(1.0, std::nan(""), eo::minimize, eo::within(1e-6));
+    });
+    EO_CHECK_EQ(unknown.code, 3);
+    EO_CHECK_IN(unknown.text, "the jury's value is nan, which no answer can equal");
+    eot::outcome const exact = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        (void)c.output.read_int(1, 9, "x");
+        (void)eo::compare(1.0, std::nan(""), eo::minimize);
+    });
+    EO_CHECK_EQ(exact.code, 3);
+    eot::outcome const optimum = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.optimum(std::nan(""), static_cast<double>(c.output.read_int(1, 9, "x")), eo::minimize, eo::within(1e-6));
+    });
+    EO_CHECK_EQ(optimum.code, 3);
+    EO_CHECK_IN(eot::run_until_stop([] { (void)eo::within(-1e-6); }).text,
+                "eo::within needs a tolerance of 0 or more, not -1e-06");
+    EO_CHECK_IN(eot::run_until_stop([] { (void)eo::within(std::nan("")); }).text, "not nan");
 }
 
 EO_TEST(the_ready_made_comparisons_compare) {
@@ -705,6 +793,53 @@ EO_TEST(a_summary_with_a_field_twice_is_a_jury_error) {
                                          [](eo::checker& c) { c.from_interactor(); });
     EO_CHECK_EQ(value.code, 3);
     EO_CHECK_IN(value.text, "the summary has a second value called \"x\"");
+}
+
+EO_TEST(lines_skip_blank_lines_and_the_blanks_that_start_a_line) {
+    auto const lines = [](char const* out, char const* ans) {
+        return check_run("1\n", out, ans, [](eo::checker& c) { c.lines(); });
+    };
+    EO_CHECK_EQ(lines("a\n\n\nb\n", "a\nb\n").code, 0);
+    EO_CHECK_EQ(lines("a\nb\n", "a\n\nb\n").code, 0);
+    EO_CHECK_EQ(lines("*\n", " *\n").code, 0);
+    EO_CHECK_EQ(lines("  x\n\ty\n", "x\ny\n").code, 0);
+    EO_CHECK_EQ(lines("\n\na\n", "a\n").code, 0);
+    EO_CHECK_EQ(lines("a\n\n\n", "a\n").code, 0);
+    EO_CHECK_EQ(lines("a\n\n\n", "a\n").text, std::string("ok 1 lines"));
+    eot::outcome const spaced = lines("hello  world\n", "hello world\n");
+    EO_CHECK_EQ(spaced.code, 1);
+    EO_CHECK_EQ(spaced.text, std::string("wrong answer line 1 is \"hello  world\", expected \"hello world\""));
+}
+
+EO_TEST(exact_lines_keep_blank_lines_and_the_blanks_that_start_a_line) {
+    auto const exact = [](std::string const& out, std::string const& ans) {
+        return check_run("1\n", out, ans, [](eo::checker& c) { c.lines(eo::exact); });
+    };
+    EO_CHECK_EQ(exact("a\n\nb\n", "a\n\nb\n").text, std::string("ok 3 lines"));
+    EO_CHECK_EQ(exact(" *\n**\n", " *\n**\n").code, 0);
+    EO_CHECK_EQ(exact("one  \t\r\ntwo\n", "one\ntwo\n").code, 0);
+    EO_CHECK_EQ(exact("a\nb", "a\nb\n").code, 0);
+    EO_CHECK_EQ(exact("a\nb\n\n\n", "a\nb\n").text, std::string("ok 2 lines"));
+    EO_CHECK_EQ(exact("a\nb\n", "a\nb\n\n").text, std::string("ok 2 lines"));
+    eot::outcome const extra = exact("a\n\n\nb\n", "a\nb\n");
+    EO_CHECK_EQ(extra.code, 1);
+    EO_CHECK_EQ(extra.text, std::string("wrong answer line 2 is \"\", expected \"b\""));
+    eot::outcome const missing = exact("a\nb\n", "a\n\nb\n");
+    EO_CHECK_EQ(missing.text, std::string("wrong answer line 2 is \"b\", expected \"\""));
+    eot::outcome const indented = exact("*\n", " *\n");
+    EO_CHECK_EQ(indented.text, std::string("wrong answer line 1 is \"*\", expected \" *\""));
+    eot::outcome const shorter = exact("a\n", "a\nb\n");
+    EO_CHECK_EQ(shorter.text, std::string("wrong answer the output ended after 1 lines, the answer has more"));
+    eot::outcome const longer = exact("a\nb\nc\n", "a\nb\n");
+    EO_CHECK_EQ(longer.text, std::string("wrong answer the answer has 2 lines, the output has more"));
+    std::string const huge = "abc" + std::string(2 * 1024 * 1024, 'z') + "\n";
+    EO_CHECK_EQ(exact(huge, "abc\n").text,
+                std::string("wrong answer line 1 is longer than the expected \"abc\"; it starts \"abcz\""));
+    EO_CHECK_EQ(exact("\n\n", "").text, std::string("ok 0 lines"));
+    EO_CHECK_EQ(exact("a\n  c\n", "a\n").text, std::string("wrong answer the answer has 1 lines, the output has more"));
+    EO_CHECK_EQ(exact("a\nb\nc" + std::string(70000, 'c') + "\n", "a\nb\n").text,
+                std::string("wrong answer the answer has 2 lines, the output has more"));
+    EO_CHECK_EQ(exact("a\nb\nc\n", "a\nb\n\n").text, std::string("wrong answer line 3 is \"c\", expected \"\""));
 }
 
 EO_TEST(lines_and_yes_no_read_no_more_of_a_line_than_they_need) {
@@ -1198,6 +1333,133 @@ EO_TEST(text_reads_on_a_checker_stream) {
         eo::accept();
     });
     EO_CHECK_EQ(bounded.code, 0);
+}
+
+EO_TEST(a_checker_stream_reads_an_edge_list_and_blames_the_side_it_came_from) {
+    eot::outcome const read = check_run("3\n", "1 2\n2\n3\n", "1 2 5 2 3 6\n", [](eo::checker& c) {
+        int const n = c.input.read_int(1, 9, "n");
+        std::vector<eo::weighted_edge> const path = c.jury.read_edges(n - 1, n, eo::weighted(1, 9), "edge");
+        EO_CHECK_EQ(path[1].w, 6);
+        std::vector<eo::edge> const found = c.output.read_edges(n - 1, n, "edge");
+        EO_CHECK_EQ(found[1].u, 2);
+        EO_CHECK_EQ(found[1].v, 3);
+        eo::accept();
+    });
+    EO_CHECK_EQ(read.code, 0);
+    eot::outcome const outside = check_run("3\n", "1 4\n", "x\n", [](eo::checker& c) {
+        c.output.read_edges(1, 3, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(outside.code, 1);
+    EO_CHECK_IN(outside.text, "wrong answer: output.txt, line 1, edge[1]: 4 is above 3");
+    eot::outcome const heavy = check_run("3\n", "x\n", "1 2 10\n", [](eo::checker& c) {
+        c.jury.read_edges(1, 3, eo::weighted(1, 9), "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(heavy.code, 3);
+    EO_CHECK_IN(heavy.text, "jury error: answer.txt, line 1, edge.w[1]: 10 is above 9");
+    eot::outcome const negative = check_run("3\n", "x\n", "x\n", [](eo::checker& c) {
+        c.output.read_edges(-1, 3, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(negative.code, 1);
+    EO_CHECK_IN(negative.text, "edge: a count of -1 cannot be read");
+}
+
+EO_TEST(a_checker_stream_reads_a_grid_as_tokens) {
+    eot::outcome const good = check_run("2 3\n", ".#.\n##.\n", "x\n", [](eo::checker& c) {
+        std::vector<std::string> const grid = c.output.read_grid(2, 3, eo::charset(".#"), "grid");
+        EO_CHECK_EQ(grid[0], std::string(".#."));
+        c.jury.skip_rest("nothing to compare");
+        eo::accept();
+    });
+    EO_CHECK_EQ(good.code, 0);
+    eot::outcome const narrow = check_run("2 3\n", ".#.\n#.\n", "x\n", [](eo::checker& c) {
+        c.output.read_grid(2, 3, eo::charset(".#"), "grid");
+        eo::accept();
+    });
+    EO_CHECK_EQ(narrow.code, 1);
+    EO_CHECK_IN(narrow.text, "wrong answer: output.txt, line 2, grid[2]: \"#.\" is 2 characters long, not 3..3");
+    eot::outcome const flat = check_run("2 0\n", "\n", "x\n", [](eo::checker& c) {
+        c.output.read_grid(2, 0, eo::charset(".#"), "grid");
+        eo::accept();
+    });
+    EO_CHECK_EQ(flat.code, 3);
+    EO_CHECK_IN(flat.text, "a grid on a stream has rows of at least one character, not 0");
+}
+
+EO_TEST(a_checker_stream_reads_a_tree_or_a_graph_as_a_validator_does) {
+    eot::outcome const tree = check_run("3\n", "1 2 2 3\n", "2 1 5\n3 1 6\n", [](eo::checker& c) {
+        int const n = c.input.read_int(1, 9, "n");
+        std::vector<eo::weighted_edge> const star = c.jury.read_tree(n, eo::weighted(1, 9), "edge");
+        EO_CHECK_EQ(star[1].w, 6);
+        std::vector<eo::edge> const path = c.output.read_tree(n, "edge");
+        EO_CHECK_EQ(path[1].v, 3);
+        eo::accept();
+    });
+    EO_CHECK_EQ(tree.code, 0);
+    eot::outcome const cycle = check_run("3\n", "1 2\n2 1\n", "x\n", [](eo::checker& c) {
+        c.output.read_tree(3, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(cycle.code, 1);
+    EO_CHECK_IN(cycle.text, "wrong answer: output.txt, line 2: edge: edges 1 and 2 are both (1, 2)");
+    eot::outcome const outside = check_run("3\n", "x\n", "1 9 1\n", [](eo::checker& c) {
+        c.jury.read_tree(2, eo::weighted(1, 9), "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(outside.code, 3);
+    EO_CHECK_IN(outside.text, "jury error: answer.txt, line 1: edge: edge 1 is (1, 9), outside 1..2");
+    eot::outcome const graph = check_run("3\n", "1 2 2 3 1 3\n", "1 2 4\n", [](eo::checker& c) {
+        EO_CHECK_EQ(c.output.read_graph(3, 3, eo::simple | eo::connected, "edge").size(), static_cast<std::size_t>(3));
+        EO_CHECK_EQ(c.jury.read_graph(3, 1, eo::any_graph, eo::weighted(1, 9), "edge")[0].w, 4);
+        eo::accept();
+    });
+    EO_CHECK_EQ(graph.code, 0);
+    eot::outcome const split = check_run("3\n", "1 2\n", "x\n", [](eo::checker& c) {
+        c.output.read_graph(3, 1, eo::connected, eo::unnamed);
+        eo::accept();
+    });
+    EO_CHECK_EQ(split.code, 1);
+    EO_CHECK_IN(split.text, "wrong answer: output.txt, line 1: vertex 3 cannot be reached from vertex 1");
+    eot::outcome const huge = check_run("3\n", "1 2\n", "x\n", [](eo::checker& c) {
+        c.output.read_graph(5, 2000000000, eo::any_graph, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(huge.code, 1);
+    EO_CHECK_IN(huge.text, "wrong answer: output.txt");
+    eot::outcome const negative = check_run("3\n", "1 2\n", "x\n", [](eo::checker& c) {
+        c.output.read_graph(5, -1, eo::any_graph, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(negative.code, 1);
+    EO_CHECK_IN(negative.text, "edge: a count of -1 cannot be read");
+    eot::outcome const empty = check_run("3\n", "\n", "x\n", [](eo::checker& c) {
+        c.output.read_tree(0, "edge");
+        eo::accept();
+    });
+    EO_CHECK_EQ(empty.code, 3);
+    EO_CHECK_IN(empty.text, "read_tree needs a tree of at least one vertex, not 0");
+    EO_CHECK_EQ(check_run("3\n", "\n", "x\n", [](eo::checker& c) {
+                    c.output.read_tree(0, eo::weighted(1, 2), "edge");
+                }).code, 3);
+    eot::outcome const doubled = check_run("3\n", "1 2 5 2 1 5\n", "x\n", [](eo::checker& c) {
+        c.output.read_graph(3, 2, eo::simple, eo::weighted(1, 9), "edge");
+        eo::accept();
+    });
+    EO_CHECK_IN(doubled.text, "edge: edges 1 and 2 are both (1, 2)");
+}
+
+EO_TEST(an_exit_before_the_verdict_is_a_jury_error) {
+    eot::outcome const result = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
+        (void)c.output.read_int(eo::any, "x");
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_EQ(result.text, std::string("jury error the checker ended without a verdict: exit() was called, "
+                                         "or the checker was never destroyed"));
+    EO_CHECK(eo::detail::unfinished() == nullptr);
+    eo::detail::finish_what_exit_left();
 }
 
 EO_TEST(a_checker_stream_reads_a_token_or_a_line_by_its_length_alone) {

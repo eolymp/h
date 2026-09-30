@@ -139,6 +139,7 @@ public:
                           "answer.txt");
         detail::live_controller() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&controller::exited_early);
     }
 
     controller(controller const&) = delete;
@@ -146,6 +147,7 @@ public:
 
     ~controller() noexcept(false) {
         detail::restore_channels afterwards;
+        detail::unfinished() = nullptr;
         detail::live_controller() = nullptr;
         detail::live_scorer() = nullptr;
         detail::current_case() = 0;
@@ -254,6 +256,12 @@ private:
     friend class channel;
 
     static void flush_from(void* owner) { static_cast<controller*>(owner)->flush_everything(); }
+
+    static void exited_early() {
+        controller* const one = detail::live_controller();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the controller ended without a verdict: exit() was called, or the controller was never destroyed");
+    }
 
     static void say(std::string const& text) {
         std::fwrite(text.data(), 1, text.size(), stderr);

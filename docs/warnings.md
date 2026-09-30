@@ -24,7 +24,7 @@ line on the judge, and the channel each role can afford to write to — is in
 | `eo-judge check` | the emulator, reading the whole problem; **never appears in a judge log** |
 | `eo-judge lint` | a textual scan of the source, for what no run can see |
 
-All 77 designed codes are built.
+All 78 designed codes are built.
 
 ## EO1xx — reading a value
 
@@ -37,13 +37,13 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO103` | warning | compiler | a checker reads a number with no bounds | give the bounds, or say `eo::any`; an unbounded read is how a hostile output crashes a checker |
 | `EO104` | warning | the program | the bounds are the whole range of the type | say `eo::any` if any value is allowed, so the intent is on the page |
 | `EO105` | warning | the program | a bound does not fit the type, as in `read_int(1, 3000000000)` | read a wider type with `read_long` |
-| `EO106` | note | the program | a bound is one away from a round number, such as `200001` | compare it with the statement; a bound computed from another value, like `n - 1`, raises this too |
+| `EO106` | note | the program | a bound is one away from a round number, such as `200001` | compare it with the statement. A bound within one of a value the program has already read under a name, such as `n - 1` or `n` itself, is taken as computed from it and raises nothing |
 | `EO107` | warning | the program | one name is read with different bounds, or as two different kinds, at two places | constrain it one way, or read it one way |
 | `EO108` | warning | compiler, the program | a token or a line is read with no length or no charset | give a length and the characters it may hold, or say `eo::any` |
 | `EO109` | warning | the program | a real number is read with no rule on its digits | say how many digits follow the point: `read_real(low, high, least, most, name)` |
 | `EO110` | note | the program | a local input has CRLF line endings | the judge converts them and so does a local run, so this is a note about the file, not the test |
 | `EO111` | note | the program | a token over 1 MB was held in memory | bound its length if the format allows |
-| `EO112` | warning | the program | a message has more or fewer `{}` than values, or a lone `{` or `}`, such as a printf-style `"%d"` | write one `{}` for each value and `{{` or `}}` for a brace; the message keeps every value, the extra ones appended, and the verdict stands |
+| `EO112` | warning | the program | a message has more or fewer `{}` than values, or a lone `{` or `}`, such as a printf-style `"%d"` | write one `{}` for each value and `{{` or `}}` for a brace; the message keeps every value, the extra ones appended, and the verdict stands; under C++20, `-DEOLYMP_CHECK_PATTERNS` makes a literal message like that a compile error instead |
 
 ## EO2xx — the checker
 
@@ -62,13 +62,14 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO211` | note | the program | the checker runs as the legacy type, which swaps its last two arguments | the ordinary `PROGRAM` type is the norm |
 | `EO212` | warning | the program | the problem declares many answers and the checker only compares with the jury's | compare properties, not the jury's text, or declare `eo::unique` |
 | `EO213` | warning | the program, on the judge | `TEST_COST` is missing, and the test is taken to be worth 100 points, or is not a number, and it is taken to be worth 0; points and partial scores then follow from the wrong cost | the judge sets `TEST_COST` for every checker, interactor and controller; report its configuration |
+| `EO214` | warning | the program | `c.optimum(by_the_jury, found, direction)` or `eo::compare(found, by_the_jury, direction)` compared two reals with `==`, so a correct answer that rounding moved is a wrong answer or a jury error; the verdict is the one `==` gives, as before | say how close is equal: `c.optimum(by_the_jury, found, direction, eo::within(1e-6))`, which is the rule of `eo::close_enough` |
 
 ## EO3xx — the validator
 
 | Code | Severity | Reporter | Fires when | What to do |
 | --- | --- | --- | --- | --- |
 | `EO301` | warning | the program | a test is in a subtask and the validator declares no table | declare `v.subtasks<Limits>({...})`, which is what buys the per-subtask checks |
-| `EO302` | warning | the program | two subtasks have identical limits | one of them is probably a copy and paste |
+| `EO302` | warning | the program | two subtasks other than group 0 have identical limits; group 0, the examples, usually shares the full limits and is not compared | one of them is probably a copy and paste |
 | `EO303` | warning | the program | the validator ran for more than half of the judge's 30 000 ms wall limit | a slower machine or a busy judge would not finish it in time |
 | `EO304` | note | the program | `cases` is used with no `sum_limit` | most multi-test statements bound the sum of n |
 | `EO305` | warning | compiler | a structural check was computed and its result ignored, as in `eo::is_tree(…)` with no `v.require` | pass it to `v.require`; the check is `[[nodiscard]]` |
@@ -121,7 +122,7 @@ the author writes no test code for any of them.
 | `EO810` | warning | `eo-judge check` | a test is invalid under a testset that depends on its own | the groups do not nest the way the scoring assumes |
 | `EO811` | note | `eo-judge check` | a subtask has fewer than two tests | one input decides the whole subtask |
 | `EO812` | warning | `eo-judge check` | a generator gives different bytes twice, or under GCC and clang | unspecified argument order, `std::shuffle`, unordered iteration or signed `char` |
-| `EO813` | warning | `eo-judge check` | an extreme value of a declared `g.option` does not produce a valid test | overflow and edge cases at the bounds |
+| `EO813` | warning | `eo-judge check` | an extreme value of a declared `g.option` does not produce a valid test. Each extreme replaces the option in the stored tests' arguments, one test after another, until the generator accepts it; a refusal by `g.require`, exit 4, moves on to the next test, and an extreme that every stored test's options refuse that way is not reported; any other failure, a crash or a timeout, is reported at once | overflow and edge cases at the bounds |
 | `EO814` | warning | `eo-judge check` | a hostile client gets an interaction failure rather than a wrong answer or a time limit | the clients exit at once, print garbage, go silent and flood the pipe |
 | `EO815` | warning | `eo-judge check` | the same solution run twice gives a different verdict or score | something in the problem uses the clock or unseeded randomness |
 | `EO816` | warning | `eo-judge check` | a correct solution uses more than half of a limit | a rejudge on a slower machine would fail it |

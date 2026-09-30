@@ -289,6 +289,16 @@ EO_TEST(a_controller_reports_what_it_never_used) {
     EO_CHECK_IN(checker_warnings(), "warning EO403: a budget was declared and never spent");
 }
 
+EO_TEST(a_controller_that_exits_before_its_verdict_is_a_jury_error) {
+    staged const result = run_control("7\n", {}, {}, 5, [](eo::controller& ctl) {
+        (void)ctl.input.read_int(eo::any, "n");
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_EQ(result.text, std::string("jury error the controller ended without a verdict: exit() was called, "
+                                         "or the controller was never destroyed"));
+}
+
 EO_TEST(a_budget_limits_one_instance) {
     staged const result = run_control("3 1\n", {"ok"}, {"1\n2\n3\n"}, 10, [](eo::controller& ctl) {
         ctl.input.read_int(2, 100, "instances");

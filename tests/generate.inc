@@ -167,6 +167,30 @@ EO_TEST(every_option_is_declared_with_its_range) {
     EO_CHECK_EQ(defaults.text, std::string("-kind is required"));
 }
 
+EO_TEST(an_optional_option_is_nothing_when_it_is_not_given) {
+    made const given = generate({"-n=7", "-p=0.5"}, [](eo::generator& g) {
+        std::optional<int> const n = g.option<std::optional<int>>("n", 1, 9);
+        std::optional<long long> const big = g.option<std::optional<long long>>("big", 1, 1000);
+        std::optional<double> const p = g.option<std::optional<double>>("p", 0, 1);
+        EO_CHECK(n.has_value() && *n == 7);
+        EO_CHECK(!big.has_value());
+        EO_CHECK(p.has_value() && *p == 0.5);
+        g.out.line("ok");
+    });
+    EO_CHECK(!given.stopped);
+    made const outside = generate({"-n=10"}, [](eo::generator& g) {
+        (void)g.option<std::optional<int>>("n", 1, 9);
+    });
+    EO_CHECK(outside.stopped);
+    EO_CHECK_EQ(outside.text, std::string("-n=10 is above 9"));
+    made const described = generate({"--eo-describe"}, [](eo::generator& g) {
+        EO_CHECK(!g.option<std::optional<int>>("n", 1, 9).has_value());
+        g.out.line("this is not printed");
+    });
+    EO_CHECK(!described.stopped);
+    EO_CHECK_IN(described.test, "eo-describe option n an integer 1..9 optional\n");
+}
+
 EO_TEST(an_option_the_declaration_refuses_stops_the_generator) {
     auto const with = [](std::vector<char const*> given) {
         return generate(given, [](eo::generator& g) {
@@ -193,9 +217,44 @@ EO_TEST(an_option_the_declaration_refuses_stops_the_generator) {
     EO_CHECK(with({"-n=5", "-flag=0"}).test == "ok\n");
 }
 
+EO_TEST(an_unknown_option_is_refused_before_the_test_is_written) {
+    auto const counting = [](std::vector<char const*> given) {
+        return generate(given, [](eo::generator& g) {
+            int const n = g.option<int>("n", 1, 1000000);
+            for (int at = 0; at < n; at++) g.out.line(1000000 + at);
+        });
+    };
+    made const small = counting({"-n=2", "-m=1"});
+    EO_CHECK_EQ(small.code, 3);
+    EO_CHECK_EQ(small.text, std::string("unknown option -m; the options are -n"));
+    EO_CHECK_EQ(small.test, std::string(""));
+    made const large = counting({"-n=300000", "-m=1"});
+    EO_CHECK_EQ(large.code, 3);
+    EO_CHECK_EQ(large.test, std::string(""));
+    made const late = generate({"-n=300000", "-last=7"}, [](eo::generator& g) {
+        int const n = g.option<int>("n", 1, 1000000);
+        for (int at = 0; at < n; at++) g.out.line(1000000 + at);
+        g.out.line(g.option<int>("last", 1, 9));
+    });
+    EO_CHECK(!late.stopped);
+    EO_CHECK_EQ(late.test.size(), static_cast<std::size_t>(300000 * 8 + 2));
+    EO_CHECK_EQ(late.test.substr(late.test.size() - 10), std::string("1299999\n7\n"));
+}
+
+EO_TEST(a_generator_that_exits_early_writes_its_test_once) {
+    made const result = generate({"-n=7"}, [](eo::generator& g) {
+        g.out.line(g.option<int>("n", 1, 9));
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK(!result.stopped);
+    EO_CHECK_EQ(result.test, std::string("7\n"));
+}
+
 EO_TEST(the_command_line_has_to_look_like_options) {
     made const bare = generate({"n=5"}, [](eo::generator& g) { g.out.line("never"); });
     EO_CHECK_IN(bare.text, "n=5 is not an option; write -name=value");
+    EO_CHECK_EQ(bare.test, std::string(""));
+    EO_CHECK_EQ(bare.log, std::string("eolymp.h: n=5 is not an option; write -name=value\n"));
     made const dashed = generate({"-n"}, [](eo::generator& g) { g.out.line("never"); });
     EO_CHECK_IN(dashed.text, "-n is not an option");
     made const twice = generate({}, [](eo::generator& g) {
@@ -260,7 +319,7 @@ EO_TEST(a_generator_says_when_its_options_do_not_fit_together) {
         g.out.line(t);
     });
     EO_CHECK_EQ(result.text, std::string("-total=5 is smaller than -t=10"));
-    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_EQ(result.code, 4);
 }
 
 EO_TEST(a_stress_run_that_draws_nothing_is_reported) {
@@ -275,6 +334,38 @@ EO_TEST(a_stress_run_that_draws_nothing_is_reported) {
     });
     EO_CHECK(!moving.stopped);
     EO_CHECK(!eot::contains(checker_warnings(), "EO501"));
+}
+
+EO_TEST(a_value_that_prints_nothing_at_the_end_of_a_line_takes_its_space_with_it) {
+    made const result = generate({}, [](eo::generator& g) {
+        g.out.line("a", "");
+        g.out.line(0, std::vector<int>{});
+        g.out.line("a", "", "");
+        g.out.line("a", "", "b");
+        g.out.line("", "a");
+        g.out.line("x ");
+        g.out.line("");
+        g.out.line("a", std::vector<std::string>{"", ""});
+    });
+    EO_CHECK(!result.stopped);
+    EO_CHECK_EQ(result.test, std::string("a\n0\na\na  b\n a\nx \n\na\n"));
+    std::string const wide(std::size_t{1} << 20, 'w');
+    made const flushed = generate({}, [&wide](eo::generator& g) {
+        g.out.line(wide, std::vector<std::string>{"", "", ""});
+    });
+    EO_CHECK(!flushed.stopped);
+    EO_CHECK(flushed.test == wide + "\n");
+}
+
+EO_TEST(bytes_written_around_the_writer_land_ahead_of_the_lines_it_holds) {
+    made const result = generate({}, [](eo::generator& g) {
+        g.out.line("first");
+        std::printf("stray\n");
+        g.out.line("last");
+    });
+    EO_CHECK(!result.stopped);
+    EO_CHECK_EQ(result.test, std::string("stray\nfirst\nlast\n"));
+    EO_CHECK_IN(checker_warnings(), "warning EO503: 6 bytes reached stdout without going through g.out");
 }
 
 EO_TEST(writing_around_the_writer_is_reported) {

@@ -371,8 +371,7 @@ func (w *Workspace) Validate(ctx context.Context) error {
 	}
 
 	for _, made := range w.Tests {
-		status, err := built.jury(ctx, validatorLimit,
-			Invocation{Args: []string{made.Input, "--group", fmt.Sprint(made.Group)}})
+		status, err := validating(ctx, built, made.Input, "--group", fmt.Sprint(made.Group))
 		if err != nil {
 			return err
 		}
@@ -387,13 +386,21 @@ func (w *Workspace) Validate(ctx context.Context) error {
 	return nil
 }
 
+func validating(ctx context.Context, built *Built, input string, flags ...string) (*Status, error) {
+	test, err := os.Open(input)
+	if err != nil {
+		return nil, err
+	}
+	defer test.Close()
+	return built.jury(ctx, validatorLimit, Invocation{Args: append([]string{input}, flags...), Stdin: test})
+}
+
 func (w *Workspace) describe(ctx context.Context, made *Prepared) (string, error) {
 	built, err := w.Build(ctx, "validator", w.Problem.Validator)
 	if err != nil {
 		return "", err
 	}
-	status, err := built.jury(ctx, validatorLimit,
-		Invocation{Args: []string{made.Input, "--group", fmt.Sprint(made.Group), "--eo-describe"}})
+	status, err := validating(ctx, built, made.Input, "--group", fmt.Sprint(made.Group), "--eo-describe")
 	if err != nil {
 		return "", err
 	}

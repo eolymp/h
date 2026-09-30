@@ -1,4 +1,4 @@
-// eolymp.h 2.1.0 — a judging library for the Eolymp platform.
+// eolymp.h 2.2.0 — a judging library for the Eolymp platform.
 // https://github.com/eolymp/h
 //
 // SPDX-License-Identifier: MIT
@@ -13,6 +13,10 @@
 
 #ifndef EOLYMP_H_INCLUDED
 #define EOLYMP_H_INCLUDED
+
+#if __cplusplus < 201703L
+#error "eolymp.h needs C++17 or later: build with -std=c++17"
+#else
 
 #include <algorithm>
 #include <array>
@@ -48,9 +52,9 @@
 #include <utility>
 #include <vector>
 
-#define EOLYMP_H_VERSION "2.1.0"
+#define EOLYMP_H_VERSION "2.2.0"
 #define EOLYMP_H_VERSION_MAJOR 2
-#define EOLYMP_H_VERSION_MINOR 1
+#define EOLYMP_H_VERSION_MINOR 2
 #define EOLYMP_H_VERSION_PATCH 0
 
 namespace eo {
@@ -232,6 +236,9 @@ inline void append_fixed(std::string& out, double value, int digits) {
 }
 
 template <class T>
+inline constexpr bool printable_only_by_its_fields = false;
+
+template <class T>
 inline void append_value(std::string& out, T const& value) {
     using plain = std::remove_cv_t<std::remove_reference_t<T>>;
     if constexpr (is_fixed<plain>::value) {
@@ -249,8 +256,12 @@ inline void append_value(std::string& out, T const& value) {
         append_integer(out, static_cast<long long>(value));
     } else if constexpr (std::is_integral_v<plain>) {
         append_unsigned(out, static_cast<unsigned long long>(value));
-    } else {
+    } else if constexpr (std::is_constructible_v<std::string_view, T const&>) {
         out.append(std::string_view(value));
+    } else {
+        static_assert(printable_only_by_its_fields<plain>,
+                      "eolymp.h cannot print this type: a line, a message and eo::fmt take numbers, text, "
+                      "eo::fixed and containers of them; pass the fields of a struct one by one");
     }
 }
 
@@ -277,10 +288,10 @@ using appender = void (*)(std::string&, void const*);
 class pattern {
 public:
     template <class T, class = std::enable_if_t<std::is_convertible_v<T const&, std::string_view>>>
-    pattern(T const& text, char const* file = __builtin_FILE(), int line = __builtin_LINE())
+    constexpr pattern(T const& text, char const* file = __builtin_FILE(), int line = __builtin_LINE())
         : text_(text), file_(file), line_(line) {}
 
-    std::string_view text() const { return text_; }
+    constexpr std::string_view text() const { return text_; }
     char const* file() const { return file_; }
     int line() const { return line_; }
 
@@ -289,6 +300,66 @@ private:
     char const* file_;
     int line_;
 };
+
+enum class pattern_fault { none, count, lone };
+
+constexpr pattern_fault fault_of(std::string_view pattern, std::size_t count) {
+    std::size_t slots = 0;
+    bool lone = false;
+    for (std::size_t at = 0; at < pattern.size(); at++) {
+        char const here = pattern[at];
+        char const next = at + 1 < pattern.size() ? pattern[at + 1] : '\0';
+        if ((here == '{' || here == '}') && next == here) {
+            at++;
+        } else if (here == '{' && next == '}') {
+            slots++;
+            at++;
+        } else if (here == '{' || here == '}') {
+            lone = true;
+        }
+    }
+    if (lone) return pattern_fault::lone;
+    return slots == count ? pattern_fault::none : pattern_fault::count;
+}
+
+#if defined(EOLYMP_CHECK_PATTERNS) && defined(__cpp_consteval)
+
+inline void a_message_needs_one_placeholder_for_each_value() {}
+inline void a_message_needs_two_braces_to_print_one() {}
+
+template <std::size_t Count>
+class counted_pattern : public pattern {
+public:
+    template <std::size_t Size>
+    consteval counted_pattern(char const (&text)[Size], char const* file = __builtin_FILE(),
+                              int line = __builtin_LINE())
+        : pattern(text, file, line) {
+        pattern_fault const fault = fault_of(this->text(), Count);
+        if (fault == pattern_fault::count) a_message_needs_one_placeholder_for_each_value();
+        if (fault == pattern_fault::lone) a_message_needs_two_braces_to_print_one();
+    }
+
+    template <std::size_t Size>
+    counted_pattern(char (&text)[Size], char const* file = __builtin_FILE(), int line = __builtin_LINE())
+        : pattern(text, file, line) {}
+
+    template <class T, class = std::enable_if_t<std::is_convertible_v<T const&, std::string_view> &&
+                                                !std::is_array_v<T>>>
+    counted_pattern(T const& text, char const* file = __builtin_FILE(), int line = __builtin_LINE())
+        : pattern(text, file, line) {}
+
+    counted_pattern(pattern const& told) : pattern(told) {}
+};
+
+template <class... Args>
+using pattern_for = counted_pattern<sizeof...(Args)>;
+
+#else
+
+template <class...>
+using pattern_for = pattern;
+
+#endif
 
 inline void (*&bad_pattern_hook())(std::string const&, char const*, int) {
     static void (*hook)(std::string const&, char const*, int) = nullptr;
@@ -349,7 +420,7 @@ inline detail::fixed_number<T> fixed(T value, int digits) {
 }
 
 template <class... Args>
-inline std::string fmt(detail::pattern pattern, Args const&... args) {
+inline std::string fmt(detail::pattern_for<Args...> pattern, Args const&... args) {
     if constexpr (sizeof...(Args) == 0) {
         return detail::assemble(pattern, nullptr, nullptr, 0);
     } else {
@@ -650,6 +721,28 @@ private:
     bool emitted_ = false;
     time_budget clock_;
 };
+
+inline void (*&unfinished())() {
+    static void (*hook)() = nullptr;
+    return hook;
+}
+
+inline void finish_what_exit_left() {
+    if (unfinished() != nullptr) unfinished()();
+}
+
+inline void close_on_quick_exit() {
+#if !defined(__APPLE__)
+    std::at_quick_exit(&finish_what_exit_left);
+#endif
+}
+
+inline void close_on_exit(void (*closer)()) {
+    diagnostics::shared();
+    static bool const registered = (std::atexit(&finish_what_exit_left), close_on_quick_exit(), true);
+    (void)registered;
+    unfinished() = closer;
+}
 
 inline void warn(char const* code, std::string message, std::string fix, site where) {
     diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where);
@@ -1056,6 +1149,11 @@ public:
     bool indexed() const { return indexed_; }
     long long index() const { return index_; }
 
+    value_name field(char const* suffix) const {
+        if (!known()) return *this;
+        return value_name(text() + suffix);
+    }
+
     value_name at(long long index) const {
         if (!known()) return *this;
         value_name made(indexed_ ? text() : text_);
@@ -1191,6 +1289,8 @@ struct seen_bounds {
     bool steady;
     long long whole_low = 0;
     long long whole_high = 0;
+    long long last_whole = 0;
+    bool read_whole = false;
     double exact_low = 0;
     double exact_high = 0;
 };
@@ -1321,9 +1421,14 @@ public:
         }
         if (parsed.value < type_low || parsed.value > type_high)
             refuse(name, fmt("{} does not fit {}", parsed.value, type_word));
-        if (bounds == stated::yes)
+        if (bounds == stated::yes) {
             remember(name, "int", low, high, parsed.value == low, parsed.value == high,
                      where);
+            if (name.known()) {
+                last_bounds_->last_whole = parsed.value;
+                last_bounds_->read_whole = true;
+            }
+        }
         return parsed.value;
     }
 
@@ -1538,13 +1643,21 @@ public:
         if ((low < type_low || high > type_high) && fresh("EO105", where))
             warn("EO105", fmt("the bounds {}..{} do not fit {}", low, high, type_word), "read a wider type",
                  where);
-        if ((nearly_round(high) || nearly_round(low)) && fresh("EO106", where))
+        if (((nearly_round(high) && !read_before(high)) || (nearly_round(low) && !read_before(low))) &&
+            fresh("EO106", where))
             note("EO106", fmt("the bounds {}..{} are one away from a round number", low, high),
                  "compare them with the statement", where);
     }
 
 private:
     static bool fresh(char const* code, site where) { return !diagnostics::shared().again(code, where); }
+
+    bool read_before(long long bound) const {
+        for (auto const& one : bounds_)
+            if (one.second.read_whole && one.second.last_whole >= bound - 1 && one.second.last_whole <= bound + 1)
+                return true;
+        return false;
+    }
 
     char const* verdict_word() const {
         if (whose_ == fault::wrong_answer) return "wrong answer: ";
@@ -1662,6 +1775,19 @@ struct edge {
     int u;
     int v;
 };
+
+struct weighted_edge {
+    int u;
+    int v;
+    long long w;
+};
+
+struct weight_bounds {
+    long long low;
+    long long high;
+};
+
+inline weight_bounds weighted(long long low, long long high) { return weight_bounds{low, high}; }
 
 enum graph_shape {
     any_graph = 0,
@@ -1811,6 +1937,25 @@ inline int root_of(std::vector<int>& parent, int vertex) {
     if (check_result simple_enough = is_simple_graph(n, edges); !simple_enough) return simple_enough;
     return is_connected(n, edges);
 }
+
+namespace detail {
+
+inline std::vector<edge> endpoints(std::vector<weighted_edge> const& edges) {
+    std::vector<edge> ends;
+    ends.reserve(edges.size());
+    for (weighted_edge const& one : edges) ends.push_back(edge{one.u, one.v});
+    return ends;
+}
+
+inline check_result shaped(int n, std::vector<edge> const& edges, graph_shape shape) {
+    if (check_result inside = vertices_are_inside(n, edges); !inside) return inside;
+    if ((shape & simple) != 0)
+        if (check_result plain = is_simple_graph(n, edges); !plain) return plain;
+    if ((shape & connected) != 0) return is_connected(n, edges);
+    return {};
+}
+
+}  // namespace detail
 
 }  // namespace eo
 
@@ -2249,13 +2394,13 @@ private:
 };
 
 template <class... Args>
-[[noreturn]] inline void accept(detail::pattern pattern = "", Args const&... args) {
+[[noreturn]] inline void accept(detail::pattern_for<Args...> pattern = "", Args const&... args) {
     detail::judging().pass(1, fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void wrong(detail::pattern pattern = "", Args const&... args) {
+[[noreturn]] inline void wrong(detail::pattern_for<Args...> pattern = "", Args const&... args) {
     std::string const message = fmt(pattern, args...);
     if (detail::blaming() != nullptr) detail::blaming()->refuse(detail::value_name(unnamed), message);
     detail::judging().fail_run(message);
@@ -2263,19 +2408,20 @@ template <class... Args>
 }
 
 template <class... Args>
-[[noreturn]] inline void jury_error(detail::pattern pattern = "", Args const&... args) {
+[[noreturn]] inline void jury_error(detail::pattern_for<Args...> pattern = "", Args const&... args) {
     detail::judging().fail_jury(fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
+[[noreturn]] inline void score(detail::scored fraction, detail::pattern_for<Args...> pattern = "",
+                               Args const&... args) {
     detail::judging().pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
     __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
-[[noreturn]] inline void score(detail::scored fraction, rounding how, detail::pattern pattern = "",
+[[noreturn]] inline void score(detail::scored fraction, rounding how, detail::pattern_for<Args...> pattern = "",
                                Args const&... args) {
     detail::scorer& one = detail::judging();
     double const paid = detail::rounded(detail::clamped(fraction.value, fraction.where) * one.cost(), how.digits);
@@ -2284,7 +2430,7 @@ template <class... Args>
 }
 
 template <class... Args>
-[[noreturn]] inline void points(detail::scored given, detail::pattern pattern = "", Args const&... args) {
+[[noreturn]] inline void points(detail::scored given, detail::pattern_for<Args...> pattern = "", Args const&... args) {
     detail::scorer& one = detail::judging();
     double paid = given.value;
     if (std::isnan(paid)) detail::refuse_a_score(fmt("{} points", paid));
@@ -2301,7 +2447,7 @@ template <class... Args>
 }
 
 template <class... Args>
-inline void log(detail::pattern pattern, Args const&... args) {
+inline void log(detail::pattern_for<Args...> pattern, Args const&... args) {
     detail::log_line(fmt(pattern, args...));
 }
 
@@ -2432,12 +2578,15 @@ public:
                                              : detail::source::over_file(path.c_str(), true),
                                detail::fault::invalid_test, "", false, "EO102");
         detail::live_validator() = this;
+        detail::live_sums();
+        detail::close_on_exit(&validator::exited_early);
     }
 
     validator(validator const&) = delete;
     validator& operator=(validator const&) = delete;
 
     ~validator() noexcept(false) {
+        detail::unfinished() = nullptr;
         detail::live_validator() = nullptr;
         detail::current_case() = 0;
         if (std::uncaught_exceptions() == 0) complete();
@@ -2613,20 +2762,53 @@ public:
         });
     }
 
+    std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
+                                       detail::site where = detail::site::here()) {
+        std::vector<std::string> grid;
+        grid.reserve(from_.room_for(rows, name));
+        for (long long row = 1; row <= rows; row++)
+            grid.push_back(rest_of_line(cols, cols, &allowed, detail::stated::yes, name.at(row), where));
+        return grid;
+    }
+
     std::vector<edge> read_tree(int n, detail::value_name name,
                                 detail::site where = detail::site::here()) {
-        std::vector<edge> edges = edge_lines(n - 1, name, where);
+        std::vector<edge> edges = edge_lines<edge>(n - 1, detail::stated::deliberate, n, {0, 0}, name, where);
         require(is_tree(n, edges), name);
+        return edges;
+    }
+
+    std::vector<weighted_edge> read_tree(int n, weight_bounds weights, detail::value_name name,
+                                         detail::site where = detail::site::here()) {
+        std::vector<weighted_edge> edges =
+            edge_lines<weighted_edge>(n - 1, detail::stated::deliberate, n, weights, name, where);
+        require(is_tree(n, detail::endpoints(edges)), name);
         return edges;
     }
 
     std::vector<edge> read_graph(int n, int m, graph_shape shape, detail::value_name name,
                                  detail::site where = detail::site::here()) {
-        std::vector<edge> edges = edge_lines(m, name, where);
-        require(detail::vertices_are_inside(n, edges), name);
-        if ((shape & simple) != 0) require(is_simple_graph(n, edges), name);
-        if ((shape & connected) != 0) require(is_connected(n, edges), name);
+        std::vector<edge> edges = edge_lines<edge>(m, detail::stated::deliberate, n, {0, 0}, name, where);
+        require(detail::shaped(n, edges, shape), name);
         return edges;
+    }
+
+    std::vector<weighted_edge> read_graph(int n, int m, graph_shape shape, weight_bounds weights,
+                                          detail::value_name name, detail::site where = detail::site::here()) {
+        std::vector<weighted_edge> edges =
+            edge_lines<weighted_edge>(m, detail::stated::deliberate, n, weights, name, where);
+        require(detail::shaped(n, detail::endpoints(edges), shape), name);
+        return edges;
+    }
+
+    std::vector<edge> read_edges(long long m, int n, detail::value_name name,
+                                 detail::site where = detail::site::here()) {
+        return edge_lines<edge>(m, detail::stated::yes, n, {0, 0}, name, where);
+    }
+
+    std::vector<weighted_edge> read_edges(long long m, int n, weight_bounds weights, detail::value_name name,
+                                          detail::site where = detail::site::here()) {
+        return edge_lines<weighted_edge>(m, detail::stated::yes, n, weights, name, where);
     }
 
     std::vector<int> read_permutation(int n, detail::value_name name,
@@ -2656,7 +2838,7 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, detail::pattern message, Args const&... args) {
+    void require(bool condition, detail::pattern_for<Args...> message, Args const&... args) {
         if (!condition) invalid(detail::value_name(unnamed), fmt(message, args...));
     }
 
@@ -2694,6 +2876,11 @@ private:
     template <class Limits>
     friend class subtask_table;
 
+
+    static void exited_early() {
+        validator* const one = detail::live_validator();
+        if (one != nullptr) one->complete();
+    }
 
     void set_group(std::string const& text) {
         detail::integer_read const parsed = detail::parse_integer(text);
@@ -2759,15 +2946,27 @@ private:
         return values;
     }
 
-    std::vector<edge> edge_lines(int count, detail::value_name const& name, detail::site where) {
-        std::vector<edge> edges;
-        edges.reserve(static_cast<std::size_t>(std::max(count, 0)));
-        for (int index = 1; index <= count; index++) {
-            int const u = whole_int(0, 0, detail::stated::deliberate, name.at(index), where);
+    template <class Edge>
+    std::vector<Edge> edge_lines(long long count, detail::stated ends, int n,
+                                 [[maybe_unused]] weight_bounds weights, detail::value_name const& name,
+                                 detail::site where) {
+        std::vector<Edge> edges;
+        edges.reserve(ends == detail::stated::yes ? from_.room_for(count, name)
+                                                  : static_cast<std::size_t>(std::max(count, 0LL)));
+        detail::value_name const weight = name.field(".w");
+        for (long long index = 1; index <= count; index++) {
+            int const u = whole_int(1, n, ends, name.at(index), where);
             read_space();
-            int const v = whole_int(0, 0, detail::stated::deliberate, name.at(index), where);
+            int const v = whole_int(1, n, ends, name.at(index), where);
+            if constexpr (std::is_same_v<Edge, weighted_edge>) {
+                read_space();
+                long long const w =
+                    whole_long(weights.low, weights.high, detail::stated::yes, weight.at(index), where);
+                edges.push_back(Edge{u, v, w});
+            } else {
+                edges.push_back(Edge{u, v});
+            }
             read_eoln();
-            edges.push_back(edge{u, v});
         }
         return edges;
     }
@@ -2827,7 +3026,7 @@ inline subtask_table<Limits>::subtask_table(validator& owner, std::vector<subtas
                 detail::library_error(
                     fmt("{}: subtask {} is listed twice", detail::where_of(where), rows_[at].group));
             if constexpr (detail::comparable<Limits>::value)
-                if (rows_[at].limits == rows_[other].limits)
+                if (rows_[at].group != 0 && rows_[other].group != 0 && rows_[at].limits == rows_[other].limits)
                     detail::warn("EO302",
                                  fmt("subtasks {} and {} have the same limits", rows_[at].group,
                                      rows_[other].group),
@@ -2855,11 +3054,13 @@ struct ignore_t {};
 struct lenient_t {};
 struct plain_t {};
 struct any_case_t {};
+struct exact_t {};
 
 inline constexpr ignore_t ignore{};
 inline constexpr lenient_t lenient{};
 inline constexpr plain_t plain{};
 inline constexpr any_case_t any_case{};
+inline constexpr exact_t exact{};
 
 enum class answers_are { unique, many };
 
@@ -2870,6 +3071,49 @@ enum class towards { smaller, larger };
 
 inline constexpr towards minimize = towards::smaller;
 inline constexpr towards maximize = towards::larger;
+
+struct tolerance {
+    double epsilon;
+};
+
+inline tolerance within(double epsilon) {
+    if (!(epsilon >= 0)) detail::library_error(fmt("eo::within needs a tolerance of 0 or more, not {}", epsilon));
+    return tolerance{epsilon};
+}
+
+enum class standing { worse, equal, better };
+
+namespace detail {
+
+inline void the_jury_has_a_number(double value) {
+    if (std::isnan(value)) judging().fail_jury(fmt("the jury's value is {}, which no answer can equal", value));
+}
+
+template <class T>
+inline void compared_exactly([[maybe_unused]] char const* call, [[maybe_unused]] site where) {
+    if constexpr (std::is_floating_point_v<T>)
+        warn("EO214", fmt("{} compares two reals with ==, so a correct answer that rounding moved is not equal", call),
+             "say how close is equal with eo::within(eps) after the direction", where);
+}
+
+}  // namespace detail
+
+template <class T>
+inline standing compare(T const& found, T const& by_the_jury, towards direction,
+                        detail::site where = detail::site::here()) {
+    detail::compared_exactly<T>("eo::compare", where);
+    if constexpr (std::is_floating_point_v<T>) detail::the_jury_has_a_number(static_cast<double>(by_the_jury));
+    if (found == by_the_jury) return standing::equal;
+    bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
+    return better ? standing::better : standing::worse;
+}
+
+inline standing compare(double found, double by_the_jury, towards direction, tolerance allowed) {
+    detail::the_jury_has_a_number(by_the_jury);
+    if (found == by_the_jury || close_enough(by_the_jury, found, allowed.epsilon)) return standing::equal;
+    bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
+    return better ? standing::better : standing::worse;
+}
 
 class checker;
 
@@ -3060,6 +3304,55 @@ public:
         return values;
     }
 
+    std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
+                                       detail::site where = detail::site::here()) {
+        if (cols < 1)
+            detail::library_error(fmt("{}: a grid on a stream has rows of at least one character, not {}",
+                                      detail::where_of(where), cols));
+        return read_tokens(rows, cols, cols, std::move(allowed), std::move(name), where);
+    }
+
+    std::vector<edge> read_edges(long long m, int n, detail::value_name name,
+                                 detail::site where = detail::site::here()) {
+        return edges_between<edge>(m, detail::stated::yes, n, {0, 0}, name, where);
+    }
+
+    std::vector<weighted_edge> read_edges(long long m, int n, weight_bounds weights, detail::value_name name,
+                                          detail::site where = detail::site::here()) {
+        return edges_between<weighted_edge>(m, detail::stated::yes, n, weights, name, where);
+    }
+
+    std::vector<edge> read_tree(int n, detail::value_name name, detail::site where = detail::site::here()) {
+        a_tree_has_a_vertex(n, where);
+        std::vector<edge> edges = edges_between<edge>(n - 1, detail::stated::deliberate, n, {0, 0}, name, where);
+        holds(is_tree(n, edges), name);
+        return edges;
+    }
+
+    std::vector<weighted_edge> read_tree(int n, weight_bounds weights, detail::value_name name,
+                                         detail::site where = detail::site::here()) {
+        a_tree_has_a_vertex(n, where);
+        std::vector<weighted_edge> edges =
+            edges_between<weighted_edge>(n - 1, detail::stated::deliberate, n, weights, name, where);
+        holds(is_tree(n, detail::endpoints(edges)), name);
+        return edges;
+    }
+
+    std::vector<edge> read_graph(int n, int m, graph_shape shape, detail::value_name name,
+                                 detail::site where = detail::site::here()) {
+        std::vector<edge> edges = edges_between<edge>(m, detail::stated::deliberate, n, {0, 0}, name, where);
+        holds(detail::shaped(n, edges, shape), name);
+        return edges;
+    }
+
+    std::vector<weighted_edge> read_graph(int n, int m, graph_shape shape, weight_bounds weights,
+                                          detail::value_name name, detail::site where = detail::site::here()) {
+        std::vector<weighted_edge> edges =
+            edges_between<weighted_edge>(m, detail::stated::deliberate, n, weights, name, where);
+        holds(detail::shaped(n, detail::endpoints(edges), shape), name);
+        return edges;
+    }
+
     bool at_eof() { return reader_.at_end(); }
     bool at_eoln() { return reader_.at_line_end(); }
 
@@ -3068,7 +3361,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void wrong(detail::pattern pattern, Args const&... args) const {
+    [[noreturn]] void wrong(detail::pattern_for<Args...> pattern, Args const&... args) const {
         reader_.refuse(detail::value_name(unnamed), fmt(pattern, args...));
     }
 
@@ -3102,6 +3395,38 @@ private:
             if (fold && detail::same_folded(found, one)) return std::string(one);
         }
         reader_.refuse(name, fmt("\"{}\" is not one of {}", detail::shorten(found), listed));
+    }
+
+    template <class Edge>
+    std::vector<Edge> edges_between(long long m, detail::stated ends, int n,
+                                    [[maybe_unused]] weight_bounds weights,
+                                    detail::value_name const& name, detail::site where) {
+        std::vector<Edge> edges;
+        edges.reserve(reader_.room_for(m, name));
+        detail::value_name const weight = name.field(".w");
+        for (long long at = 1; at <= m; at++) {
+            int const u = reader_.whole_int(1, n, ends, name.at(at), where);
+            int const v = reader_.whole_int(1, n, ends, name.at(at), where);
+            if constexpr (std::is_same_v<Edge, weighted_edge>)
+                edges.push_back(Edge{u, v,
+                                     reader_.whole_long(weights.low, weights.high, detail::stated::yes,
+                                                        weight.at(at), where)});
+            else
+                edges.push_back(Edge{u, v});
+        }
+        return edges;
+    }
+
+    static void a_tree_has_a_vertex(int n, detail::site where) {
+        if (n < 1)
+            detail::library_error(
+                fmt("{}: read_tree needs a tree of at least one vertex, not {}", detail::where_of(where), n));
+    }
+
+    void holds(check_result const& outcome, detail::value_name const& name) const {
+        if (outcome) return;
+        reader_.refuse(detail::value_name(unnamed),
+                       name.known() ? fmt("{}: {}", name.text(), outcome.message()) : outcome.message());
     }
 
     detail::reader reader_;
@@ -3155,12 +3480,14 @@ public:
         }
         detail::live_checker() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&checker::exited_early);
     }
 
     checker(checker const&) = delete;
     checker& operator=(checker const&) = delete;
 
     ~checker() noexcept(false) {
+        detail::unfinished() = nullptr;
         detail::live_checker() = nullptr;
         detail::live_scorer() = nullptr;
         detail::blaming() = nullptr;
@@ -3211,10 +3538,20 @@ public:
     }
 
     template <class T>
-    [[noreturn]] void optimum(T const& by_the_jury, T const& found, towards direction) {
+    [[noreturn]] void optimum(T const& by_the_jury, T const& found, towards direction,
+                              detail::site where = detail::site::here()) {
+        detail::compared_exactly<T>("c.optimum", where);
         if (found == by_the_jury) pass(1, fmt("{}", found));
         bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
         if (better)
+            fail_jury(fmt("the contestant's {} beats the jury's {}", found, by_the_jury));
+        fail_run(fmt("the answer is {}; the optimum is {}", found, by_the_jury));
+    }
+
+    [[noreturn]] void optimum(double by_the_jury, double found, towards direction, tolerance allowed) {
+        standing const said = compare(found, by_the_jury, direction, allowed);
+        if (said == standing::equal) pass(1, fmt("{}", found));
+        if (said == standing::better)
             fail_jury(fmt("the contestant's {} beats the jury's {}", found, by_the_jury));
         fail_run(fmt("the answer is {}; the optimum is {}", found, by_the_jury));
     }
@@ -3289,6 +3626,34 @@ public:
             while (!got.empty() && trailing_blank(got.back())) got.pop_back();
             if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
                                           detail::shorten(want)));
+        }
+    }
+
+    [[noreturn]] void lines(exact_t) {
+        compared_only_ = true;
+        long long seen = 0;
+        long long last = 0;
+        while (true) {
+            bool const jury_done = jury.inside().peek() < 0;
+            bool const output_done = output.inside().peek() < 0;
+            if (jury_done && output_done) pass(1, fmt("{} lines", last));
+            seen++;
+            std::string want = jury_done ? std::string() : jury.read_line(any, fmt("line {}", seen));
+            bool longer = false;
+            std::string got = output_done ? std::string()
+                                          : output.inside().line_up_to(want.size() + 1, longer, fmt("line {}", seen));
+            want.erase(want.find_last_not_of(" \t\r") + 1);
+            got.erase(got.find_last_not_of(" \t\r") + 1);
+            if (jury_done && (longer || !got.empty()))
+                fail_run(fmt("the answer has {} lines, the output has more", last));
+            if (output_done && !want.empty())
+                fail_run(fmt("the output ended after {} lines, the answer has more", last));
+            if (longer)
+                fail_run(fmt("line {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
+            if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                                          detail::shorten(want)));
+            if (!want.empty()) last = seen;
         }
     }
 
@@ -3368,6 +3733,12 @@ private:
     std::string contestant_token(long long seen, std::size_t longest) {
         return output.inside().take_word(fmt("token {}", seen), detail::site::here(), "a token",
                                          static_cast<long long>(longest) + 1);
+    }
+
+    static void exited_early() {
+        checker* const one = detail::live_checker();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the checker ended without a verdict: exit() was called, or the checker was never destroyed");
     }
 
     static void write_log(std::string const& verdict) {
@@ -3547,6 +3918,7 @@ public:
         contestant.inside().on_end("the solution ended the dialogue early");
         detail::live_interactor() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&interactor::exited_early);
     }
 
     interactor(interactor const&) = delete;
@@ -3554,6 +3926,7 @@ public:
 
     ~interactor() noexcept(false) {
         detail::restore_channels afterwards;
+        detail::unfinished() = nullptr;
         detail::live_interactor() = nullptr;
         detail::live_scorer() = nullptr;
         detail::current_case() = 0;
@@ -3655,6 +4028,12 @@ public:
 private:
 
     static void flush_from(void* owner) { static_cast<interactor*>(owner)->waiting_and_flush(); }
+
+    static void exited_early() {
+        interactor* const one = detail::live_interactor();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the interactor ended without a verdict: exit() was called, or the interactor was never destroyed");
+    }
 
     static void say(std::string const& text) {
         std::fwrite(text.data(), 1, text.size(), stderr);
@@ -3799,7 +4178,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void finish(detail::scored fraction, detail::pattern pattern = "", Args const&... args) {
+    [[noreturn]] void finish(detail::scored fraction, detail::pattern_for<Args...> pattern = "", Args const&... args) {
         if (number_ >= count_) owner_->pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
         finished_ = true;
         share_ = detail::clamped(fraction.value, fraction.where);
@@ -4024,6 +4403,7 @@ public:
                           "answer.txt");
         detail::live_controller() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&controller::exited_early);
     }
 
     controller(controller const&) = delete;
@@ -4031,6 +4411,7 @@ public:
 
     ~controller() noexcept(false) {
         detail::restore_channels afterwards;
+        detail::unfinished() = nullptr;
         detail::live_controller() = nullptr;
         detail::live_scorer() = nullptr;
         detail::current_case() = 0;
@@ -4139,6 +4520,12 @@ private:
     friend class channel;
 
     static void flush_from(void* owner) { static_cast<controller*>(owner)->flush_everything(); }
+
+    static void exited_early() {
+        controller* const one = detail::live_controller();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the controller ended without a verdict: exit() was called, or the controller was never destroyed");
+    }
 
     static void say(std::string const& text) {
         std::fwrite(text.data(), 1, text.size(), stderr);
@@ -4263,7 +4650,14 @@ struct declared_option {
     std::string kind;
     std::string range;
     std::string fallback;
+    bool optional = false;
 };
+
+template <class T>
+struct is_optional : std::false_type {};
+
+template <class T>
+struct is_optional<std::optional<T>> : std::true_type {};
 
 inline bool looks_like_a_seed(std::string const& word) {
     if (word.size() != 16) return false;
@@ -4277,6 +4671,8 @@ inline bool looks_like_a_seed(std::string const& word) {
 class generator {
 public:
     generator(int argc, char** argv, detail::site where = detail::site::here()) {
+        detail::log_file() = stderr;
+        detail::emitter() = &generator::say;
         if (detail::live_generator() != nullptr)
             detail::library_error(fmt("{}: this program already has a generator", detail::where_of(where)));
         detail::diagnostics::shared().start_the_clock("EO504", "generator", 60000, where);
@@ -4303,24 +4699,19 @@ public:
         std::fflush(stdout);
         struct stat towards {};
         if (::fstat(1, &towards) == 0 && S_ISREG(towards.st_mode)) started_ = ::lseek(1, 0, SEEK_CUR);
-        detail::log_file() = stderr;
-        detail::emitter() = &generator::say;
         out.owner_ = this;
         detail::live_generator() = this;
+        detail::close_on_exit(&generator::exited_early);
     }
 
     generator(generator const&) = delete;
     generator& operator=(generator const&) = delete;
 
     ~generator() noexcept(false) {
-        detail::restore_channels afterwards;
+        detail::unfinished() = nullptr;
         detail::live_generator() = nullptr;
         if (std::uncaught_exceptions() != 0) return;
-        out.flush();
-        if (describing_) describe();
-        every_option_was_asked_for();
-        closing_warnings();
-        detail::diagnostics::shared().emit();
+        wrap_up();
     }
 
     template <class T>
@@ -4340,6 +4731,16 @@ public:
         std::string const* const found = look(name);
         if (found == nullptr) return fallback;
         return bounded<T>(name, *found, low, high, where);
+    }
+
+    template <class T, class = std::enable_if_t<detail::is_optional<T>::value>>
+    [[nodiscard]] T option(std::string name, typename T::value_type low, typename T::value_type high,
+                           detail::site where = detail::site::here()) {
+        using value = typename T::value_type;
+        declare(name, kind_of<value>(), fmt("{}..{}", low, high), "", true);
+        std::string const* const found = look(name);
+        if (found == nullptr) return std::nullopt;
+        return bounded<value>(name, *found, low, high, where);
     }
 
     template <class T>
@@ -4371,8 +4772,8 @@ public:
     }
 
     template <class... Args>
-    void require(bool condition, detail::pattern pattern, Args const&... args) {
-        if (!condition) refuse(fmt(pattern, args...));
+    void require(bool condition, detail::pattern_for<Args...> pattern, Args const&... args) {
+        if (!condition) detail::finish(4, fmt(pattern, args...));
     }
 
     eo::rng& rng(std::string label = "") {
@@ -4391,6 +4792,8 @@ public:
         void line(Args const&... values) {
             bool first = true;
             (add(values, first), ...);
+            held_.resize(held_.size() - trailing_);
+            trailing_ = 0;
             held_.push_back('\n');
             if (held_.size() >= 1u << 20) flush();
         }
@@ -4403,7 +4806,7 @@ public:
         }
 
         void flush() {
-            if (held_.empty()) return;
+            if (held_.empty() || !owner_->every_argument_is_declared()) return;
             if (!owner_->describing_) std::fwrite(held_.data(), 1, held_.size(), stdout);
             owner_->written_ += static_cast<long long>(held_.size());
             held_.clear();
@@ -4417,10 +4820,13 @@ public:
             if constexpr (detail::is_a_list<T>::value && !std::is_convertible_v<T const&, std::string_view>) {
                 for (auto const& one : value) {
                     add(one, first);
-                    if (held_.size() >= 1u << 20) flush();
+                    if (held_.size() >= 1u << 20 && trailing_ == 0) flush();
                 }
             } else {
+                std::size_t const separator = first ? 0 : 1;
+                std::size_t const before = held_.size();
                 detail::add_to_line(held_, value, first);
+                trailing_ = held_.size() == before + separator ? trailing_ + separator : 0;
             }
         }
 
@@ -4431,6 +4837,7 @@ public:
 
         generator* owner_ = nullptr;
         std::string held_;
+        std::size_t trailing_ = 0;
     };
 
     sheet out;
@@ -4455,12 +4862,28 @@ private:
         std::fflush(stderr);
     }
 
+    static void exited_early() {
+        generator* const one = detail::live_generator();
+        if (one != nullptr) one->wrap_up();
+    }
+
+    void wrap_up() {
+        if (wrapped_) return;
+        wrapped_ = true;
+        every_option_was_asked_for();
+        out.flush();
+        if (describing_) describe();
+        closing_warnings();
+        detail::diagnostics::shared().emit();
+    }
+
     [[noreturn]] void refuse(std::string const& message) { detail::finish(3, message); }
 
-    void declare(std::string const& name, char const* kind, std::string range, std::string fallback) {
+    void declare(std::string const& name, char const* kind, std::string range, std::string fallback,
+                 bool optional = false) {
         for (detail::declared_option const& one : shape_)
             if (one.name == name) return;
-        shape_.push_back({name, kind, std::move(range), std::move(fallback)});
+        shape_.push_back({name, kind, std::move(range), std::move(fallback), optional});
     }
 
     std::string const* look(std::string const& name) {
@@ -4496,6 +4919,14 @@ private:
         for (char const* one : choices)
             if (text == one) return T(one);
         refuse(fmt("-{}={} is not one of {}", name, text, listed(choices)));
+    }
+
+    bool every_argument_is_declared() {
+        if (declared_ || describing_) return true;
+        for (auto const& one : given_)
+            if (one.first != "seed" && asked_.count(one.first) == 0) return false;
+        declared_ = true;
+        return true;
     }
 
     void every_option_was_asked_for() {
@@ -4538,14 +4969,15 @@ private:
     void describe() {
         std::string said;
         for (detail::declared_option const& one : shape_)
-            said += fmt("eo-describe option {} {} {}{}\n", one.name, one.kind, one.range,
-                        one.fallback.empty() ? "" : " default=" + one.fallback);
+            said += fmt("eo-describe option {} {} {}{}{}\n", one.name, one.kind, one.range,
+                        one.fallback.empty() ? "" : " default=" + one.fallback, one.optional ? " optional" : "");
         std::fwrite(said.data(), 1, said.size(), stdout);
         std::fflush(stdout);
     }
 
     friend class sheet;
 
+    detail::restore_channels channels_;
     std::map<std::string, std::string> given_;
     std::set<std::string> asked_;
     std::vector<detail::declared_option> shape_;
@@ -4557,6 +4989,8 @@ private:
     bool drew_ = false;
     bool describing_ = false;
     bool checked_ = false;
+    bool declared_ = false;
+    bool wrapped_ = false;
     bool used_the_default_ = false;
     bool used_a_label_ = false;
     detail::site where_of_run_{"generator", 0};
@@ -4564,4 +4998,5 @@ private:
 
 }  // namespace eo
 
+#endif
 #endif

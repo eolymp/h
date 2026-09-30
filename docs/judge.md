@@ -8,13 +8,13 @@ and is written in Go with no dependencies beyond the standard library.
 for Linux and macOS on amd64 and arm64, with a `SHA256SUMS` file to check them against:
 
 ```bash
-curl -LO https://github.com/eolymp/h/releases/download/judge/v2.1.0/eo-judge-linux-amd64
-curl -LO https://github.com/eolymp/h/releases/download/judge/v2.1.0/SHA256SUMS
+curl -LO https://github.com/eolymp/h/releases/download/judge/v2.2.0/eo-judge-linux-amd64
+curl -LO https://github.com/eolymp/h/releases/download/judge/v2.2.0/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 install -m 755 eo-judge-linux-amd64 ~/.local/bin/eo-judge
 ```
 
-With Go 1.23 or later, `go install github.com/eolymp/h/judge/v2@v2.1.0` builds the same
+With Go 1.23 or later, `go install github.com/eolymp/h/judge/v2@v2.2.0` builds the same
 program from the tag; the `/v2` is Go's rule for a module at major version 2, and Go names the
 binary `judge` after its directory. In a checkout, `make build/eo-judge`
 writes `build/eo-judge`, and `make judge` runs gofmt, go vet and the eo-judge tests.
@@ -104,6 +104,7 @@ because the two have disagreed before:
 | exit 0 accepted, 1 and 2 wrong answer, **7** a fraction, anything else a system failure | agent `internal/judge/checker/program.go` |
 | the environment a checker is given: `EOLYMP`, `INPUT_FILE`, `OUTPUT_FILE`, `ANSWER_FILE`, `TEST_ID`, `TEST_COST`, `TEST_INDEX`, `TEST_GROUP` | the same file |
 | an interactor's arguments and environment: the input, the output, and the answer only when the test has one; the run's metadata merged in; a limit of the solution's plus a second | agent `internal/judge/runner/script.go`, `interact()` |
+| a validator's input: the test's path, `--group <testset index>`, and the test again on stdin, so a validator that reads stdin, as testlib's do, sees it | the judge's validator run, as [validator.md](validator.md#how-the-judge-runs-it) describes it |
 | `readPoints`, which scans the log for the word `points` and then a float | copied verbatim from the same file, and a test diffs the copy against `origin/main` |
 | an interactor's exit code: 0 runs the checker, 1 and 2 are a wrong answer, anything else an interaction failure — but only once the solution's own run completed, so a crash is never excused | agent `internal/judge/runner/script.go`, `run()`; the rule that forgives a broken pipe lives in `communicate()` and applies to COMMUNICATION only |
 | the ICPC stop, which trips on a wrong answer worth **zero** and not on a partial score | agent `internal/judge/admissioner/showstopper.go` |
@@ -302,12 +303,12 @@ here and break there, or the other way round; give such a solution `TIMEOUT_OR_A
 ## JSON
 
 With `--json`, `run`, `check` and `lint` print nothing on stdout but one object, and the exit
-code is the same as without it; `version --json` prints `{"version": "2.1.0"}`, and `init`
+code is the same as without it; `version --json` prints `{"version": "2.2.0"}`, and `init`
 refuses the flag:
 
 ```json
 {
-  "version": "2.1.0",
+  "version": "2.2.0",
   "problem": "tests/live/degrees",
   "invalid": [{"group": 1, "test": 2, "why": "line 1, n: 1 is below 2"}],
   "attempts": [
@@ -348,7 +349,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: eolymp/h@v2.1.0
+      - uses: eolymp/h@v2.2.0
         with:
           problem: problems/degrees
           expect: true

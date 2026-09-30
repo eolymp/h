@@ -35,6 +35,8 @@ struct seen_bounds {
     bool steady;
     long long whole_low = 0;
     long long whole_high = 0;
+    long long last_whole = 0;
+    bool read_whole = false;
     double exact_low = 0;
     double exact_high = 0;
 };
@@ -165,9 +167,14 @@ public:
         }
         if (parsed.value < type_low || parsed.value > type_high)
             refuse(name, fmt("{} does not fit {}", parsed.value, type_word));
-        if (bounds == stated::yes)
+        if (bounds == stated::yes) {
             remember(name, "int", low, high, parsed.value == low, parsed.value == high,
                      where);
+            if (name.known()) {
+                last_bounds_->last_whole = parsed.value;
+                last_bounds_->read_whole = true;
+            }
+        }
         return parsed.value;
     }
 
@@ -382,13 +389,21 @@ public:
         if ((low < type_low || high > type_high) && fresh("EO105", where))
             warn("EO105", fmt("the bounds {}..{} do not fit {}", low, high, type_word), "read a wider type",
                  where);
-        if ((nearly_round(high) || nearly_round(low)) && fresh("EO106", where))
+        if (((nearly_round(high) && !read_before(high)) || (nearly_round(low) && !read_before(low))) &&
+            fresh("EO106", where))
             note("EO106", fmt("the bounds {}..{} are one away from a round number", low, high),
                  "compare them with the statement", where);
     }
 
 private:
     static bool fresh(char const* code, site where) { return !diagnostics::shared().again(code, where); }
+
+    bool read_before(long long bound) const {
+        for (auto const& one : bounds_)
+            if (one.second.read_whole && one.second.last_whole >= bound - 1 && one.second.last_whole <= bound + 1)
+                return true;
+        return false;
+    }
 
     char const* verdict_word() const {
         if (whose_ == fault::wrong_answer) return "wrong answer: ";

@@ -40,6 +40,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make -j"$(nproc)" check
 
+  gcc9:
+    runs-on: ubuntu-latest
+    container: gcc:9
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make -j"$(nproc)" test hostile examples
+
   macos:
     runs-on: macos-latest
     steps:
@@ -93,7 +100,7 @@ jobs:
       - run: make mutants
 
   release:
-    needs: [ linux, musl, macos, judge, sanitize, mutants ]
+    needs: [ linux, musl, gcc9, macos, judge, sanitize, mutants ]
     if: github.repository == 'eolymp/h' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     concurrency:

@@ -48,7 +48,8 @@ Include the header before anything else, because organiser code sometimes contai
 #include <eolymp.h>
 ```
 
-It needs C++17 and builds unchanged as C++20 and C++23.
+It needs C++17 and builds unchanged as C++20 and C++23; below C++17 it stops at one
+`#error` that says so.
 
 **The checker attaches nothing.** The judge's C++ runtime carries the header at
 `/usr/include/eolymp.h`, so the angle-bracket `#include` finds it.
@@ -143,6 +144,20 @@ Bounds are inclusive, and come first; the name is last.
 | `s.read_longs(count, low, high, name)` | the same, 64-bit |
 | `s.read_reals(count, low, high, name)` | `count` real numbers |
 | `s.read_tokens(count, least, most, eo::charset("a-z"), name)` | `count` tokens |
+| `s.read_grid(rows, cols, eo::charset(".#"), name)` | `rows` tokens of exactly `cols` characters, as `std::vector<std::string>` |
+| `s.read_edges(m, n, name)` | `m` edges, each two vertices in `[1, n]`, as `std::vector<eo::edge>` |
+| `s.read_edges(m, n, eo::weighted(low, high), name)` | the same with a weight in `[low, high]` after each, as `std::vector<eo::weighted_edge>` |
+| `s.read_tree(n, name)` | `n - 1` edges that form a tree on 1..n |
+| `s.read_graph(n, m, eo::simple \| eo::connected, name)` | `m` edges on 1..n with those properties; `eo::any_graph` for neither |
+
+On a stream a grid's rows are tokens, so any whitespace may separate them, a row cannot hold a
+space, and a row cannot be empty: asking for rows of 0 characters is a jury error. The
+validator reads the same grid line by line.
+
+`read_tree` and `read_graph` check what the validator's check, with the same messages, and
+blame the stream: a contestant's cycle is `wrong answer: output.txt, line 2: edge: edges 1
+and 2 are both (1, 2)`, and the same in the answer file is a jury error. Each of the three edge
+reads takes `eo::weighted(low, high)` before the name for a weight on every edge.
 
 `eo::any` replaces the bounds where a value really may be anything its type holds:
 `read_long(eo::any, "sum")`, `read_ints(n, eo::any, "a")`, `read_line(eo::any, "rest")`.
@@ -233,7 +248,15 @@ test that carries no points — a sample, a stress run — any score, 0 included
 test's cost of 0, so the judge counts the run as accepted; the library says so with warning
 EO208. An answer that earns nothing should end with `eo::wrong`.
 
-**Every path must end in a verdict.** Returning from `main` without one is a jury error.
+**Every path must end in a verdict.** Returning from `main` without one is a jury error, and so
+is calling `std::exit` or `std::quick_exit` before one, whatever the code: an `exit(1)` meant as
+a wrong answer or an `exit(7)` meant as points is a jury error too, and so is a checker that is
+never destroyed, one made with `new` or kept past `main`. The log says `jury error the checker
+ended without a verdict: exit() was called, or the checker was never destroyed`. `std::_Exit`
+and `std::abort` end a program without running anything, so the library cannot see them; an
+`_Exit(0)` still reads as an accept, and must not be written. `std::quick_exit` is caught where
+the C library offers `at_quick_exit`, as glibc and musl do, so on the judge; macOS has none, and
+there a `quick_exit(0)` still reads as an accept.
 
 ## The log
 
@@ -247,7 +270,7 @@ a line that ends in a space
 
 and a blank line above
 n = 3
-eolymp.h 2.1.0
+eolymp.h 2.2.0
 ```
 
 Either of those lines would kill the parse if it reached the log before the verdict. Print
@@ -294,6 +317,42 @@ report a jury-side problem as a jury error.
 
 `eo::maximize` is the other direction.
 
+**A real optimum needs a tolerance.** `c.optimum(by_the_jury, found, eo::minimize)` compares
+with `==`, so a contestant whose 0.30000000000000004 is the jury's 0.3 is not equal, and is
+either a wrong answer or, when the rounding went the other way, a jury error. It still does
+exactly that, because a verdict does not change within a major version, and says so with
+warning EO214 at your line. Say how close is equal:
+
+```cpp
+c.optimum(by_the_jury, found, eo::minimize, eo::within(1e-6));
+```
+
+Two reals are equal within `eo::within(eps)` when they differ by at most `eps`, or by at most
+`eps` times the jury's value: the rule of `eo::close_enough` and `c.reals(eps)`. Outside it the
+three outcomes are those above.
+
+**The comparison on its own** is `eo::compare(found, by_the_jury, direction)`, which returns
+`eo::standing::better`, `equal` or `worse` for the contestant and ends nothing, for a checker
+that scores what it finds rather than accepting or rejecting it. For reals it takes the same
+`eo::within(eps)` after the direction:
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    double by_the_jury = c.jury.read_real(0, 1e9, "length");
+    double found = c.output.read_real(0, 1e9, "length");
+    eo::standing said = eo::compare(found, by_the_jury, eo::minimize, eo::within(1e-6));
+    if (said == eo::standing::better) eo::jury_error("the contestant's {} beats the jury's {}", found, by_the_jury);
+    if (said == eo::standing::equal) eo::accept("{}", found);
+    eo::score(by_the_jury / found, "{} against the optimum {}", found, by_the_jury);
+}
+```
+
+Mind the order: `eo::compare` puts the contestant's value first and says how it stands against
+the jury's, while `c.optimum` and `eo::close_enough` put the jury's first.
+
 ## Declaring how many answers there are
 
 ```cpp
@@ -312,10 +371,17 @@ Each of these gives the verdict and ends the program.
 | Call | Accepts when |
 | --- | --- |
 | `c.tokens()` | the output has exactly the answer's tokens, in order; whitespace does not matter, letter case does |
-| `c.lines()` | the output has the answer's lines, ignoring trailing spaces, tabs and carriage returns |
+| `c.lines()` | the output has the answer's non-blank lines, in order, compared without the spaces, tabs and carriage returns at the start and the end of each line; blank lines are skipped on both sides, and spacing inside a line counts |
+| `c.lines(eo::exact)` | line k of the output is line k of the answer, blank lines and the blanks that start a line included; only the spaces, tabs and carriage returns that end a line, and the blank lines that end a file, are ignored |
 | `c.reals(eps)` | token by token: numbers agree within an absolute or relative error of `eps`, other tokens are equal; a token longer than 4096 characters and than the answer's is wrong |
 | `c.yes_no(certificate)` | a `YES`/`NO` answer, with a certificate after `YES` |
 | `c.yes_no(certificate, "POSSIBLE", "IMPOSSIBLE")` | the same with other words |
+
+**`c.lines()` forgives more than it looks.** It skips every blank line and the indentation of
+every line, on both sides, so `a`, a blank line and `b` is accepted for `a` and `b`, and ` *`
+for `*`. That is kept as it is, because changing it would reject runs it accepts today. When
+blank lines or indentation are part of the answer — a grid with empty rows, a drawing, a
+pretty-printed tree — use `c.lines(eo::exact)`.
 
 Eolymp also has built-in `TOKENS` and `LINES` checkers that need no program at all. Use them
 when they are enough — but note that the built-in `TOKENS` fails with a system failure on a
@@ -372,6 +438,83 @@ inside it:
 wrong answer: case 2: output.txt, line 1, answer: expected an integer, found "x"
 ```
 
+## Recipes
+
+Three checkers authors keep asking for, each a whole program.
+
+**Partial credit for the right value with a bad certificate.** The task: the fewest steps from
+city 1 to city `n`, and a route that takes them. The value alone earns half; the value and a
+real route earn everything.
+
+```cpp
+#include <eolymp.h>
+
+#include <set>
+#include <string>
+#include <utility>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    int n = c.input.read_int(2, 100000, "n");
+    int m = c.input.read_int(1, 200000, "m");
+    std::set<std::pair<int, int>> joined;
+    for (eo::edge const& road : c.input.read_edges(m, n, "road")) {
+        joined.insert({road.u, road.v});
+        joined.insert({road.v, road.u});
+    }
+    int fewest = c.jury.read_int(1, n - 1, "steps");
+    c.jury.skip_rest("the jury's own route is not needed to grade this one");
+    int steps = c.output.read_int(1, n - 1, "steps");
+    std::vector<int> route = c.output.read_ints(steps + 1, 1, n, "route");
+    std::string broken;
+    if (route.front() != 1 || route.back() != n) broken = eo::fmt("the route does not go from 1 to {}", n);
+    for (int at = 0; broken.empty() && at < steps; at++)
+        if (joined.count({route[at], route[at + 1]}) == 0)
+            broken = eo::fmt("{} and {} are not joined", route[at], route[at + 1]);
+    if (broken.empty() && steps < fewest)
+        eo::jury_error("a route of {} steps exists, and the jury's fewest is {}", steps, fewest);
+    if (steps != fewest) eo::wrong("{} steps, and the fewest is {}", steps, fewest);
+    if (!broken.empty()) eo::score(eo::ratio(1, 2), "{} steps is right; {}", steps, broken);
+    eo::accept("{} steps", steps);
+}
+```
+
+A route that is not even well formed, a city outside 1..n or too few numbers, is still a wrong
+answer, from the read itself; only a well-formed route that breaks a rule earns the half. A real
+route with fewer steps than the jury's is a jury error, because the jury's answer is then wrong. The
+half pays only in a testset scored `EACH` or `WORST` (§Verdicts and scores).
+
+**An optimum that is a real number.** The contestant's value equals the jury's within `1e-6`,
+absolutely or relatively; better is a jury error and worse a wrong answer:
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    double by_the_jury = c.jury.read_real(0, 1e9, "cost");
+    double found = c.output.read_real(0, 1e9, "cost");
+    c.optimum(by_the_jury, found, eo::minimize, eo::within(1e-6));
+}
+```
+
+**A tolerance on one side only.** When the jury's value is itself approximate, from a heuristic
+or a numeric method, a contestant who beats it is not a jury error: accept anything that is not
+worse than it by more than the tolerance.
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    double by_the_jury = c.jury.read_real(0, 1e9, "area");
+    double found = c.output.read_real(0, 1e9, "area");
+    if (eo::compare(found, by_the_jury, eo::maximize, eo::within(1e-6)) == eo::standing::worse)
+        eo::wrong("the area is {}, and {} can be reached", found, by_the_jury);
+    eo::accept("the area is {}", found);
+}
+```
+
 ## Warnings
 
 A warning is about the problem, not about one run, and **it never changes a verdict**. Each
@@ -403,6 +546,7 @@ machine-readable `eo-report` line.
 | EO211 | the checker runs as the legacy type (a note) |
 | EO212 | the problem declares `eo::many`, but the checker only compares with the jury |
 | EO213 | on the judge, `TEST_COST` is missing or not a number, so the cost is a guess |
+| EO214 | `c.optimum` or `eo::compare` compared two reals with `==`; give it `eo::within(eps)` |
 
 `EOLYMP_STRICT=1` turns every warning into a jury error while you prepare a problem. Notes
 stay notes. State the intent where there is a way to — `eo::any`, `eo::unnamed`,
@@ -428,7 +572,8 @@ Still missing:
 | `c.read_both(reader)` | reads the jury's answer, then the output, with one function |
 | `c.answers(eo::unique)`, `c.answers(eo::many)` | how many answers are correct |
 | `c.optimum(by_the_jury, found, eo::minimize)`, `eo::maximize` | compare and end |
-| `c.tokens()`, `c.lines()`, `c.reals(eps)`, `c.yes_no(certificate)` | ready-made comparisons |
+| `c.optimum(by_the_jury, found, eo::minimize, eo::within(eps))` | the same for reals, equal within `eps` |
+| `c.tokens()`, `c.lines()`, `c.lines(eo::exact)`, `c.reals(eps)`, `c.yes_no(certificate)` | ready-made comparisons |
 | `c.cost()`, `c.group()`, `c.index()`, `c.test_id()` | the test |
 | `c.cases(t, body)` | numbers the messages of a multi-test output |
 
@@ -436,7 +581,8 @@ Still missing:
 | --- | --- |
 | `read_int`, `read_long`, `read_real` | numbers |
 | `read_token`, `read_line`, `read_choice` | text |
-| `read_ints`, `read_longs`, `read_reals`, `read_tokens` | several values |
+| `read_ints`, `read_longs`, `read_reals`, `read_tokens`, `read_grid` | several values |
+| `read_edges(m, n, name)`, `read_tree(n, name)`, `read_graph(n, m, flags, name)` | an edge list, a tree, a graph; `eo::weighted(low, high)` before the name adds weights |
 | `at_eof()`, `at_eoln()` | look ahead, skipping whitespace |
 | `wrong(…)` | a verdict blamed on this stream |
 | `numbers(eo::lenient)`, `reals(eo::plain)` | number syntax |
@@ -448,6 +594,7 @@ Still missing:
 | `eo::accept`, `eo::wrong`, `eo::score`, `eo::points`, `eo::jury_error` | end with a verdict |
 | `eo::ratio(a, b)`, `eo::round_to(d)` | an exact fraction, and rounding |
 | `eo::close_enough(expected, found, eps)` | compare reals |
+| `eo::compare(found, by_the_jury, direction)`, `(…, eo::within(eps))` | `eo::standing::better`, `equal` or `worse`, ending nothing |
 | `eo::fmt("…", args)`, `eo::log("…", args)` | build a string, write a line to the log |
 | `eo::any`, `eo::unnamed`, `eo::charset("a-z")` | no bounds, no name, allowed characters |
 | `eo::element(name, index)` | names one element of a sequence, without a coverage entry of its own |

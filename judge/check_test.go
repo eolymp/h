@@ -164,6 +164,36 @@ func judgeAll(t *testing.T, shop *Workspace) map[string]*Attempt {
 	return out
 }
 
+func TestAValidatorThatReadsStdinGetsTheTestThere(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "validator.cpp"), "#include <cstdio>\n"+
+		"int main() {\n"+
+		"    int n = 0;\n"+
+		"    if (std::scanf(\"%d\", &n) != 1) { std::puts(\"no n on stdin\"); return 1; }\n"+
+		"    return n == 7 ? 0 : 1;\n}\n")
+	writeFile(t, filepath.Join(dir, "01.in"), "7\n")
+	writeFile(t, filepath.Join(dir, "01.ans"), "7\n")
+	writeFile(t, filepath.Join(dir, "problem.json"), `{"type": "PROGRAM",
+		"validator": {"source": "validator.cpp"},
+		"testsets": [{"index": 1, "tests": [{"index": 1, "score": 100, "input": "01.in", "answer": "01.ans"}]}]}`)
+	shop := workshop(t, dir)
+	ctx := context.Background()
+	if err := shop.Generate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := shop.Validate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, made := range shop.sorted() {
+		if !made.Valid || made.Why != "" {
+			t.Errorf("test %d:%d: valid %v, %q; the judge gives the validator the test on stdin too",
+				made.Group, made.Test.Index, made.Valid, made.Why)
+		}
+	}
+}
+
 func TestTheCopiedPointsParserMatchesTheAgent(t *testing.T) {
 	t.Parallel()
 	agent := os.Getenv("AGENT_REPO")
@@ -484,6 +514,65 @@ func TestCheckFindsAnInteractorThatFailsOnABadClient(t *testing.T) {
 		if !blamed[client] {
 			t.Errorf("EO814 did not fire for %s: %v", client, found)
 		}
+	}
+}
+
+func TestCheckTriesAnOptionExtremeWithEveryTestsArguments(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	found, err := workshop(t, "testdata/dependent").Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var extremes []string
+	for _, one := range found {
+		if one.Code == "EO813" {
+			extremes = append(extremes, one.Where+": "+one.Message)
+		}
+	}
+	if len(extremes) != 0 {
+		t.Errorf("EO813 said %q; m=1000 generates with -n=1000, and n=1 is refused by g.require, not broken", extremes)
+	}
+}
+
+func TestCheckStillBlamesAnExtremeThatFailsForAnotherReason(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs.txt")
+	writeFile(t, filepath.Join(dir, "gen.cpp"), "#include <cstdio>\n#include <cstring>\n"+
+		"int main(int argc, char** argv) {\n"+
+		"    if (argc > 1 && std::strcmp(argv[1], \"--eo-describe\") == 0) {\n"+
+		"        std::printf(\"eo-describe option n an integer 1..9\\n\");\n        return 0;\n    }\n"+
+		"    if (argc > 1 && std::strcmp(argv[1], \"-n=9\") == 0) {\n"+
+		"        std::FILE* ran = std::fopen(\""+runs+"\", \"a\");\n"+
+		"        std::fputs(\"n=9\\n\", ran);\n        std::fclose(ran);\n"+
+		"        std::fprintf(stderr, \"n is 9\\n\");\n        return 3;\n    }\n"+
+		"    if (argc > 1 && std::strcmp(argv[1], \"-n=1\") == 0) { std::fprintf(stderr, \"too few\\n\"); return 4; }\n"+
+		"    std::printf(\"1\\n\");\n}\n")
+	writeFile(t, filepath.Join(dir, "answer.cpp"), "int main() {}\n")
+	writeFile(t, filepath.Join(dir, "problem.json"), `{"type": "PROGRAM",
+		"scripts": {"gen": {"source": "gen.cpp"}, "answer": {"source": "answer.cpp"}},
+		"testsets": [{"index": 1, "tests": [
+			{"index": 1, "score": 40, "generator": {"script": "gen", "arguments": ["-n=5", "-k=1"]}, "answerGenerator": "answer"},
+			{"index": 2, "score": 30, "generator": {"script": "gen", "arguments": ["-n=5", "-k=2"]}, "answerGenerator": "answer"},
+			{"index": 3, "score": 30, "generator": {"script": "gen", "arguments": ["-n=6", "-k=3"]}, "answerGenerator": "answer"}]}]}`)
+	found, err := workshop(t, dir).Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var extremes []string
+	for _, one := range found {
+		if one.Code == "EO813" {
+			extremes = append(extremes, one.Message)
+		}
+	}
+	if len(extremes) != 1 || extremes[0] != "n=9 does not generate: exit 3: n is 9" {
+		t.Errorf("EO813 said %q; n=9 fails with exit 3, and n=1 is only refused with exit 4", extremes)
+	}
+	ran, err := os.ReadFile(runs)
+	if err != nil || string(ran) != "n=9\n" {
+		t.Errorf("the failing extreme ran %q; one failure other than exit 4 is reported at once", ran)
 	}
 }
 

@@ -33,11 +33,13 @@ struct ignore_t {};
 struct lenient_t {};
 struct plain_t {};
 struct any_case_t {};
+struct exact_t {};
 
 inline constexpr ignore_t ignore{};
 inline constexpr lenient_t lenient{};
 inline constexpr plain_t plain{};
 inline constexpr any_case_t any_case{};
+inline constexpr exact_t exact{};
 
 enum class answers_are { unique, many };
 
@@ -48,6 +50,49 @@ enum class towards { smaller, larger };
 
 inline constexpr towards minimize = towards::smaller;
 inline constexpr towards maximize = towards::larger;
+
+struct tolerance {
+    double epsilon;
+};
+
+inline tolerance within(double epsilon) {
+    if (!(epsilon >= 0)) detail::library_error(fmt("eo::within needs a tolerance of 0 or more, not {}", epsilon));
+    return tolerance{epsilon};
+}
+
+enum class standing { worse, equal, better };
+
+namespace detail {
+
+inline void the_jury_has_a_number(double value) {
+    if (std::isnan(value)) judging().fail_jury(fmt("the jury's value is {}, which no answer can equal", value));
+}
+
+template <class T>
+inline void compared_exactly([[maybe_unused]] char const* call, [[maybe_unused]] site where) {
+    if constexpr (std::is_floating_point_v<T>)
+        warn("EO214", fmt("{} compares two reals with ==, so a correct answer that rounding moved is not equal", call),
+             "say how close is equal with eo::within(eps) after the direction", where);
+}
+
+}  // namespace detail
+
+template <class T>
+inline standing compare(T const& found, T const& by_the_jury, towards direction,
+                        detail::site where = detail::site::here()) {
+    detail::compared_exactly<T>("eo::compare", where);
+    if constexpr (std::is_floating_point_v<T>) detail::the_jury_has_a_number(static_cast<double>(by_the_jury));
+    if (found == by_the_jury) return standing::equal;
+    bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
+    return better ? standing::better : standing::worse;
+}
+
+inline standing compare(double found, double by_the_jury, towards direction, tolerance allowed) {
+    detail::the_jury_has_a_number(by_the_jury);
+    if (found == by_the_jury || close_enough(by_the_jury, found, allowed.epsilon)) return standing::equal;
+    bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
+    return better ? standing::better : standing::worse;
+}
 
 class checker;
 
@@ -238,6 +283,55 @@ public:
         return values;
     }
 
+    std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
+                                       detail::site where = detail::site::here()) {
+        if (cols < 1)
+            detail::library_error(fmt("{}: a grid on a stream has rows of at least one character, not {}",
+                                      detail::where_of(where), cols));
+        return read_tokens(rows, cols, cols, std::move(allowed), std::move(name), where);
+    }
+
+    std::vector<edge> read_edges(long long m, int n, detail::value_name name,
+                                 detail::site where = detail::site::here()) {
+        return edges_between<edge>(m, detail::stated::yes, n, {0, 0}, name, where);
+    }
+
+    std::vector<weighted_edge> read_edges(long long m, int n, weight_bounds weights, detail::value_name name,
+                                          detail::site where = detail::site::here()) {
+        return edges_between<weighted_edge>(m, detail::stated::yes, n, weights, name, where);
+    }
+
+    std::vector<edge> read_tree(int n, detail::value_name name, detail::site where = detail::site::here()) {
+        a_tree_has_a_vertex(n, where);
+        std::vector<edge> edges = edges_between<edge>(n - 1, detail::stated::deliberate, n, {0, 0}, name, where);
+        holds(is_tree(n, edges), name);
+        return edges;
+    }
+
+    std::vector<weighted_edge> read_tree(int n, weight_bounds weights, detail::value_name name,
+                                         detail::site where = detail::site::here()) {
+        a_tree_has_a_vertex(n, where);
+        std::vector<weighted_edge> edges =
+            edges_between<weighted_edge>(n - 1, detail::stated::deliberate, n, weights, name, where);
+        holds(is_tree(n, detail::endpoints(edges)), name);
+        return edges;
+    }
+
+    std::vector<edge> read_graph(int n, int m, graph_shape shape, detail::value_name name,
+                                 detail::site where = detail::site::here()) {
+        std::vector<edge> edges = edges_between<edge>(m, detail::stated::deliberate, n, {0, 0}, name, where);
+        holds(detail::shaped(n, edges, shape), name);
+        return edges;
+    }
+
+    std::vector<weighted_edge> read_graph(int n, int m, graph_shape shape, weight_bounds weights,
+                                          detail::value_name name, detail::site where = detail::site::here()) {
+        std::vector<weighted_edge> edges =
+            edges_between<weighted_edge>(m, detail::stated::deliberate, n, weights, name, where);
+        holds(detail::shaped(n, detail::endpoints(edges), shape), name);
+        return edges;
+    }
+
     bool at_eof() { return reader_.at_end(); }
     bool at_eoln() { return reader_.at_line_end(); }
 
@@ -246,7 +340,7 @@ public:
     }
 
     template <class... Args>
-    [[noreturn]] void wrong(detail::pattern pattern, Args const&... args) const {
+    [[noreturn]] void wrong(detail::pattern_for<Args...> pattern, Args const&... args) const {
         reader_.refuse(detail::value_name(unnamed), fmt(pattern, args...));
     }
 
@@ -280,6 +374,38 @@ private:
             if (fold && detail::same_folded(found, one)) return std::string(one);
         }
         reader_.refuse(name, fmt("\"{}\" is not one of {}", detail::shorten(found), listed));
+    }
+
+    template <class Edge>
+    std::vector<Edge> edges_between(long long m, detail::stated ends, int n,
+                                    [[maybe_unused]] weight_bounds weights,
+                                    detail::value_name const& name, detail::site where) {
+        std::vector<Edge> edges;
+        edges.reserve(reader_.room_for(m, name));
+        detail::value_name const weight = name.field(".w");
+        for (long long at = 1; at <= m; at++) {
+            int const u = reader_.whole_int(1, n, ends, name.at(at), where);
+            int const v = reader_.whole_int(1, n, ends, name.at(at), where);
+            if constexpr (std::is_same_v<Edge, weighted_edge>)
+                edges.push_back(Edge{u, v,
+                                     reader_.whole_long(weights.low, weights.high, detail::stated::yes,
+                                                        weight.at(at), where)});
+            else
+                edges.push_back(Edge{u, v});
+        }
+        return edges;
+    }
+
+    static void a_tree_has_a_vertex(int n, detail::site where) {
+        if (n < 1)
+            detail::library_error(
+                fmt("{}: read_tree needs a tree of at least one vertex, not {}", detail::where_of(where), n));
+    }
+
+    void holds(check_result const& outcome, detail::value_name const& name) const {
+        if (outcome) return;
+        reader_.refuse(detail::value_name(unnamed),
+                       name.known() ? fmt("{}: {}", name.text(), outcome.message()) : outcome.message());
     }
 
     detail::reader reader_;
@@ -333,12 +459,14 @@ public:
         }
         detail::live_checker() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&checker::exited_early);
     }
 
     checker(checker const&) = delete;
     checker& operator=(checker const&) = delete;
 
     ~checker() noexcept(false) {
+        detail::unfinished() = nullptr;
         detail::live_checker() = nullptr;
         detail::live_scorer() = nullptr;
         detail::blaming() = nullptr;
@@ -389,10 +517,20 @@ public:
     }
 
     template <class T>
-    [[noreturn]] void optimum(T const& by_the_jury, T const& found, towards direction) {
+    [[noreturn]] void optimum(T const& by_the_jury, T const& found, towards direction,
+                              detail::site where = detail::site::here()) {
+        detail::compared_exactly<T>("c.optimum", where);
         if (found == by_the_jury) pass(1, fmt("{}", found));
         bool const better = direction == towards::smaller ? found < by_the_jury : found > by_the_jury;
         if (better)
+            fail_jury(fmt("the contestant's {} beats the jury's {}", found, by_the_jury));
+        fail_run(fmt("the answer is {}; the optimum is {}", found, by_the_jury));
+    }
+
+    [[noreturn]] void optimum(double by_the_jury, double found, towards direction, tolerance allowed) {
+        standing const said = compare(found, by_the_jury, direction, allowed);
+        if (said == standing::equal) pass(1, fmt("{}", found));
+        if (said == standing::better)
             fail_jury(fmt("the contestant's {} beats the jury's {}", found, by_the_jury));
         fail_run(fmt("the answer is {}; the optimum is {}", found, by_the_jury));
     }
@@ -467,6 +605,34 @@ public:
             while (!got.empty() && trailing_blank(got.back())) got.pop_back();
             if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
                                           detail::shorten(want)));
+        }
+    }
+
+    [[noreturn]] void lines(exact_t) {
+        compared_only_ = true;
+        long long seen = 0;
+        long long last = 0;
+        while (true) {
+            bool const jury_done = jury.inside().peek() < 0;
+            bool const output_done = output.inside().peek() < 0;
+            if (jury_done && output_done) pass(1, fmt("{} lines", last));
+            seen++;
+            std::string want = jury_done ? std::string() : jury.read_line(any, fmt("line {}", seen));
+            bool longer = false;
+            std::string got = output_done ? std::string()
+                                          : output.inside().line_up_to(want.size() + 1, longer, fmt("line {}", seen));
+            want.erase(want.find_last_not_of(" \t\r") + 1);
+            got.erase(got.find_last_not_of(" \t\r") + 1);
+            if (jury_done && (longer || !got.empty()))
+                fail_run(fmt("the answer has {} lines, the output has more", last));
+            if (output_done && !want.empty())
+                fail_run(fmt("the output ended after {} lines, the answer has more", last));
+            if (longer)
+                fail_run(fmt("line {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
+            if (want != got) fail_run(fmt("line {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                                          detail::shorten(want)));
+            if (!want.empty()) last = seen;
         }
     }
 
@@ -546,6 +712,12 @@ private:
     std::string contestant_token(long long seen, std::size_t longest) {
         return output.inside().take_word(fmt("token {}", seen), detail::site::here(), "a token",
                                          static_cast<long long>(longest) + 1);
+    }
+
+    static void exited_early() {
+        checker* const one = detail::live_checker();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the checker ended without a verdict: exit() was called, or the checker was never destroyed");
     }
 
     static void write_log(std::string const& verdict) {
