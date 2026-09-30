@@ -58,7 +58,8 @@ against 2.2.0's 5,002, and 196,293 bytes against 198,331.
   the thread it interrupts, so a tick that found the pipe empty waited for ever: on every run
   with libc++ at `-O0` on Linux, where building the interactor outlasts the first 20 ms tick,
   now and then in macOS's `-O0` `tests-c++20`, and under load anywhere. The handler now
-  drains without waiting.
+  drains without waiting, and the test counts every byte the write delivers, so a library
+  that dropped the rest of a send a signal cut short would fail it.
 - A watchdog stops the suite when one test runs longer than `EOT_TEST_SECONDS` (120 by
   default, `0` turns it off), and says which test it was, instead of letting CI wait an hour.
 - Left as they were:

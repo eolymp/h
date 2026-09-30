@@ -71,6 +71,8 @@ MUTANTS = [
      "absorb_limit = std::size_t{1} << 24;", "absorb_limit = std::size_t{1} << 26;"),
     ("a large send that does not listen to the other side", "src/io.h",
      "{listening ? from.listening_descriptor() : -1, POLLIN, 0}", "{-1, POLLIN, 0}"),
+    ("a send cut short by a signal taken for a deaf reader", "src/io.h",
+     "if (ready < 0 && errno != EINTR && errno != EAGAIN) deaf = true;", "if (ready < 0) deaf = true;"),
     ("a look ahead that reads", "src/io.h",
      "        while (held() < limit && top_up()) {\n        }\n",
      "        have(limit);\n"),
