@@ -135,6 +135,14 @@ Two rules about line breaks:
 `line 3, grid[2]: the line is 4 characters long, not 5..5`. A row is a line, so a charset that
 holds a space allows spaces inside a row.
 
+A charset is single characters and ranges: `eo::charset("a-z")` is the 26 letters and
+`eo::charset("a-z0-9_")` is 37 characters. A `-` between two characters makes a range, and the
+range has to ascend, so `charset("z-a")` is a jury error before the first read. So is the `)- `
+inside `charset("()- ")`, which reads as a range from `)` to the space: the library says `the
+character range ")- " in charset("()- ") runs backwards`. A `-` that should be a character of
+its own goes first or last, where there is nothing for it to join: `charset("() -")` is the two
+brackets, a space and a hyphen.
+
 With `count` equal to 0 a bulk read reads nothing, so a line holding "0 values" is an empty
 line: `read_ints(0, …)` followed by `read_eoln()` expects exactly `\n`.
 
@@ -235,6 +243,10 @@ The end of the input is checked **when `v` goes out of scope**, that is, when `m
 `v.read_eof()` does the same check where you call it; it is accepted but not required. Calling `exit(0)` early runs the same final checks, so an early exit cannot accept
 a test that was only half read. There is no "Validator must end with readEof" failure to trip
 over.
+
+`std::quick_exit` runs them only where the C library offers `at_quick_exit`, as glibc and musl
+do and macOS does not, so a `quick_exit` that leaves a test half read is refused on the judge
+and accepted on a Mac. `std::_Exit` and `std::abort` run nothing anywhere.
 
 Every `eo::sum_limit` is checked at the same point.
 

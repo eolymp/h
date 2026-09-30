@@ -229,7 +229,9 @@ arguments are checked, `g.out` writes what it holds, and the exit code is the on
 `exit(0)` part-way through writes what was written so far: the library cannot tell a
 deliberate early end from a half-written test, and the validator is what refuses the second.
 A generator that is never destroyed ends the same way. `std::_Exit` and `std::abort` run
-nothing and lose what `g.out` holds.
+nothing and lose what `g.out` holds, and `std::quick_exit` does the same where the C library
+offers no `at_quick_exit`: glibc and musl have one, so the judge writes the test, and macOS has
+none, so there a `quick_exit` writes an empty test.
 
 Anything that reaches stdout another way — `std::cout`, `printf` — still lands in the test,
 but not where it was written: `g.out` holds its lines until it has a megabyte of them or the
