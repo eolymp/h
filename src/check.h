@@ -240,7 +240,7 @@ public:
         std::vector<int> values;
         values.reserve(reader_.room_for(count, name));
         for (long long at = 1; at <= count; at++) {
-            values.push_back(reader_.whole_int(low, high, detail::stated::yes, name.at(at), where));
+            values.push_back(reader_.whole_int(low, high, detail::stated::yes, name.lent_at(at), where));
         }
         return values;
     }
@@ -250,7 +250,7 @@ public:
         std::vector<long long> values;
         values.reserve(reader_.room_for(count, name));
         for (long long at = 1; at <= count; at++)
-            values.push_back(reader_.whole_long(low, high, detail::stated::yes, name.at(at), where));
+            values.push_back(reader_.whole_long(low, high, detail::stated::yes, name.lent_at(at), where));
         return values;
     }
 
@@ -259,7 +259,7 @@ public:
         std::vector<long long> values;
         values.reserve(reader_.room_for(count, name));
         for (long long at = 1; at <= count; at++)
-            values.push_back(reader_.whole_long(0, 0, detail::stated::deliberate, name.at(at), where));
+            values.push_back(reader_.whole_long(0, 0, detail::stated::deliberate, name.lent_at(at), where));
         return values;
     }
 
@@ -268,8 +268,8 @@ public:
         std::vector<double> values;
         values.reserve(reader_.room_for(count, name));
         for (long long at = 1; at <= count; at++)
-            values.push_back(reader_.fractional(low, high, detail::stated::yes, 0, 0, false, name.at(at),
-                                                where));
+            values.push_back(
+                reader_.fractional(low, high, detail::stated::yes, 0, 0, false, name.lent_at(at), where));
         return values;
     }
 
@@ -279,7 +279,7 @@ public:
         std::vector<std::string> values;
         values.reserve(reader_.room_for(count, name));
         for (long long at = 1; at <= count; at++)
-            values.push_back(reader_.word(least, most, &allowed, detail::stated::yes, name.at(at), where));
+            values.push_back(reader_.word(least, most, &allowed, detail::stated::yes, name.lent_at(at), where));
         return values;
     }
 
@@ -384,12 +384,12 @@ private:
         edges.reserve(reader_.room_for(m, name));
         detail::value_name const weight = name.field(".w");
         for (long long at = 1; at <= m; at++) {
-            int const u = reader_.whole_int(1, n, ends, name.at(at), where);
-            int const v = reader_.whole_int(1, n, ends, name.at(at), where);
+            int const u = reader_.whole_int(1, n, ends, name.lent_at(at), where);
+            int const v = reader_.whole_int(1, n, ends, name.lent_at(at), where);
             if constexpr (std::is_same_v<Edge, weighted_edge>)
                 edges.push_back(Edge{u, v,
                                      reader_.whole_long(weights.low, weights.high, detail::stated::yes,
-                                                        weight.at(at), where)});
+                                                        weight.lent_at(at), where)});
             else
                 edges.push_back(Edge{u, v});
         }

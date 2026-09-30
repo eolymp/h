@@ -332,7 +332,7 @@ public:
         std::vector<std::string> grid;
         grid.reserve(from_.room_for(rows, name));
         for (long long row = 1; row <= rows; row++)
-            grid.push_back(rest_of_line(cols, cols, &allowed, detail::stated::yes, name.at(row), where));
+            grid.push_back(rest_of_line(cols, cols, &allowed, detail::stated::yes, name.lent_at(row), where));
         return grid;
     }
 
@@ -506,7 +506,7 @@ private:
         values.reserve(from_.room_for(count, name));
         for (long long index = 1; index <= count; index++) {
             if (index > 1) read_space();
-            values.push_back(read_one(name.at(index)));
+            values.push_back(read_one(name.lent_at(index)));
         }
         return values;
     }
@@ -520,13 +520,13 @@ private:
                                                   : static_cast<std::size_t>(std::max(count, 0LL)));
         detail::value_name const weight = name.field(".w");
         for (long long index = 1; index <= count; index++) {
-            int const u = whole_int(1, n, ends, name.at(index), where);
+            int const u = whole_int(1, n, ends, name.lent_at(index), where);
             read_space();
-            int const v = whole_int(1, n, ends, name.at(index), where);
+            int const v = whole_int(1, n, ends, name.lent_at(index), where);
             if constexpr (std::is_same_v<Edge, weighted_edge>) {
                 read_space();
                 long long const w =
-                    whole_long(weights.low, weights.high, detail::stated::yes, weight.at(index), where);
+                    whole_long(weights.low, weights.high, detail::stated::yes, weight.lent_at(index), where);
                 edges.push_back(Edge{u, v, w});
             } else {
                 edges.push_back(Edge{u, v});
