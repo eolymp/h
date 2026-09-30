@@ -273,7 +273,8 @@ template that nothing instantiates is still invisible.
 
 Tests are one translation unit — `tests/all.cpp` including `tests/*.inc` — so coverage is
 measured on the shipped header rather than on the sources it came from. Set `EOT_TRACE=1` to
-print each test as it runs.
+print each test as it runs. A watchdog stops the suite, naming the test, when one test runs
+longer than `EOT_TEST_SECONDS` (120 by default; `0` turns it off).
 
 ## Versions
 
