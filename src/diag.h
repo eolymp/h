@@ -202,6 +202,28 @@ private:
     time_budget clock_;
 };
 
+inline void (*&unfinished())() {
+    static void (*hook)() = nullptr;
+    return hook;
+}
+
+inline void finish_what_exit_left() {
+    if (unfinished() != nullptr) unfinished()();
+}
+
+inline void close_on_quick_exit() {
+#if !defined(__APPLE__)
+    std::at_quick_exit(&finish_what_exit_left);
+#endif
+}
+
+inline void close_on_exit(void (*closer)()) {
+    diagnostics::shared();
+    static bool const registered = (std::atexit(&finish_what_exit_left), close_on_quick_exit(), true);
+    (void)registered;
+    unfinished() = closer;
+}
+
 inline void warn(char const* code, std::string message, std::string fix, site where) {
     diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where);
 }

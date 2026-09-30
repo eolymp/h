@@ -111,6 +111,17 @@ chat talk(std::string const& test, std::string const& from_solution, Body&& body
 
 }  // namespace
 
+EO_TEST(an_interactor_that_exits_before_its_verdict_is_a_jury_error) {
+    chat const result = talk("100 42\n", "? 1\n", [](eo::interactor& it) {
+        it.send(100);
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_EQ(result.text, std::string("jury error the interactor ended without a verdict: exit() was called, "
+                                         "or the interactor was never destroyed"));
+    EO_CHECK_EQ(result.said, std::string("100\n"));
+}
+
 EO_TEST(an_interactor_reads_a_tree_from_the_solution_and_blames_it) {
     chat const good = talk("3\n", "1 2\n1 3\n", [](eo::interactor& it) {
         std::vector<eo::edge> const edges = it.contestant.read_tree(it.input.read_int(1, 9, "n"), "edge");

@@ -259,24 +259,29 @@ quick="quick_exit(0)"
 [ "$(uname -s)" = Darwin ] && quick="exit(0) standing in for quick_exit(0), which macOS lacks,"
 printf '1\ngarbage\n' > "$build/exits_in.txt"
 printf '5\n' > "$build/exits_out.txt"
-expect_run "a checker that calls exit(0) before its verdict" 0 "" env ROLE=checker EOLYMP=1 TEST_COST=40 \
+expect_run "a checker that calls exit(0) before its verdict" 3 "jury error the checker ended without a verdict*" \
+    env ROLE=checker EOLYMP=1 TEST_COST=40 \
     "$build/exits" "$build/exits_in.txt" "$build/exits_out.txt" "$build/exits_out.txt" &&
-    expect_run "a checker that calls quick_exit(0) before its verdict" 0 "" env ROLE=quick EOLYMP=1 TEST_COST=40 \
+    expect_run "a checker that calls quick_exit(0) before its verdict" 3 \
+        "jury error the checker ended without a verdict*" env ROLE=quick EOLYMP=1 TEST_COST=40 \
         "$build/exits" "$build/exits_in.txt" "$build/exits_out.txt" "$build/exits_out.txt" &&
-    expect_run "a checker never destroyed that returns 0" 0 "" env ROLE=leaked EOLYMP=1 TEST_COST=40 \
+    expect_run "a checker never destroyed that returns 0" 3 "jury error the checker ended without a verdict*" \
+        env ROLE=leaked EOLYMP=1 TEST_COST=40 \
         "$build/exits" "$build/exits_in.txt" "$build/exits_out.txt" "$build/exits_out.txt" &&
-    expect_run "a validator that calls exit(0) half-way through its test" 0 "" env ROLE=validator \
-        "$build/exits" "$build/exits_in.txt" &&
-    expect_run "an interactor that calls exit(0) before its verdict" 0 "" env ROLE=interactor TEST_COST=40 \
+    expect_run "a validator that calls exit(0) half-way through its test" 3 "*expected the end of the input*" \
+        env ROLE=validator "$build/exits" "$build/exits_in.txt" &&
+    expect_run "an interactor that calls exit(0) before its verdict" 3 \
+        "*jury error the interactor ended without a verdict*" env ROLE=interactor TEST_COST=40 \
         "$build/exits" "$build/exits_in.txt" "$build/exits_summary.txt" < /dev/null &&
-    expect_run "a controller that calls exit(0) before its verdict" 0 "" env ROLE=controller TEST_COST=40 \
+    expect_run "a controller that calls exit(0) before its verdict" 3 \
+        "jury error the controller ended without a verdict*" env ROLE=controller TEST_COST=40 \
         "$build/exits" "$build/exits_in.txt" "$build/exits_summary.txt" &&
     expect_run "a generator that calls exit(0) after a line" 0 "" env ROLE=generator \
         sh -c "\"$build/exits\" -n=7 > \"$build/exits_test.txt\"" &&
-    if [ -s "$build/exits_test.txt" ]; then
-        fail "a generator that called exit(0) after a line wrote it"
+    if [ "$(cat "$build/exits_test.txt")" = "7" ]; then
+        pass "exit(0), $quick and a leaked checker are jury errors, a validator's exit runs its end checks, and a generator's writes what it holds"
     else
-        pass "exit(0), $quick and a leaked checker pass with no verdict, and so do a half-read test and an empty one"
+        fail "a generator that called exit(0) after a line did not write it"
     fi
 expect_run "the generator given an option it never declared" 3 "*unknown option -oops*" \
     generate generated_bad.txt -n=20 -oops=1 &&

@@ -459,12 +459,14 @@ public:
         }
         detail::live_checker() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&checker::exited_early);
     }
 
     checker(checker const&) = delete;
     checker& operator=(checker const&) = delete;
 
     ~checker() noexcept(false) {
+        detail::unfinished() = nullptr;
         detail::live_checker() = nullptr;
         detail::live_scorer() = nullptr;
         detail::blaming() = nullptr;
@@ -710,6 +712,12 @@ private:
     std::string contestant_token(long long seen, std::size_t longest) {
         return output.inside().take_word(fmt("token {}", seen), detail::site::here(), "a token",
                                          static_cast<long long>(longest) + 1);
+    }
+
+    static void exited_early() {
+        checker* const one = detail::live_checker();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the checker ended without a verdict: exit() was called, or the checker was never destroyed");
     }
 
     static void write_log(std::string const& verdict) {

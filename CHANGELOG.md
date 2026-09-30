@@ -4,6 +4,20 @@
 
 ### What changes for a program
 
+- **Any `exit()` before a verdict fails closed.** A checker, an interactor or a controller that
+  calls `std::exit` or `std::quick_exit` before its verdict is a jury error, exit 3, `the
+  checker ended without a verdict: exit() was called, or the checker was never destroyed`,
+  as returning from `main` without one has been since 2.0.0. That includes an `exit(1)`,
+  `exit(2)` or `exit(7)` meant as a wrong answer or as points, and a role object that is never
+  destroyed, made with `new` and leaked or kept past `main`: a leaked checker's exit 0 was an
+  accept and is a jury error now. A validator's early exit, and a leaked validator, run the end
+  checks, the end of the input and every `sum_limit`, as validator.md promised, so `exit(0)`
+  after half a test is invalid instead of valid. A generator's early exit, and a leaked
+  generator, check the arguments and write what `g.out` still holds: all of a test under a
+  megabyte, which was lost, and the tail of a bigger one, whose first megabytes were already
+  written. `std::_Exit` and `std::abort` run nothing and cannot be caught, and
+  `std::quick_exit` is caught only where the C library offers `at_quick_exit`: glibc and musl,
+  so the judge, and not macOS, where a `quick_exit(0)` still reads as an accept.
 - **A generator given an option it does not declare writes nothing.** It exits 3 with
   `unknown option -m` as before, but no longer writes the first megabytes of a test over
   1 MB before it does. A generator that declares an option after its first megabyte of output

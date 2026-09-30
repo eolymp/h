@@ -722,6 +722,28 @@ private:
     time_budget clock_;
 };
 
+inline void (*&unfinished())() {
+    static void (*hook)() = nullptr;
+    return hook;
+}
+
+inline void finish_what_exit_left() {
+    if (unfinished() != nullptr) unfinished()();
+}
+
+inline void close_on_quick_exit() {
+#if !defined(__APPLE__)
+    std::at_quick_exit(&finish_what_exit_left);
+#endif
+}
+
+inline void close_on_exit(void (*closer)()) {
+    diagnostics::shared();
+    static bool const registered = (std::atexit(&finish_what_exit_left), close_on_quick_exit(), true);
+    (void)registered;
+    unfinished() = closer;
+}
+
 inline void warn(char const* code, std::string message, std::string fix, site where) {
     diagnostics::shared().raise(code, severity::warning, std::move(message), std::move(fix), where);
 }
@@ -2556,12 +2578,15 @@ public:
                                              : detail::source::over_file(path.c_str(), true),
                                detail::fault::invalid_test, "", false, "EO102");
         detail::live_validator() = this;
+        detail::live_sums();
+        detail::close_on_exit(&validator::exited_early);
     }
 
     validator(validator const&) = delete;
     validator& operator=(validator const&) = delete;
 
     ~validator() noexcept(false) {
+        detail::unfinished() = nullptr;
         detail::live_validator() = nullptr;
         detail::current_case() = 0;
         if (std::uncaught_exceptions() == 0) complete();
@@ -2851,6 +2876,11 @@ private:
     template <class Limits>
     friend class subtask_table;
 
+
+    static void exited_early() {
+        validator* const one = detail::live_validator();
+        if (one != nullptr) one->complete();
+    }
 
     void set_group(std::string const& text) {
         detail::integer_read const parsed = detail::parse_integer(text);
@@ -3450,12 +3480,14 @@ public:
         }
         detail::live_checker() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&checker::exited_early);
     }
 
     checker(checker const&) = delete;
     checker& operator=(checker const&) = delete;
 
     ~checker() noexcept(false) {
+        detail::unfinished() = nullptr;
         detail::live_checker() = nullptr;
         detail::live_scorer() = nullptr;
         detail::blaming() = nullptr;
@@ -3703,6 +3735,12 @@ private:
                                          static_cast<long long>(longest) + 1);
     }
 
+    static void exited_early() {
+        checker* const one = detail::live_checker();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the checker ended without a verdict: exit() was called, or the checker was never destroyed");
+    }
+
     static void write_log(std::string const& verdict) {
         checker* const one = detail::live_checker();
         if (one == nullptr) return;
@@ -3880,6 +3918,7 @@ public:
         contestant.inside().on_end("the solution ended the dialogue early");
         detail::live_interactor() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&interactor::exited_early);
     }
 
     interactor(interactor const&) = delete;
@@ -3887,6 +3926,7 @@ public:
 
     ~interactor() noexcept(false) {
         detail::restore_channels afterwards;
+        detail::unfinished() = nullptr;
         detail::live_interactor() = nullptr;
         detail::live_scorer() = nullptr;
         detail::current_case() = 0;
@@ -3988,6 +4028,12 @@ public:
 private:
 
     static void flush_from(void* owner) { static_cast<interactor*>(owner)->waiting_and_flush(); }
+
+    static void exited_early() {
+        interactor* const one = detail::live_interactor();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the interactor ended without a verdict: exit() was called, or the interactor was never destroyed");
+    }
 
     static void say(std::string const& text) {
         std::fwrite(text.data(), 1, text.size(), stderr);
@@ -4357,6 +4403,7 @@ public:
                           "answer.txt");
         detail::live_controller() = this;
         detail::live_scorer() = this;
+        detail::close_on_exit(&controller::exited_early);
     }
 
     controller(controller const&) = delete;
@@ -4364,6 +4411,7 @@ public:
 
     ~controller() noexcept(false) {
         detail::restore_channels afterwards;
+        detail::unfinished() = nullptr;
         detail::live_controller() = nullptr;
         detail::live_scorer() = nullptr;
         detail::current_case() = 0;
@@ -4472,6 +4520,12 @@ private:
     friend class channel;
 
     static void flush_from(void* owner) { static_cast<controller*>(owner)->flush_everything(); }
+
+    static void exited_early() {
+        controller* const one = detail::live_controller();
+        if (one != nullptr && !one->delivered_) one->fail_jury(
+            "the controller ended without a verdict: exit() was called, or the controller was never destroyed");
+    }
 
     static void say(std::string const& text) {
         std::fwrite(text.data(), 1, text.size(), stderr);
@@ -4647,19 +4701,17 @@ public:
         if (::fstat(1, &towards) == 0 && S_ISREG(towards.st_mode)) started_ = ::lseek(1, 0, SEEK_CUR);
         out.owner_ = this;
         detail::live_generator() = this;
+        detail::close_on_exit(&generator::exited_early);
     }
 
     generator(generator const&) = delete;
     generator& operator=(generator const&) = delete;
 
     ~generator() noexcept(false) {
+        detail::unfinished() = nullptr;
         detail::live_generator() = nullptr;
         if (std::uncaught_exceptions() != 0) return;
-        every_option_was_asked_for();
-        out.flush();
-        if (describing_) describe();
-        closing_warnings();
-        detail::diagnostics::shared().emit();
+        wrap_up();
     }
 
     template <class T>
@@ -4810,6 +4862,21 @@ private:
         std::fflush(stderr);
     }
 
+    static void exited_early() {
+        generator* const one = detail::live_generator();
+        if (one != nullptr) one->wrap_up();
+    }
+
+    void wrap_up() {
+        if (wrapped_) return;
+        wrapped_ = true;
+        every_option_was_asked_for();
+        out.flush();
+        if (describing_) describe();
+        closing_warnings();
+        detail::diagnostics::shared().emit();
+    }
+
     [[noreturn]] void refuse(std::string const& message) { detail::finish(3, message); }
 
     void declare(std::string const& name, char const* kind, std::string range, std::string fallback,
@@ -4923,6 +4990,7 @@ private:
     bool describing_ = false;
     bool checked_ = false;
     bool declared_ = false;
+    bool wrapped_ = false;
     bool used_the_default_ = false;
     bool used_a_label_ = false;
     detail::site where_of_run_{"generator", 0};

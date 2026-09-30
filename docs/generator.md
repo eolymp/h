@@ -224,6 +224,13 @@ It prints numbers, text, `eo::fixed` and containers of them. Anything else, a st
 type`, instead of a page of template instantiations; pass the fields one by one. The same holds
 for `it.send` and every message.
 
+Calling `std::exit` or `std::quick_exit` ends the generator as returning from `main` does: the
+arguments are checked, `g.out` writes what it holds, and the exit code is the one given. So
+`exit(0)` part-way through writes what was written so far: the library cannot tell a
+deliberate early end from a half-written test, and the validator is what refuses the second.
+A generator that is never destroyed ends the same way. `std::_Exit` and `std::abort` run
+nothing and lose what `g.out` holds.
+
 Anything that reaches stdout another way — `std::cout`, `printf` — still lands in the test,
 but not where it was written: `g.out` holds its lines until it has a megabyte of them or the
 generator ends, so bytes written another way land ahead of every line `g.out` still holds.

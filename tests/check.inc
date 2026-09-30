@@ -1450,6 +1450,18 @@ EO_TEST(a_checker_stream_reads_a_tree_or_a_graph_as_a_validator_does) {
     EO_CHECK_IN(doubled.text, "edge: edges 1 and 2 are both (1, 2)");
 }
 
+EO_TEST(an_exit_before_the_verdict_is_a_jury_error) {
+    eot::outcome const result = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
+        (void)c.output.read_int(eo::any, "x");
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK_EQ(result.code, 3);
+    EO_CHECK_EQ(result.text, std::string("jury error the checker ended without a verdict: exit() was called, "
+                                         "or the checker was never destroyed"));
+    EO_CHECK(eo::detail::unfinished() == nullptr);
+    eo::detail::finish_what_exit_left();
+}
+
 EO_TEST(a_checker_stream_reads_a_token_or_a_line_by_its_length_alone) {
     eot::outcome const result = check_run("1\n", "a line, of words\nab!c\n", "x\n", [](eo::checker& c) {
         c.input.read_int(1, 9, "n");

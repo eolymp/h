@@ -241,6 +241,15 @@ EO_TEST(an_unknown_option_is_refused_before_the_test_is_written) {
     EO_CHECK_EQ(late.test.substr(late.test.size() - 10), std::string("1299999\n7\n"));
 }
 
+EO_TEST(a_generator_that_exits_early_writes_its_test_once) {
+    made const result = generate({"-n=7"}, [](eo::generator& g) {
+        g.out.line(g.option<int>("n", 1, 9));
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK(!result.stopped);
+    EO_CHECK_EQ(result.test, std::string("7\n"));
+}
+
 EO_TEST(the_command_line_has_to_look_like_options) {
     made const bare = generate({"n=5"}, [](eo::generator& g) { g.out.line("never"); });
     EO_CHECK_IN(bare.text, "n=5 is not an option; write -name=value");

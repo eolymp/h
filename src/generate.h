@@ -89,19 +89,17 @@ public:
         if (::fstat(1, &towards) == 0 && S_ISREG(towards.st_mode)) started_ = ::lseek(1, 0, SEEK_CUR);
         out.owner_ = this;
         detail::live_generator() = this;
+        detail::close_on_exit(&generator::exited_early);
     }
 
     generator(generator const&) = delete;
     generator& operator=(generator const&) = delete;
 
     ~generator() noexcept(false) {
+        detail::unfinished() = nullptr;
         detail::live_generator() = nullptr;
         if (std::uncaught_exceptions() != 0) return;
-        every_option_was_asked_for();
-        out.flush();
-        if (describing_) describe();
-        closing_warnings();
-        detail::diagnostics::shared().emit();
+        wrap_up();
     }
 
     template <class T>
@@ -252,6 +250,21 @@ private:
         std::fflush(stderr);
     }
 
+    static void exited_early() {
+        generator* const one = detail::live_generator();
+        if (one != nullptr) one->wrap_up();
+    }
+
+    void wrap_up() {
+        if (wrapped_) return;
+        wrapped_ = true;
+        every_option_was_asked_for();
+        out.flush();
+        if (describing_) describe();
+        closing_warnings();
+        detail::diagnostics::shared().emit();
+    }
+
     [[noreturn]] void refuse(std::string const& message) { detail::finish(3, message); }
 
     void declare(std::string const& name, char const* kind, std::string range, std::string fallback,
@@ -365,6 +378,7 @@ private:
     bool describing_ = false;
     bool checked_ = false;
     bool declared_ = false;
+    bool wrapped_ = false;
     bool used_the_default_ = false;
     bool used_a_label_ = false;
     detail::site where_of_run_{"generator", 0};

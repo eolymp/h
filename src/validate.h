@@ -143,12 +143,15 @@ public:
                                              : detail::source::over_file(path.c_str(), true),
                                detail::fault::invalid_test, "", false, "EO102");
         detail::live_validator() = this;
+        detail::live_sums();
+        detail::close_on_exit(&validator::exited_early);
     }
 
     validator(validator const&) = delete;
     validator& operator=(validator const&) = delete;
 
     ~validator() noexcept(false) {
+        detail::unfinished() = nullptr;
         detail::live_validator() = nullptr;
         detail::current_case() = 0;
         if (std::uncaught_exceptions() == 0) complete();
@@ -438,6 +441,11 @@ private:
     template <class Limits>
     friend class subtask_table;
 
+
+    static void exited_early() {
+        validator* const one = detail::live_validator();
+        if (one != nullptr) one->complete();
+    }
 
     void set_group(std::string const& text) {
         detail::integer_read const parsed = detail::parse_integer(text);

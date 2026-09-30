@@ -419,6 +419,29 @@ EO_TEST(a_grid_is_read_row_by_row_with_its_width_and_charset) {
     EO_CHECK_IN(stray.text, "line 1, grid[1]: the line holds \"x\", which is not in \".#\"");
 }
 
+EO_TEST(a_validator_that_exits_early_still_checks_the_end) {
+    eot::outcome const early = validate("1\ngarbage\n", [](eo::validator& v) {
+        (void)v.read_int(1, 9, "n");
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK_EQ(early.code, 3);
+    EO_CHECK_IN(early.text, "expected the end of the input");
+    eot::outcome const summed = validate("7\n", [](eo::validator& v) {
+        eo::sum_limit total(5, "sum of n");
+        total += v.read_int(1, 9, "n");
+        v.read_eoln();
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK_EQ(summed.code, 3);
+    EO_CHECK_EQ(summed.text, std::string("sum of n is 7, above 5"));
+    eot::outcome const whole = validate("7\n", [](eo::validator& v) {
+        (void)v.read_int(1, 9, "n");
+        v.read_eoln();
+        eo::detail::finish_what_exit_left();
+    });
+    EO_CHECK(!whole.stopped);
+}
+
 EO_TEST(a_weighted_tree_or_graph_is_read_and_checked_like_an_unweighted_one) {
     eot::outcome const tree = validate("1 2 5\n3 2 9\n", [](eo::validator& v) {
         std::vector<eo::weighted_edge> const edges = v.read_tree(3, eo::weighted(1, 9), "edge");

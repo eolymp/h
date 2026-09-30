@@ -201,7 +201,12 @@ declared gets warning EO402; a budget declared and never spent gets EO403.
 
 `eo::ratio(a, b)` gives an exact fraction and `eo::round_to(d)` rounds the points, exactly as
 in a checker. `it.value("quality", q)` records a named number in the summary for a checker
-that wants to do its own mapping; the name is one word and the number is finite. Returning from `main` without a verdict is a jury error.
+that wants to do its own mapping; the name is one word and the number is finite. Returning from `main` without a verdict is a jury error, and so is calling `std::exit` or
+`std::quick_exit` before one, with any code, or leaving the interactor undestroyed: `jury error
+the interactor ended without a verdict: exit() was called, or the interactor was never
+destroyed`. `std::_Exit` and `std::abort` run nothing on the way out and cannot be caught, and
+`std::quick_exit` is caught only where the C library offers `at_quick_exit`: glibc and musl,
+so the judge, and not macOS.
 
 The summary is a small text file the library writes and the stock checker reads. You never
 write it or read it yourself.

@@ -248,7 +248,15 @@ test that carries no points — a sample, a stress run — any score, 0 included
 test's cost of 0, so the judge counts the run as accepted; the library says so with warning
 EO208. An answer that earns nothing should end with `eo::wrong`.
 
-**Every path must end in a verdict.** Returning from `main` without one is a jury error.
+**Every path must end in a verdict.** Returning from `main` without one is a jury error, and so
+is calling `std::exit` or `std::quick_exit` before one, whatever the code: an `exit(1)` meant as
+a wrong answer or an `exit(7)` meant as points is a jury error too, and so is a checker that is
+never destroyed, one made with `new` or kept past `main`. The log says `jury error the checker
+ended without a verdict: exit() was called, or the checker was never destroyed`. `std::_Exit`
+and `std::abort` end a program without running anything, so the library cannot see them; an
+`_Exit(0)` still reads as an accept, and must not be written. `std::quick_exit` is caught where
+the C library offers `at_quick_exit`, as glibc and musl do, so on the judge; macOS has none, and
+there a `quick_exit(0)` still reads as an accept.
 
 ## The log
 

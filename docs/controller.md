@@ -102,7 +102,10 @@ ends in the order that cannot deadlock with an instance.
 
 The verdicts are the shared ones — `eo::accept`, `eo::score`, `eo::points`, `eo::wrong` and
 `eo::jury_error` — and they behave exactly as in an interactor. `eo::ratio(a, b)` gives an
-exact fraction. Returning from `main` without a verdict is a jury error.
+exact fraction. Returning from `main` without a verdict is a jury error, and so is calling
+`std::exit` or `std::quick_exit` before one, with any code, or leaving the controller
+undestroyed. `std::_Exit` and `std::abort` cannot be caught, and `std::quick_exit` is caught
+only where the C library offers `at_quick_exit`, as glibc and musl do and macOS does not.
 
 **A spawn beyond the limit is the problem's fault, not the contestant's**, so it is a jury
 error that names the configured limit:
