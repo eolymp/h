@@ -47,6 +47,7 @@ struct seen_bounds {
     bool read_whole = false;
     double exact_low = 0;
     double exact_high = 0;
+    char const* spelled = nullptr;
 };
 
 inline char const* phrase_of(std::string const& kind) {
@@ -492,6 +493,7 @@ private:
             auto const found = bounds_.find(name.key());
             if (found == bounds_.end()) {
                 seen_bounds fresh{kind, fmt("{}", low), fmt("{}", high), at_low, at_high, where, true};
+                fresh.spelled = kind;
                 note_the_numbers(fresh, low, high);
                 last_bounds_ = &bounds_.emplace(name.key(), std::move(fresh)).first->second;
                 last_key_ = name.key();
@@ -501,7 +503,7 @@ private:
             last_key_ = name.key();
         }
         seen_bounds& known = *last_bounds_;
-        if (known.kind == kind && same_numbers(known, low, high)) {
+        if ((known.spelled == kind || known.kind == kind) && same_numbers(known, low, high)) {
             if (at_low) known.reached_low = true;
             if (at_high) known.reached_high = true;
             return;
