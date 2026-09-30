@@ -32,6 +32,8 @@ MUTANTS = [
      "if (bounds == stated::yes && length < least)", "if (bounds == stated::yes && length < least - 1)"),
     ("a real with one digit too many", "src/stream.h",
      "parsed.decimals > most_decimals", "parsed.decimals > most_decimals + 1"),
+    ("bounds whose low end is nearly round remembered as quiet", "src/stream.h",
+     "!whole_range && !too_wide && !high_near && !low_near,", "!whole_range && !too_wide && !high_near,"),
     ("a bound one above a value read called nearly round", "src/stream.h",
      "one.second.last_whole >= bound - 1", "one.second.last_whole >= bound"),
     ("a self loop in a simple graph", "src/structure.h",

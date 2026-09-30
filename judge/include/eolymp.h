@@ -1279,6 +1279,14 @@ inline std::string case_prefix() {
     return current_case() > 0 ? fmt("case {}: ", current_case()) : std::string();
 }
 
+struct studied_bounds {
+    bool quiet = false;
+    long long low = 0;
+    long long high = 0;
+    long long type_low = 0;
+    long long type_high = 0;
+};
+
 struct seen_bounds {
     std::string kind;
     std::string low;
@@ -1672,16 +1680,23 @@ public:
             return;
         }
         if (bounds != stated::yes) return;
-        if (low == type_low && high == type_high && fresh("EO104", where))
+        if (last_study_.quiet && last_study_.low == low && last_study_.high == high &&
+            last_study_.type_low == type_low && last_study_.type_high == type_high)
+            return;
+        bool const whole_range = low == type_low && high == type_high;
+        bool const too_wide = low < type_low || high > type_high;
+        bool const high_near = nearly_round(high);
+        bool const low_near = nearly_round(low);
+        if (whole_range && fresh("EO104", where))
             warn("EO104", fmt("the bounds are the whole range of {}", type_word),
                  "say eo::any if any value is allowed", where);
-        if ((low < type_low || high > type_high) && fresh("EO105", where))
+        if (too_wide && fresh("EO105", where))
             warn("EO105", fmt("the bounds {}..{} do not fit {}", low, high, type_word), "read a wider type",
                  where);
-        if (((nearly_round(high) && !read_before(high)) || (nearly_round(low) && !read_before(low))) &&
-            fresh("EO106", where))
+        if (((high_near && !read_before(high)) || (low_near && !read_before(low))) && fresh("EO106", where))
             note("EO106", fmt("the bounds {}..{} are one away from a round number", low, high),
                  "compare them with the statement", where);
+        last_study_ = {!whole_range && !too_wide && !high_near && !low_near, low, high, type_low, type_high};
     }
 
 private:
@@ -1799,6 +1814,7 @@ private:
     void (*flush_)(void*) = nullptr;
     void* owner_ = nullptr;
     std::string end_text_;
+    studied_bounds last_study_;
 };
 
 }  // namespace detail
