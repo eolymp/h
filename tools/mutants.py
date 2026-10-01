@@ -12,8 +12,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 from common import ROOT, compiler
+
+alone_limit = 600
+least_limit = 60
 
 MUTANTS = [
     ("a sum limit that allows one more", "src/validate.h",
@@ -107,7 +111,7 @@ MUTANTS = [
 ]
 
 
-def run_a_copy(root, compiler, where=None, old=None, new=None):
+def run_a_copy(root, compiler, limit, where=None, old=None, new=None):
     with tempfile.TemporaryDirectory(prefix="eolymp-mutant-") as scratch:
         copy = pathlib.Path(scratch)
         for part in ("src", "tools", "tests"):
@@ -120,19 +124,20 @@ def run_a_copy(root, compiler, where=None, old=None, new=None):
                                 "tests/all.cpp"], cwd=copy, capture_output=True)
         if built.returncode != 0:
             return "does not compile"
+        started = time.monotonic()
         try:
-            ran = subprocess.run(["./mutant"], cwd=copy, capture_output=True, timeout=30)
+            ran = subprocess.run(["./mutant"], cwd=copy, capture_output=True, timeout=limit)
         except subprocess.TimeoutExpired:
-            return "timed out"
-        return "passed" if ran.returncode == 0 else "failed"
+            return "timed out", limit
+        return "passed" if ran.returncode == 0 else "failed", time.monotonic() - started
 
 
-def attempt(root, mutant, compiler):
+def attempt(root, mutant, compiler, limit):
     name, where, old, new = mutant
     before = (root / where).read_text()
     if before.count(old) != 1:
         return name, f"its anchor appears {before.count(old)} times in {where}"
-    outcome = run_a_copy(root, compiler, where, old, new)
+    outcome, _ = run_a_copy(root, compiler, limit, where, old, new)
     if outcome == "does not compile":
         return name, "the mutant does not compile"
     return name, "survived" if outcome == "passed" else None
@@ -142,13 +147,14 @@ def main() -> int:
     root = ROOT
     command = compiler()
     workers = int(os.environ.get("JOBS", os.cpu_count() or 1))
-    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
-        control = pool.submit(run_a_copy, root, command)
-        outcomes = list(pool.map(lambda one: attempt(root, one, command), MUTANTS))
-    if control.result() != "passed":
-        print(f"mutants: the unchanged sources, copied and built the same way, {control.result()}; "
+    control, alone = run_a_copy(root, command, alone_limit)
+    if control != "passed":
+        print(f"mutants: the unchanged sources, copied and built the same way, {control}; "
               f"no mutant can be said to be killed")
         return 1
+    limit = max(least_limit, int(alone * workers))
+    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+        outcomes = list(pool.map(lambda one: attempt(root, one, command, limit), MUTANTS))
     failed = [(name, why) for name, why in outcomes if why]
     print(f"mutants: {len(MUTANTS) - len(failed)} of {len(MUTANTS)} killed")
     for name, why in failed:
