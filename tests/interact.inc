@@ -529,11 +529,14 @@ EO_TEST(the_random_stream_comes_from_the_test) {
 namespace {
 
 int draining_pipe = -1;
+volatile std::sig_atomic_t drained_bytes = 0;
 
+// The pipe's only writer is the thread this handler interrupts, so a read that
+// waited here for bytes would wait for ever: the pipe is drained without waiting.
 void drain_the_pipe(int) {
     char sink[1 << 15];
     ssize_t const got = ::read(draining_pipe, sink, sizeof(sink));
-    (void)got;
+    if (got > 0) drained_bytes = drained_bytes + static_cast<std::sig_atomic_t>(got);
 }
 
 }  // namespace
@@ -763,7 +766,9 @@ EO_TEST(a_write_cut_short_by_a_signal_is_resumed) {
         swapped_descriptors kept;
         int ends[2] = {-1, -1};
         EO_CHECK_EQ(::pipe(ends), 0);
+        ::fcntl(ends[0], F_SETFL, ::fcntl(ends[0], F_GETFL) | O_NONBLOCK);
         draining_pipe = ends[0];
+        drained_bytes = 0;
         struct sigaction wanted = {};
         struct sigaction previous = {};
         wanted.sa_handler = &drain_the_pipe;
@@ -794,6 +799,10 @@ EO_TEST(a_write_cut_short_by_a_signal_is_resumed) {
         struct itimerval off = {};
         ::setitimer(ITIMER_REAL, &off, nullptr);
         ::sigaction(SIGALRM, &previous, nullptr);
+        for (long before = -1; before != drained_bytes;) {
+            before = drained_bytes;
+            drain_the_pipe(0);
+        }
         ::close(from);
         ::close(quiet);
         ::close(ends[0]);
@@ -802,6 +811,7 @@ EO_TEST(a_write_cut_short_by_a_signal_is_resumed) {
     ::unlink(out_path.c_str());
     forget_the_environment();
     EO_CHECK(finished);
+    EO_CHECK_EQ(static_cast<long>(drained_bytes), 400001L);
 }
 
 EO_TEST(an_interactor_needs_its_files_and_only_one_role) {

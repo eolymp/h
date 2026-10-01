@@ -65,6 +65,15 @@ struct is_fixed<fixed_number<T>> : std::true_type {};
 
 inline void append_fixed(std::string& out, double value, int digits) {
     if (append_non_finite(out, value)) return;
+#if defined(__cpp_lib_to_chars)
+    if (digits >= 0 && digits <= 40 && numbers_as_in_c()) {
+        char wide[360];
+        std::to_chars_result const written =
+            std::to_chars(wide, wide + sizeof(wide), value, std::chars_format::fixed, digits);
+        out.append(wide, static_cast<std::size_t>(written.ptr - wide));
+        return;
+    }
+#endif
     char buffer[64];
     std::size_t const written =
         static_cast<std::size_t>(std::snprintf(buffer, sizeof(buffer), "%.*f", digits, value));
@@ -124,6 +133,16 @@ inline void add_to_line(std::string& line, T const& value, bool& first) {
         first = false;
         append_value(line, value);
     }
+}
+
+template <class Items, class Spell>
+inline std::string joined(Items const& items, Spell spell) {
+    std::string out;
+    for (auto const& one : items) {
+        if (!out.empty()) out += ", ";
+        out += spell(one);
+    }
+    return out;
 }
 
 using appender = void (*)(std::string&, void const*);
@@ -218,7 +237,8 @@ inline std::string assemble(pattern const& told, void const* const* values, appe
                             std::size_t count) {
     std::string_view const pattern = told.text();
     std::string out;
-    if (pattern.size() + 8 * count > 15) out.reserve(pattern.size() + 8 * count);
+    std::size_t const expected = pattern.size() + 6 * count;
+    if (expected > 15) out.reserve(expected);
     std::size_t used = 0;
     std::size_t slots = 0;
     char lone = '\0';

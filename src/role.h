@@ -1,7 +1,9 @@
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <cstdio>
+#include <exception>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -34,16 +36,7 @@ inline bool close_enough(double expected, double found, double epsilon) {
 
 namespace detail {
 
-class scorer {
-public:
-    virtual double cost() const = 0;
-    virtual void pass(double fraction, std::string const& message) = 0;
-    virtual void fail_run(std::string const& message) = 0;
-    virtual void fail_jury(std::string const& message) = 0;
-
-protected:
-    ~scorer() = default;
-};
+class scorer;
 
 class limits_keeper {
 public:
@@ -53,6 +46,16 @@ public:
 protected:
     ~limits_keeper() = default;
 };
+
+inline std::array<char const*, 3> test_paths(int argc, char** argv) {
+    char const* const names[3] = {"INPUT_FILE", "OUTPUT_FILE", "ANSWER_FILE"};
+    std::array<char const*, 3> paths{};
+    for (int at = 0; at < 3; at++) {
+        char const* const set = environment(names[at]);
+        paths[static_cast<std::size_t>(at)] = set != nullptr ? set : at + 1 < argc ? argv[at + 1] : nullptr;
+    }
+    return paths;
+}
 
 inline scorer*& live_scorer() {
     static scorer* only = nullptr;
@@ -141,6 +144,29 @@ inline double test_cost() {
              "points and partial scores follow from the cost; report the judge's configuration", site::here());
     return 0;
 }
+
+class scorer {
+public:
+    double cost() const { return test_cost(); }
+    virtual void pass(double fraction, std::string const& message) = 0;
+    virtual void fail_run(std::string const& message) = 0;
+    virtual void fail_jury(std::string const& message) = 0;
+
+protected:
+    ~scorer() = default;
+
+    void fail_closed(char const* role) {
+        if (delivered_) return;
+        if (std::uncaught_exceptions() == 0) fail_jury(fmt("the {} ended without a verdict", role));
+#ifndef EOLYMP_TESTING
+        fail_jury(fmt("an exception left the {} before its verdict; catch it inside the {}'s scope and give a "
+                      "verdict there, or let it end the program",
+                      role, role));
+#endif
+    }
+
+    bool delivered_ = false;
+};
 
 inline double rounded(double value, int digits) {
     if (digits > 15) return value;

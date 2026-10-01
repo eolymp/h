@@ -1,15 +1,18 @@
 #pragma once
 
+#include <cfenv>
+#include <clocale>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 #include <utility>
 
-#define EOLYMP_H_VERSION "2.2.0"
+#define EOLYMP_H_VERSION "2.2.1"
 #define EOLYMP_H_VERSION_MAJOR 2
 #define EOLYMP_H_VERSION_MINOR 2
-#define EOLYMP_H_VERSION_PATCH 0
+#define EOLYMP_H_VERSION_PATCH 1
 
 namespace eo {
 
@@ -52,6 +55,15 @@ inline bool environment_is(char const* name, char const* value) {
 inline bool on_judge() { return environment("EOLYMP") != nullptr; }
 
 inline bool strict_mode() { return environment_is("EOLYMP_STRICT", "1"); }
+
+inline std::size_t constexpr mebibyte = std::size_t{1} << 20;
+inline std::size_t constexpr pipe_size = std::size_t{1} << 16;
+inline std::size_t constexpr stored_log = std::size_t{1} << 16;
+inline std::size_t constexpr large_file = 64 * mebibyte;
+
+inline bool numbers_as_in_c() {
+    return std::fegetround() == FE_TONEAREST && std::strcmp(std::localeconv()->decimal_point, ".") == 0;
+}
 
 struct stop {
     int code;

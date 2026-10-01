@@ -165,7 +165,7 @@ get between the judge's parser and the score it is looking for:
 
 ```
 points 25 matched 10 of 40
-eolymp.h 2.2.0
+eolymp.h 2.2.1
 warning EO203 ./eolymp.h:NNNN the answer file still holds "40" when the checker finished
 note EO106 checker.cpp:4 the bounds 1..200001 are one away from a round number
 eo-report {"version":1,"warnings":[{"code":"EO106","at":"checker.cpp:4","count":1},{"code":"EO203","at":"./eolymp.h:NNNN","count":1}]}
@@ -218,7 +218,7 @@ validator:
 | `role.h` | the verdicts both scoring roles share |
 | `check.h` | `eo::checker`, its three streams and the ready-made comparisons |
 | `random.h`, `summary.h` | a deterministic random stream, and the format an interactor hands the checker |
-| `interact.h`, `phases.h` | `eo::interactor`, `eo::budget`, and the `run_count` chain |
+| `interact.h`, `phases.h` | `eo::interactor`, the dialogue it shares with `eo::controller`, `eo::budget`, and the `run_count` chain |
 | `generate.h` | `eo::generator`: declared options, named streams and the writer |
 | `shapes/` | the second header: trees, graphs, sequences, strings, points, and `presented` |
 | `control.h` | `eo::controller` and `eo::channel`: the SPAWN handshake and one pipe pair per instance |
@@ -246,14 +246,15 @@ request. This table is the one description of the gate: the rows down to `budget
 | `coverage` | every line of both headers runs at least once, including inline functions nothing calls, and fails the build if one does not |
 | `standards` | it also compiles and passes in the other two of C++17, C++20 and C++23, at `-O0` under the same warnings, which proves the language and library differences in a third of the build time |
 | `e2e` | a real compiled validator gives the judge's exit codes and messages, through the exit path the tests cannot reach |
-| `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, and beside organiser-style globals; a program that prints a value the library cannot print fails to build with the library's own message, one built below C++17 stops at a single `#error` that names the standard, `using namespace eo` beside `using namespace std` is ambiguous, and `eo::` with `using namespace std` builds cleanly |
+| `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, beside organiser-style globals, and without a warning under `-Wpedantic -Wconversion -Wsign-conversion -Wold-style-cast` and, where the compiler has it, `-Wuseless-cast`, in a program that uses every role; a program that prints a value the library cannot print fails to build with the library's own message, one built below C++17 stops at a single `#error` that names the standard, `using namespace eo` beside `using namespace std` is ambiguous, and `eo::` with `using namespace std` builds cleanly; and with libstdc++, the judge's library, a program that includes only `eolymp.h` still gets `std::function`, `std::unordered_map`, `std::hash`, `std::bind`, `std::not_fn` and `std::invoke` from it, as with 2.2.0 |
 | `examples` | every example in `docs/` compiles |
 | `codes` | every warning code the sources raise has a row in `docs/warnings.md`, and the page's count of built codes is right |
 | `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
+| `bench` | how many instructions the main paths take, from reading integers to comparing tokens and writing reals, counted by `perf`; `BASE=<revision>` builds the same programs against that revision's headers and shows the change; run with `make bench` |
 | `mutants` | a changed operator or bound in either header makes the suite fail; run with `make mutants` |
 | `sanitize` | the suite and the end-to-end programs pass under ASan and UBSan; run with `make sanitize` |
 | `fuzz` | every libFuzzer harness in `tests/fuzz/` finds no crash, sanitizer report or broken property in 45 s each (in CI, 90 s for all of them side by side on a push or pull request, and 30 minutes each nightly); needs clang++; `make fuzz-<harness>` or `FUZZER` runs one harness, `FUZZ_SECONDS` sets the time, and `make -j fuzz` runs them side by side; run with `make fuzz` |
-| `judge` | `gofmt` and `go vet` are clean and the `eo-judge` tests pass; run with `make judge` |
+| `judge` | `gofmt` and `go vet` are clean and the `eo-judge` tests pass, on Linux and on macOS in CI; run with `make judge` |
 | `version` | a change to the headers or to eo-judge raises `EOLYMP_H_VERSION`, and eo-judge's version is the same number; CI runs `make version` on every pull request |
 
 Set `CXX` and `CXXSTD` to choose a toolchain, and `GCOV` to the matching coverage tool:
@@ -272,7 +273,8 @@ template that nothing instantiates is still invisible.
 
 Tests are one translation unit — `tests/all.cpp` including `tests/*.inc` — so coverage is
 measured on the shipped header rather than on the sources it came from. Set `EOT_TRACE=1` to
-print each test as it runs.
+print each test as it runs. A watchdog stops the suite, naming the test, when one test runs
+longer than `EOT_TEST_SECONDS` (120 by default; `0` turns it off).
 
 ## Versions
 

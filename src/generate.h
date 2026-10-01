@@ -183,7 +183,7 @@ public:
             held_.resize(held_.size() - trailing_);
             trailing_ = 0;
             held_.push_back('\n');
-            if (held_.size() >= 1u << 20) flush();
+            if (held_.size() >= detail::mebibyte) flush();
         }
 
         void line() { put("\n"); }
@@ -208,7 +208,7 @@ public:
             if constexpr (detail::is_a_list<T>::value && !std::is_convertible_v<T const&, std::string_view>) {
                 for (auto const& one : value) {
                     add(one, first);
-                    if (held_.size() >= 1u << 20 && trailing_ == 0) flush();
+                    if (held_.size() >= detail::mebibyte && trailing_ == 0) flush();
                 }
             } else {
                 std::size_t const separator = first ? 0 : 1;
@@ -220,7 +220,7 @@ public:
 
         void put(std::string const& bytes) {
             held_ += bytes;
-            if (held_.size() >= 1u << 20) flush();
+            if (held_.size() >= detail::mebibyte) flush();
         }
 
         generator* owner_ = nullptr;
@@ -336,7 +336,7 @@ private:
         if (stress_ && !drew_)
             detail::warn("EO501", "this stress run made no random draw",
                          "every iteration would get the same test", where_of_run_);
-        if (written_ > 64ll * 1024 * 1024)
+        if (written_ > static_cast<long long>(detail::large_file))
             detail::warn("EO502", fmt("this test is {} bytes", written_),
                          "storage and judging time", where_of_run_);
         int const flushed = std::fflush(stdout);

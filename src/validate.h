@@ -173,157 +173,151 @@ public:
 
     int read_int(long long low, long long high, detail::value_name name,
                  detail::site where = detail::site::here()) {
-        return whole_int(low, high, detail::stated::yes, name, where);
+        return from_.whole_int(low, high, detail::stated::yes, name, where);
     }
 
     int read_int(any_t, detail::value_name name,
                  detail::site where = detail::site::here()) {
-        return whole_int(0, 0, detail::stated::deliberate, name, where);
+        return from_.whole_int(0, 0, detail::stated::deliberate, name, where);
     }
 
     [[deprecated("eolymp EO101: name this value, or say read_int(low, high, eo::unnamed)")]] int
     read_int(long long low, long long high,
              detail::site where = detail::site::here()) {
-        return whole_int(low, high, detail::stated::yes, detail::value_name::nothing(), where);
+        return from_.whole_int(low, high, detail::stated::yes, detail::value_name::nothing(), where);
     }
 
     [[deprecated("eolymp EO102: bound this value, or say read_int(eo::any, name)")]] int
     read_int(detail::value_name name, detail::site where = detail::site::here()) {
-        return whole_int(0, 0, detail::stated::absent, name, where);
+        return from_.whole_int(0, 0, detail::stated::absent, name, where);
     }
 
     [[deprecated("eolymp EO101 and EO102: bound and name this value")]] int
     read_int(detail::site where = detail::site::here()) {
-        return whole_int(0, 0, detail::stated::absent, detail::value_name::nothing(), where);
+        return from_.whole_int(0, 0, detail::stated::absent, detail::value_name::nothing(), where);
     }
 
     long long read_long(long long low, long long high, detail::value_name name,
                         detail::site where = detail::site::here()) {
-        return whole_long(low, high, detail::stated::yes, name, where);
+        return from_.whole_long(low, high, detail::stated::yes, name, where);
     }
 
     long long read_long(any_t, detail::value_name name,
                         detail::site where = detail::site::here()) {
-        return whole_long(0, 0, detail::stated::deliberate, name, where);
+        return from_.whole_long(0, 0, detail::stated::deliberate, name, where);
     }
 
     [[deprecated("eolymp EO101: name this value, or say read_long(low, high, eo::unnamed)")]] long long
     read_long(long long low, long long high,
               detail::site where = detail::site::here()) {
-        return whole_long(low, high, detail::stated::yes, detail::value_name::nothing(), where);
+        return from_.whole_long(low, high, detail::stated::yes, detail::value_name::nothing(), where);
     }
 
     [[deprecated("eolymp EO102: bound this value, or say read_long(eo::any, name)")]] long long
     read_long(detail::value_name name, detail::site where = detail::site::here()) {
-        return whole_long(0, 0, detail::stated::absent, name, where);
+        return from_.whole_long(0, 0, detail::stated::absent, name, where);
     }
 
     double read_real(double low, double high, int least_decimals, int most_decimals, detail::value_name name,
                      detail::site where = detail::site::here()) {
-        return fractional(low, high, detail::stated::yes, least_decimals, most_decimals, true, std::move(name),
-                          where);
+        return from_.fractional(low, high, detail::stated::yes, least_decimals, most_decimals, true, name, where);
     }
 
     double read_real(double low, double high, detail::value_name name,
                      detail::site where = detail::site::here()) {
-        return fractional(low, high, detail::stated::yes, 0, 0, false, std::move(name), where);
+        return from_.fractional(low, high, detail::stated::yes, 0, 0, false, name, where);
     }
 
     [[deprecated("eolymp EO101: name this value, or say read_real(low, high, least, most, eo::unnamed)")]] double
     read_real(double low, double high, int least_decimals, int most_decimals,
               detail::site where = detail::site::here()) {
-        return fractional(low, high, detail::stated::yes, least_decimals, most_decimals, true,
-                          detail::value_name::nothing(), where);
+        return from_.fractional(low, high, detail::stated::yes, least_decimals, most_decimals, true,
+                                detail::value_name::nothing(), where);
     }
 
     std::string read_token(long long least, long long most, charset allowed, detail::value_name name,
                            detail::site where = detail::site::here()) {
-        return word(least, most, &allowed, detail::stated::yes, std::move(name), where);
+        return from_.word(least, most, &allowed, detail::stated::yes, name, where);
     }
 
     std::string read_token(long long least, long long most, detail::value_name name,
                            detail::site where = detail::site::here()) {
-        return word(least, most, nullptr, detail::stated::yes, std::move(name), where);
+        return from_.word(least, most, nullptr, detail::stated::yes, name, where);
     }
 
     [[deprecated("eolymp EO101: name this token, or say read_token(least, most, allowed, eo::unnamed)")]] std::string
     read_token(long long least, long long most, charset allowed,
                detail::site where = detail::site::here()) {
-        return word(least, most, &allowed, detail::stated::yes, detail::value_name::nothing(), where);
+        return from_.word(least, most, &allowed, detail::stated::yes, detail::value_name::nothing(), where);
     }
 
     [[deprecated("eolymp EO108: give a length and a charset, or say read_token(eo::any, name)")]] std::string
     read_token(detail::value_name name, detail::site where = detail::site::here()) {
-        return word(0, 0, nullptr, detail::stated::absent, std::move(name), where);
+        return from_.word(0, 0, nullptr, detail::stated::absent, name, where);
     }
 
     std::string read_token(any_t, detail::value_name name,
                            detail::site where = detail::site::here()) {
-        return word(0, 0, nullptr, detail::stated::deliberate, std::move(name), where);
+        return from_.word(0, 0, nullptr, detail::stated::deliberate, name, where);
     }
 
     std::string read_line(long long least, long long most, charset allowed, detail::value_name name,
                           detail::site where = detail::site::here()) {
-        return rest_of_line(least, most, &allowed, detail::stated::yes, std::move(name), where);
+        return from_.rest_of_line(least, most, &allowed, detail::stated::yes, name, where);
     }
 
     std::string read_line(long long least, long long most, detail::value_name name,
                           detail::site where = detail::site::here()) {
-        return rest_of_line(least, most, nullptr, detail::stated::yes, std::move(name), where);
+        return from_.rest_of_line(least, most, nullptr, detail::stated::yes, name, where);
     }
 
     std::string read_choice(std::initializer_list<char const*> choices, detail::value_name name,
                             detail::site where = detail::site::here()) {
-        std::string const found = from_.take_word(name, where, "a token", from_.longest_of(choices));
-        for (char const* one : choices)
-            if (found == one) return found;
-        std::string listed;
-        for (char const* one : choices) listed += (listed.empty() ? "" : ", ") + std::string(one);
-        invalid(name, fmt("\"{}\" is not one of {}", detail::shorten(found), listed));
+        return from_.choice(choices, false, name, where);
     }
 
     std::vector<int> read_ints(long long count, long long low, long long high, detail::value_name name,
                                detail::site where = detail::site::here()) {
-        return many<int>(count, name, [&](detail::value_name each) {
-            return whole_int(low, high, detail::stated::yes, std::move(each), where);
+        return many<int>(count, name, [&](detail::value_name const& each) {
+            return from_.whole_int(low, high, detail::stated::yes, each, where);
         });
     }
 
     std::vector<int> read_ints(long long count, any_t, detail::value_name name,
                                detail::site where = detail::site::here()) {
-        return many<int>(count, name, [&](detail::value_name each) {
-            return whole_int(0, 0, detail::stated::deliberate, std::move(each), where);
+        return many<int>(count, name, [&](detail::value_name const& each) {
+            return from_.whole_int(0, 0, detail::stated::deliberate, each, where);
         });
     }
 
     std::vector<long long> read_longs(long long count, long long low, long long high, detail::value_name name,
                                       detail::site where = detail::site::here()) {
-        return many<long long>(count, name, [&](detail::value_name each) {
-            return whole_long(low, high, detail::stated::yes, std::move(each), where);
+        return many<long long>(count, name, [&](detail::value_name const& each) {
+            return from_.whole_long(low, high, detail::stated::yes, each, where);
         });
     }
 
     std::vector<long long> read_longs(long long count, any_t, detail::value_name name,
                                       detail::site where = detail::site::here()) {
-        return many<long long>(count, name, [&](detail::value_name each) {
-            return whole_long(0, 0, detail::stated::deliberate, std::move(each), where);
+        return many<long long>(count, name, [&](detail::value_name const& each) {
+            return from_.whole_long(0, 0, detail::stated::deliberate, each, where);
         });
     }
 
     std::vector<double> read_reals(long long count, double low, double high, int least_decimals,
                                    int most_decimals, detail::value_name name,
                                    detail::site where = detail::site::here()) {
-        return many<double>(count, name, [&](detail::value_name each) {
-            return fractional(low, high, detail::stated::yes, least_decimals, most_decimals, true,
-                              std::move(each), where);
+        return many<double>(count, name, [&](detail::value_name const& each) {
+            return from_.fractional(low, high, detail::stated::yes, least_decimals, most_decimals, true, each,
+                                    where);
         });
     }
 
     std::vector<std::string> read_tokens(long long count, long long least, long long most, charset allowed,
                                          detail::value_name name,
                                          detail::site where = detail::site::here()) {
-        return many<std::string>(count, name, [&](detail::value_name each) {
-            return word(least, most, &allowed, detail::stated::yes, std::move(each), where);
+        return many<std::string>(count, name, [&](detail::value_name const& each) {
+            return from_.word(least, most, &allowed, detail::stated::yes, each, where);
         });
     }
 
@@ -332,7 +326,7 @@ public:
         std::vector<std::string> grid;
         grid.reserve(from_.room_for(rows, name));
         for (long long row = 1; row <= rows; row++)
-            grid.push_back(rest_of_line(cols, cols, &allowed, detail::stated::yes, name.at(row), where));
+            grid.push_back(from_.rest_of_line(cols, cols, &allowed, detail::stated::yes, name.lent_at(row), where));
         return grid;
     }
 
@@ -430,8 +424,8 @@ public:
         if (completed_) return;
         completed_ = true;
         if (!ended_) check_the_end();
-        for (detail::registered_sum* one : std::vector<detail::registered_sum*>(detail::live_sums()))
-            one->verify();
+        std::vector<detail::registered_sum*> const sums = detail::live_sums();
+        for (detail::registered_sum* one : sums) one->verify();
         closing_warnings();
         if (describing_) describe();
         detail::diagnostics::shared().emit();
@@ -474,41 +468,14 @@ private:
         return fmt("\"{}\"", detail::escaped(std::string(1, static_cast<char>(character))));
     }
 
-    int whole_int(long long low, long long high, detail::stated bounds, detail::value_name name,
-                  detail::site where) {
-        return from_.whole_int(low, high, bounds, name, where);
-    }
-
-    long long whole_long(long long low, long long high, detail::stated bounds, detail::value_name name,
-                         detail::site where) {
-        return from_.whole_long(low, high, bounds, name, where);
-    }
-
-    double fractional(double low, double high, detail::stated bounds, int least_decimals, int most_decimals,
-                      bool decimals_stated, detail::value_name name, detail::site where) {
-        return from_.fractional(low, high, bounds, least_decimals, most_decimals, decimals_stated, name,
-                                where);
-    }
-
-    std::string word(long long least, long long most, charset const* allowed, detail::stated bounds,
-                     detail::value_name name, detail::site where) {
-        return from_.word(least, most, allowed, bounds, name, where);
-    }
-
-    std::string rest_of_line(long long least, long long most, charset const* allowed, detail::stated bounds,
-                             detail::value_name name, detail::site where) {
-        return from_.rest_of_line(least, most, allowed, bounds, name, where);
-    }
-
     template <class T, class Read>
     std::vector<T> many(long long count, detail::value_name const& name, Read read_one) {
-        std::vector<T> values;
-        values.reserve(from_.room_for(count, name));
-        for (long long index = 1; index <= count; index++) {
-            if (index > 1) read_space();
-            values.push_back(read_one(name.at(index)));
-        }
-        return values;
+        bool first = true;
+        return from_.many<T>(count, name, [&](detail::value_name const& each) {
+            if (!first) read_space();
+            first = false;
+            return read_one(each);
+        });
     }
 
     template <class Edge>
@@ -520,13 +487,13 @@ private:
                                                   : static_cast<std::size_t>(std::max(count, 0LL)));
         detail::value_name const weight = name.field(".w");
         for (long long index = 1; index <= count; index++) {
-            int const u = whole_int(1, n, ends, name.at(index), where);
+            int const u = from_.whole_int(1, n, ends, name.lent_at(index), where);
             read_space();
-            int const v = whole_int(1, n, ends, name.at(index), where);
+            int const v = from_.whole_int(1, n, ends, name.lent_at(index), where);
             if constexpr (std::is_same_v<Edge, weighted_edge>) {
                 read_space();
                 long long const w =
-                    whole_long(weights.low, weights.high, detail::stated::yes, weight.at(index), where);
+                    from_.whole_long(weights.low, weights.high, detail::stated::yes, weight.lent_at(index), where);
                 edges.push_back(Edge{u, v, w});
             } else {
                 edges.push_back(Edge{u, v});
@@ -605,9 +572,8 @@ inline Limits subtask_table<Limits>::without_group(Limits fallback) {
     if (!chosen.has_value()) return fallback;
     for (subtask_row<Limits> const& row : rows_)
         if (row.group == *chosen) return row.limits;
-    std::string listed;
-    for (subtask_row<Limits> const& row : rows_)
-        listed += (listed.empty() ? "" : ", ") + std::to_string(row.group);
+    std::string const listed =
+        detail::joined(rows_, [](subtask_row<Limits> const& row) { return std::to_string(row.group); });
     detail::finish(3, fmt("{}: no subtask {}; known: {}", detail::where_of(where_), *chosen, listed));
 }
 

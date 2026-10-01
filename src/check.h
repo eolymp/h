@@ -227,60 +227,48 @@ public:
 
     std::string read_choice(std::initializer_list<char const*> choices, detail::value_name name,
                             detail::site where = detail::site::here()) {
-        return choose(choices, false, name, where);
+        return reader_.choice(choices, false, name, where);
     }
 
     std::string read_choice(std::initializer_list<char const*> choices, any_case_t, detail::value_name name,
                             detail::site where = detail::site::here()) {
-        return choose(choices, true, name, where);
+        return reader_.choice(choices, true, name, where);
     }
 
     std::vector<int> read_ints(long long count, long long low, long long high, detail::value_name name,
                                detail::site where = detail::site::here()) {
-        std::vector<int> values;
-        values.reserve(reader_.room_for(count, name));
-        for (long long at = 1; at <= count; at++) {
-            values.push_back(reader_.whole_int(low, high, detail::stated::yes, name.at(at), where));
-        }
-        return values;
+        return reader_.many<int>(count, name, [&](detail::value_name const& each) {
+            return reader_.whole_int(low, high, detail::stated::yes, each, where);
+        });
     }
 
     std::vector<long long> read_longs(long long count, long long low, long long high, detail::value_name name,
                                       detail::site where = detail::site::here()) {
-        std::vector<long long> values;
-        values.reserve(reader_.room_for(count, name));
-        for (long long at = 1; at <= count; at++)
-            values.push_back(reader_.whole_long(low, high, detail::stated::yes, name.at(at), where));
-        return values;
+        return reader_.many<long long>(count, name, [&](detail::value_name const& each) {
+            return reader_.whole_long(low, high, detail::stated::yes, each, where);
+        });
     }
 
     std::vector<long long> read_longs(long long count, any_t, detail::value_name name,
                                       detail::site where = detail::site::here()) {
-        std::vector<long long> values;
-        values.reserve(reader_.room_for(count, name));
-        for (long long at = 1; at <= count; at++)
-            values.push_back(reader_.whole_long(0, 0, detail::stated::deliberate, name.at(at), where));
-        return values;
+        return reader_.many<long long>(count, name, [&](detail::value_name const& each) {
+            return reader_.whole_long(0, 0, detail::stated::deliberate, each, where);
+        });
     }
 
     std::vector<double> read_reals(long long count, double low, double high, detail::value_name name,
                                    detail::site where = detail::site::here()) {
-        std::vector<double> values;
-        values.reserve(reader_.room_for(count, name));
-        for (long long at = 1; at <= count; at++)
-            values.push_back(reader_.fractional(low, high, detail::stated::yes, 0, 0, false, name.at(at),
-                                                where));
-        return values;
+        return reader_.many<double>(count, name, [&](detail::value_name const& each) {
+            return reader_.fractional(low, high, detail::stated::yes, 0, 0, false, each, where);
+        });
     }
 
     std::vector<std::string> read_tokens(long long count, long long least, long long most, charset allowed,
                                          detail::value_name name,
                                          detail::site where = detail::site::here()) {
-        std::vector<std::string> values;
-        values.reserve(reader_.room_for(count, name));
-        for (long long at = 1; at <= count; at++)
-            values.push_back(reader_.word(least, most, &allowed, detail::stated::yes, name.at(at), where));
-        return values;
+        return reader_.many<std::string>(count, name, [&](detail::value_name const& each) {
+            return reader_.word(least, most, &allowed, detail::stated::yes, each, where);
+        });
     }
 
     std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
@@ -364,18 +352,6 @@ private:
     bool skipped() const { return skipped_; }
 
 
-    std::string choose(std::initializer_list<char const*> choices, bool fold, detail::value_name const& name,
-                       detail::site where) {
-        std::string found = reader_.take_word(name, where, "a token", reader_.longest_of(choices));
-        std::string listed;
-        for (char const* one : choices) {
-            listed += (listed.empty() ? "" : ", ") + std::string(one);
-            if (found == one) return found;
-            if (fold && detail::same_folded(found, one)) return std::string(one);
-        }
-        reader_.refuse(name, fmt("\"{}\" is not one of {}", detail::shorten(found), listed));
-    }
-
     template <class Edge>
     std::vector<Edge> edges_between(long long m, detail::stated ends, int n,
                                     [[maybe_unused]] weight_bounds weights,
@@ -384,12 +360,12 @@ private:
         edges.reserve(reader_.room_for(m, name));
         detail::value_name const weight = name.field(".w");
         for (long long at = 1; at <= m; at++) {
-            int const u = reader_.whole_int(1, n, ends, name.at(at), where);
-            int const v = reader_.whole_int(1, n, ends, name.at(at), where);
+            int const u = reader_.whole_int(1, n, ends, name.lent_at(at), where);
+            int const v = reader_.whole_int(1, n, ends, name.lent_at(at), where);
             if constexpr (std::is_same_v<Edge, weighted_edge>)
                 edges.push_back(Edge{u, v,
                                      reader_.whole_long(weights.low, weights.high, detail::stated::yes,
-                                                        weight.at(at), where)});
+                                                        weight.lent_at(at), where)});
             else
                 edges.push_back(Edge{u, v});
         }
@@ -426,18 +402,16 @@ public:
         if (detail::live_checker() != nullptr)
             detail::library_error(fmt("{}: this program already has a checker", detail::where_of(where)));
         detail::diagnostics::shared().start_the_clock("EO209", "checker", 10000, where);
-        char const* const from_env[3] = {detail::environment("INPUT_FILE"), detail::environment("OUTPUT_FILE"),
-                                         detail::environment("ANSWER_FILE")};
-        std::vector<std::string> named;
-        for (int at = 1; at < argc; at++) named.emplace_back(argv[at]);
+        std::array<char const*, 3> const given = detail::test_paths(argc, argv);
+        char const* const kinds[3] = {"input", "output", "answer"};
         std::string paths[3];
         for (int at = 0; at < 3; at++) {
-            if (from_env[at] != nullptr) paths[at] = from_env[at];
-            else if (named.size() > static_cast<std::size_t>(at)) paths[at] = named[static_cast<std::size_t>(at)];
-            else detail::library_error(fmt("{}: the checker was given no {} file", detail::where_of(where),
-                                           at == 0 ? "input" : at == 1 ? "output" : "answer"));
+            if (given[static_cast<std::size_t>(at)] == nullptr)
+                detail::library_error(
+                    fmt("{}: the checker was given no {} file", detail::where_of(where), kinds[at]));
+            paths[at] = given[static_cast<std::size_t>(at)];
         }
-        if (named.size() >= 3 && from_env[1] != nullptr && named[1] != paths[1])
+        if (argc >= 4 && detail::environment("OUTPUT_FILE") != nullptr && paths[1] != argv[2])
             detail::note("EO211", "this checker runs as the legacy type, which swaps its last two arguments",
                          "the ordinary PROGRAM type is the norm", where);
         input = stream(detail::source::over_file(paths[0].c_str(), true), detail::fault::jury_error,
@@ -476,22 +450,15 @@ public:
             put_the_output_back();
             let_go_of_what_was_held();
         }
-        if (delivered_) return;
-        if (std::uncaught_exceptions() == 0) fail_jury("the checker ended without a verdict");
-#ifndef EOLYMP_TESTING
-        fail_jury("an exception left the checker before its verdict; catch it inside the checker's scope "
-                  "and give a verdict there, or let it end the program");
-#endif
+        fail_closed("checker");
     }
 
     stream input;
     stream output;
     stream jury;
 
-    double cost() const final { return detail::test_cost(); }
-
-    int group() const { return whole_of("TEST_GROUP"); }
-    int index() const { return whole_of("TEST_INDEX"); }
+    int group() const { return static_cast<int>(detail::environment_integer("TEST_GROUP")); }
+    int index() const { return static_cast<int>(detail::environment_integer("TEST_INDEX")); }
 
     std::string test_id() const {
         char const* const set = detail::environment("TEST_ID");
@@ -538,15 +505,17 @@ public:
     [[noreturn]] void tokens() {
         compared_only_ = true;
         long long seen = 0;
+        std::string want;
+        std::string got;
         while (true) {
             bool const jury_done = jury.at_eof();
             bool const output_done = output.at_eof();
             if (jury_done && output_done) pass(1, fmt("{} tokens", seen));
             seen++;
             if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
-            std::string const want = jury.read_token(any, fmt("token {}", seen));
+            jury_token(want, detail::site::here());
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
-            std::string const got = contestant_token(seen, want.size());
+            contestant_token(got, want.size());
             if (got.size() > want.size())
                 fail_run(fmt("token {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
                              detail::shorten(want), detail::shorten(got)));
@@ -559,16 +528,18 @@ public:
     [[noreturn]] void reals(double epsilon) {
         compared_only_ = true;
         long long seen = 0;
+        std::string want;
+        std::string got;
         while (true) {
             bool const jury_done = jury.at_eof();
             bool const output_done = output.at_eof();
             if (jury_done && output_done) pass(1, fmt("{} values", seen));
             seen++;
             if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
-            std::string const want = jury.read_token(any, fmt("token {}", seen));
+            jury_token(want, detail::site::here());
             if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
             std::size_t const longest = std::max<std::size_t>(want.size(), detail::reader::longest_number);
-            std::string const got = contestant_token(seen, longest);
+            contestant_token(got, longest);
             if (got.size() > longest)
                 fail_run(fmt("token {} is longer than {} characters: \"{}\"", seen, longest, detail::shorten(got)));
             detail::real_read const wanted = detail::parse_real(want, true, true);
@@ -594,10 +565,10 @@ public:
             if (jury_done && output_done) pass(1, fmt("{} lines", seen));
             seen++;
             if (jury_done) fail_run(fmt("the answer has {} lines, the output has more", seen - 1));
-            std::string want = jury.read_line(any, fmt("line {}", seen));
+            std::string want = jury.read_line(any, unnamed);
             if (output_done) fail_run(fmt("the output ended after {} lines, the answer has more", seen - 1));
             bool longer = false;
-            std::string got = output.inside().line_up_to(want.size() + 1, longer, fmt("line {}", seen));
+            std::string got = output.inside().line_up_to(want.size() + 1, longer, unnamed);
             while (!want.empty() && trailing_blank(want.back())) want.pop_back();
             if (longer)
                 fail_run(fmt("line {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
@@ -617,10 +588,10 @@ public:
             bool const output_done = output.inside().peek() < 0;
             if (jury_done && output_done) pass(1, fmt("{} lines", last));
             seen++;
-            std::string want = jury_done ? std::string() : jury.read_line(any, fmt("line {}", seen));
+            std::string want = jury_done ? std::string() : jury.read_line(any, unnamed);
             bool longer = false;
-            std::string got = output_done ? std::string()
-                                          : output.inside().line_up_to(want.size() + 1, longer, fmt("line {}", seen));
+            std::string got =
+                output_done ? std::string() : output.inside().line_up_to(want.size() + 1, longer, unnamed);
             want.erase(want.find_last_not_of(" \t\r") + 1);
             got.erase(got.find_last_not_of(" \t\r") + 1);
             if (jury_done && (longer || !got.empty()))
@@ -709,9 +680,13 @@ public:
 private:
     static bool trailing_blank(char one) { return one == ' ' || one == '\t' || one == '\r'; }
 
-    std::string contestant_token(long long seen, std::size_t longest) {
-        return output.inside().take_word(fmt("token {}", seen), detail::site::here(), "a token",
-                                         static_cast<long long>(longest) + 1);
+    void jury_token(std::string& want, detail::site where) {
+        jury.inside().word_into(want, 0, 0, nullptr, detail::stated::deliberate, unnamed, where);
+    }
+
+    void contestant_token(std::string& got, std::size_t longest) {
+        output.inside().take_word_into(got, unnamed, detail::site::here(), "a token",
+                                       static_cast<long long>(longest) + 1);
     }
 
     static void exited_early() {
@@ -766,13 +741,6 @@ private:
         return out;
     }
 
-    int whole_of(char const* name) const {
-        char const* const set = detail::environment(name);
-        if (set == nullptr) return 0;
-        detail::integer_read const parsed = detail::parse_integer(set);
-        return parsed.problem == detail::number_problem::none ? static_cast<int>(parsed.value) : 0;
-    }
-
     void closing_checks(double fraction) {
         if (fraction <= 0) return;
         if (!output.inside().read_anything())
@@ -810,7 +778,7 @@ private:
 
     long long copy_what_was_held() {
         std::rewind(held_);
-        char buffer[1 << 16];
+        char buffer[detail::pipe_size];
         long long copied = 0;
         std::size_t got = 0;
         while ((got = std::fread(buffer, 1, sizeof(buffer), held_)) > 0) {
@@ -836,7 +804,7 @@ private:
         std::fwrite(EOLYMP_H_VERSION, 1, std::strlen(EOLYMP_H_VERSION), stdout);
         std::fputc('\n', stdout);
         std::fflush(stdout);
-        if (held > 64 * 1024)
+        if (held > static_cast<long long>(detail::stored_log))
             detail::note("EO210", fmt("the checker printed {} bytes before its verdict", held),
                          "stored logs are truncated", detail::site::here());
     }
@@ -844,7 +812,6 @@ private:
     answers_are declared_ = answers_are::unique;
     bool stock_ = false;
     bool compared_only_ = false;
-    bool delivered_ = false;
     int saved_out_ = -1;
     int saved_err_ = -1;
     std::FILE* held_ = nullptr;

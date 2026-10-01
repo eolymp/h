@@ -1,7 +1,9 @@
 #include "../eolymp.h"
 #include "../eolymp-shapes.h"
 
+#include <cfenv>
 #include <chrono>
+#include <clocale>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -31,5 +33,6 @@
 #include "control.inc"
 #include "shapes.inc"
 #include "boundaries.inc"
+#include "pinned.inc"
 
 int main() { return eot::main_of_tests(); }
