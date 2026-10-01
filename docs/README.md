@@ -24,9 +24,10 @@ int main(int argc, char** argv) {
 
 [validator.md](validator.md), [checker.md](checker.md), [interactor.md](interactor.md),
 [generator.md](generator.md) and [controller.md](controller.md) are the guides, one per kind
-of jury program. [shapes.md](shapes.md) is the test shapes, [judge.md](judge.md) is the
-emulator, and [warnings.md](warnings.md) is every warning code, one self-contained row each —
-that is the page to look a code up in. [testlib.md](testlib.md) puts each testlib call beside
+of jury program, and [templates.md](templates.md) is a function problem's code templates.
+[shapes.md](shapes.md) is the test shapes, [judge.md](judge.md) is the emulator, and
+[warnings.md](warnings.md) is every warning code, one self-contained row each — that is the
+page to look a code up in. [testlib.md](testlib.md) puts each testlib call beside
 its eolymp.h counterpart, for a problem moving over.
 
 ## What it gives you
@@ -54,11 +55,12 @@ its eolymp.h counterpart, for a problem moving over.
 - **It reads in constant memory.** The reader holds one fixed buffer, 1 MB, whatever the
   input's size, so a 49 MB test costs the same as a small one. A token or a line read with a
   stated maximum stops one character past it rather than holding the rest.
-- **It compiles in about two seconds.** The validator above builds with `-O2` in about 2 s and
-  leaves an object of about 166 KB, and the first checker in [checker.md](checker.md) is about
-  the same (g++ 12 and clang 14 on Linux; the standard headers alone take 0.4 s). `make budget`
-  measures the compiler's CPU time for both on every run of the gate, against the standard
-  headers built in the same run, and fails when either takes more than 9 times as much. The judge compiles the
+- **It compiles in under three seconds.** The validator above builds with `-O2` in about 2.6 s
+  and leaves an object of about 194 KB, and the first checker in [checker.md](checker.md) is
+  about the same (g++ 12 on Linux; the standard headers eolymp.h includes take 0.45 s on
+  their own). `make budget` measures the compiler's CPU time for both on every run of the
+  gate, against those standard headers built in the same run, and fails when either takes
+  more than 8.5 times as much or leaves an object over 220 KB. The judge compiles the
   validator again for every run that needs it.
 - **It keeps out of your code's way, as long as you write `eo::`.** Everything is inside
   `namespace eo`, with no global names and no macros beyond the include guard and the version.
@@ -67,7 +69,8 @@ its eolymp.h counterpart, for a problem moving over.
 
   **`using namespace eo;` is outside that, and outside the compatibility promise.** A minor
   release adds names to `eo` the way a C++ standard adds names to `std`, and a program that
-  opens `eo` can meet an ambiguity it did not have before. Some names are in both namespaces
+  opens `eo` can meet an ambiguity it did not have before; 2.3.0 adds `pattern`, `any_order`,
+  `big` and `absolute`. Some names are in both namespaces
   already. `unique`, `ignore`, `any` and `ratio` are a value in one and a
   type or a function in the other, so once both are open an unqualified use, such as
   `c.answers(unique)`, is ambiguous and does not compile; `log`, `is_sorted` and
@@ -81,7 +84,8 @@ its eolymp.h counterpart, for a problem moving over.
   `eo::log`, `require` and a stream's `wrong`: `eo::wrong("got %d", x)`, which otherwise runs
   with warning EO112, stops the build at
   `a_message_needs_one_placeholder_for_each_value`, and a lone brace at
-  `a_message_needs_two_braces_to_print_one`. It is opt-in because a program that built with
+  `a_message_needs_two_braces_to_print_one`; a literal `eo::pattern` that does not parse
+  stops it at `a_pattern_that_does_not_parse`. It is opt-in because a program that built with
   the last release has to build with this one. C++17, and a compiler without `consteval`,
   ignore the macro, and a message held in a `std::string` or a `char` array is still checked
   when it runs.
@@ -120,7 +124,77 @@ g++ -std=c++17 -O2 -I. -o validator validator.cpp
 ```
 
 C++17 is the floor, and the header builds unchanged as C++20 and C++23. It is tested against
-GCC and clang, on glibc, on musl — the judge's own libc — and on macOS with libc++.
+GCC and clang, on glibc, on musl — the judge's own libc — on macOS with libc++, and on
+Windows with MSVC, clang-cl and mingw-w64.
+
+## Windows
+
+The judge runs Linux; Windows is for writing and trying a problem locally, and a jury program
+built there judges as the judge does. Build it as you would anything else:
+
+```bat
+cl /std:c++17 /EHsc /O2 /W4 checker.cpp
+clang-cl /std:c++17 /EHsc /O2 /W4 checker.cpp
+g++ -std=c++17 -O2 -Wall -Wextra -o checker.exe checker.cpp
+```
+
+The header never includes `<windows.h>`, so it takes none of that header's macros into your
+program, and it builds after `<windows.h>` too, with or without `NOMINMAX`.
+
+**The verdicts are the same.** Windows opens the standard streams in text mode, which writes
+`\n` as `\r\n` and reads `\r\n` as `\n` and Ctrl-Z as the end of the file. The header switches
+standard input, output and error to binary before `main` and opens every file in binary, so a
+program reads and writes the bytes it would on Linux: the jury's files have their CRLF folded
+by the library, with an EO110 note, as on the judge; the contestant's output is read as it
+is; and a generator writes `\n`. testlib instead reads its line ends by the platform it was
+built on, so the same validator can pass a test on Linux and refuse it on Windows. The CI job
+that proves this builds every program of `make transcript` with all three compilers on
+`windows-latest`, compares its transcript with Linux's byte for byte, and runs the unit tests
+there.
+
+**What is Windows' own:**
+
+- **The stack.** Windows gives a program 1 MB of stack by default, where Linux gives 8 MB and
+  the judge more, so a deep recursion in a checker or a solution can crash only on Windows.
+  Link with a larger one: `/link /STACK:268435456` under MSVC and clang-cl,
+  `-Wl,--stack,268435456` under mingw-w64.
+- **A solution that writes after the interactor has gone** dies of SIGPIPE on Linux and gets
+  a write error on Windows, so its own exit code can differ. The interactor's verdict, which
+  is what the judge reports, does not.
+- **`quick_exit` before a verdict** is a jury error everywhere except under a mingw-w64 built
+  on the old msvcrt, which has no `at_quick_exit` for the library to hear it by, as on macOS;
+  a UCRT toolchain, MSVC and clang-cl have it.
+- **Reals under another rounding mode.** A program that switches the rounding mode with
+  `fesetround` has its reals read by the C library's `strtod`, which follows the mode. MSVC's
+  and clang-cl's runtime then rounds even a decimal that is exact one step away: `1.5` read
+  under `FE_UPWARD` is 1.5000000000000002 there, and 1.5 with glibc and with mingw-w64. Under
+  the default rounding the library reads reals with `std::from_chars` where the standard
+  library has it, the same on every platform.
+- **`long double`** is 64 bits under MSVC and 80 under mingw-w64. The library uses neither,
+  but a program of yours that does can print different digits.
+- **A round trip costs more.** Windows' pipes are slower to wake a waiting reader: 100,000
+  round trips between an interactor and a solution take about 5.5 s on `windows-latest` under
+  cl, clang-cl and mingw-w64 alike, against about 3 s on Linux, roughly twice as long (the
+  review's measurement, three runs each). The verdict does not change, but a time limit you
+  measure on Windows is not the judge's.
+- **x64 and x86.** CI builds and runs everything for x64, and for x86 with cl; a 32-bit
+  `size_t` changes one refusal, a partition too large to draw, from "not enough memory" to "no
+  vector holds that many".
+- **Last words reach a late reader in part.** An interactor that gives up on a solution that
+  is not reading, 500 ms without progress or 2 s in all, leaves in the pipe what the pipe
+  holds: 4 KB on Windows, 64 KB on Linux. A solution that reads them later sees less on
+  Windows.
+- **The rest after EO409.** Once an interactor has taken in 16 MB of answers while it writes,
+  it stops, and the rest waits in the pipe; a solution that keeps writing then blocks, and the
+  two can wait on each other. With 4 KB pipes on Windows that happens 4 KB past the 16 MB,
+  where Linux has 64 KB of room.
+- **An exception that leaves `main`** aborts the program on both, but the exit code a shell
+  sees differs: 134 (SIGABRT) on Linux, a fast-fail code such as 3221226505 (0xC0000409) on
+  Windows, or 3 under MSVC's Debug CRT.
+- **`std::ios::sync_with_stdio(false)` does nothing under MSVC**, so a generator that mixes
+  `g.out` with `std::cout` writes them in another order there than with libstdc++. EO503 says
+  so on every platform: write the test with `g.out` alone.
+- **eo-judge** runs under WSL2, not natively; see [judge.md](judge.md#on-windows).
 
 ## How a warning reaches you
 
@@ -165,7 +239,7 @@ get between the judge's parser and the score it is looking for:
 
 ```
 points 25 matched 10 of 40
-eolymp.h 2.2.1
+eolymp.h 2.3.0
 warning EO203 ./eolymp.h:NNNN the answer file still holds "40" when the checker finished
 note EO106 checker.cpp:4 the bounds 1..200001 are one away from a round number
 eo-report {"version":1,"warnings":[{"code":"EO106","at":"checker.cpp:4","count":1},{"code":"EO203","at":"./eolymp.h:NNNN","count":1}]}
@@ -235,9 +309,9 @@ make check
 That is the whole C++ gate, and CI runs it on g++, clang++, musl and macOS, and its `test`,
 `hostile` and `examples` parts on GCC 9, whose warnings differ from today's compilers' and
 fail the build under `-Werror` in every program that includes the header. CI also runs
-`make judge`, `make mutants`, `make sanitize` and `make fuzz`, and `make version` on a pull
-request. This table is the one description of the gate: the rows down to `budget` are what
-`make check` runs, the rest run on their own, and each answers a question:
+`make judge`, `make transcript`, `make mutants`, `make sanitize` and `make fuzz`, and `make
+version` on a pull request. This table is the one description of the gate: the rows down to
+`budget` are what `make check` runs, the rest run on their own, and each answers a question:
 
 | Target | Proves |
 | --- | --- |
@@ -246,15 +320,16 @@ request. This table is the one description of the gate: the rows down to `budget
 | `coverage` | every line of both headers runs at least once, including inline functions nothing calls, and fails the build if one does not |
 | `standards` | it also compiles and passes in the other two of C++17, C++20 and C++23, at `-O0` under the same warnings, which proves the language and library differences in a third of the build time |
 | `e2e` | a real compiled validator gives the judge's exit codes and messages, through the exit path the tests cannot reach |
-| `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, beside organiser-style globals, and without a warning under `-Wpedantic -Wconversion -Wsign-conversion -Wold-style-cast` and, where the compiler has it, `-Wuseless-cast`, in a program that uses every role; a program that prints a value the library cannot print fails to build with the library's own message, one built below C++17 stops at a single `#error` that names the standard, `using namespace eo` beside `using namespace std` is ambiguous, and `eo::` with `using namespace std` builds cleanly; and with libstdc++, the judge's library, a program that includes only `eolymp.h` still gets `std::function`, `std::unordered_map`, `std::hash`, `std::bind`, `std::not_fn` and `std::invoke` from it, as with 2.2.0 |
+| `hostile` | both headers build after `<bits/stdc++.h>` with `using namespace std`, beside organiser-style globals, after the macros `<windows.h>` defines (`min`, `max`, `near`, `small`, `ERROR`, `DELETE` and the rest), and without a warning under `-Wpedantic -Wconversion -Wsign-conversion -Wold-style-cast` and, where the compiler has it, `-Wuseless-cast`, in a program that uses every role; a program that prints a value the library cannot print fails to build with the library's own message, one built below C++17 stops at a single `#error` that names the standard, `using namespace eo` beside `using namespace std` is ambiguous, and `eo::` with `using namespace std` builds cleanly; and with libstdc++, the judge's library, a program that includes only `eolymp.h` still gets `std::function`, `std::unordered_map`, `std::hash`, `std::bind`, `std::not_fn` and `std::invoke` from it, as with 2.2.0 |
 | `examples` | every example in `docs/` compiles |
 | `codes` | every warning code the sources raise has a row in `docs/warnings.md`, and the page's count of built codes is right |
-| `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are |
+| `budget` | how long the validator above and the first checker in checker.md take to build, and how large they are, and fails when either takes more than 8.5 times the compiler CPU time of the standard headers `eolymp.h` includes, a fixed list in `tools/budget.py` that the gate holds to the header's own `#include` lines, built alone in the same run, each program the fastest of three builds, or leaves an object over 220 KB; here the validator is 5.8 times and 194 KB, and CI's largest object is 197 KB, on musl |
+| `transcript` | the validators, checkers, generators, interactors and controllers of `tests/e2e` and `tests/windows` on a matrix of scenarios, among them CRLF, a lone CR and Ctrl-Z in every file a checker or validator reads, input on stdin, through a pipe and through a stream the program reopened with `freopen`, the checker's held output, EO503, reals written and read, shapes, `rng.real` bits, an exit before a verdict, an interactor against a correct and seven badly behaved solutions, two phases chained through a handoff, up to a million lines each way sent before the first answer is read, a flood past the 16 MB of answers an interactor takes in while it writes, solutions that stop reading or close their input half-way through a send, last words to a solution that sleeps or never reads, 100,000 round trips, the checker's scratch file with `TEMP` missing or in a folder with a space and a non-ASCII letter of the ANSI code page, patterns read and drawn, every stock comparison, `--eo-case` and `--eo-describe`, the log a checker held when it aborts, and a controller relaying across three instances, beyond its instance limit, with a mute and a lying instance and sending a hundred thousand lines to one, written to `build/transcript.txt` as each run's exit code, output bytes and checksums; CI's `windows` job builds the same programs on `windows-latest` with mingw-w64 under the warnings above, and with MSVC's `cl`, for x64 and for x86, and with `clang-cl` under `/W4 /WX`, and fails on any byte of its transcript that differs from Linux's, and then runs `tests/all.cpp` there, without the 17 tests that need `fork`, `setrlimit`, signals, FIFOs or `O_NONBLOCK`, and builds and runs a program that includes `<windows.h>` before the headers and one that includes it after; run with `make transcript` |
 | `bench` | how many instructions the main paths take, from reading integers to comparing tokens and writing reals, counted by `perf`; `BASE=<revision>` builds the same programs against that revision's headers and shows the change; run with `make bench` |
 | `mutants` | a changed operator or bound in either header makes the suite fail; run with `make mutants` |
 | `sanitize` | the suite and the end-to-end programs pass under ASan and UBSan; run with `make sanitize` |
 | `fuzz` | every libFuzzer harness in `tests/fuzz/` finds no crash, sanitizer report or broken property in 45 s each (in CI, 90 s for all of them side by side on a push or pull request, and 30 minutes each nightly); needs clang++; `make fuzz-<harness>` or `FUZZER` runs one harness, `FUZZ_SECONDS` sets the time, and `make -j fuzz` runs them side by side; run with `make fuzz` |
-| `judge` | `gofmt` and `go vet` are clean and the `eo-judge` tests pass, on Linux and on macOS in CI; run with `make judge` |
+| `judge` | `gofmt` and `go vet` are clean, eo-judge builds for Windows, where it refuses to run and points at WSL2, and the `eo-judge` tests pass, on Linux and on macOS in CI; run with `make judge` |
 | `version` | a change to the headers or to eo-judge raises `EOLYMP_H_VERSION`, and eo-judge's version is the same number; CI runs `make version` on every pull request |
 
 Set `CXX` and `CXXSTD` to choose a toolchain, and `GCOV` to the matching coverage tool:

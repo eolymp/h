@@ -5,7 +5,7 @@ WARNINGS := -Wall -Wextra -Wshadow -Werror
 SOURCES := $(wildcard src/*.h) $(wildcard src/shapes/*.h)
 TESTS := tests/all.cpp tests/harness.h $(wildcard tests/*.inc)
 
-.PHONY: all check amalgamate amalgamation-check test coverage e2e standards hostile budget bench examples codes version mutants sanitize fuzz judge pin clean
+.PHONY: all check amalgamate amalgamation-check test coverage e2e standards hostile budget bench examples codes version transcript mutants sanitize fuzz judge pin clean
 
 all: eolymp.h eolymp-shapes.h
 
@@ -65,6 +65,10 @@ codes:
 version:
 	python3 tools/version.py $(BASE)
 
+transcript: eolymp.h eolymp-shapes.h
+	sh tests/windows/build.sh build/transcript
+	sh tests/windows/transcript.sh build/transcript > build/transcript.txt
+
 SANITIZERS := -fsanitize=address,undefined -fno-sanitize-recover=all
 
 SANITIZED := ASAN_OPTIONS=exitcode=86:halt_on_error=1 UBSAN_OPTIONS=exitcode=86:halt_on_error=1
@@ -110,7 +114,8 @@ build/eo-judge: $(wildcard judge/*.go) judge/go.mod judge/include/eolymp.h judge
 judge: eolymp.h eolymp-shapes.h
 	cd judge && unformatted=$$(gofmt -l .) && \
 		if [ -n "$$unformatted" ]; then echo "judge: gofmt would change $$unformatted" >&2; exit 1; fi && \
-		go vet ./... && go test -count=1 -parallel $(JUDGE_PARALLEL) ./...
+		go vet ./... && GOOS=windows GOARCH=amd64 go build -o /dev/null . && \
+		go test -count=1 -parallel $(JUDGE_PARALLEL) ./...
 
 pin:
 	cd judge && AGENT_REPO=$(or $(AGENT_REPO),../../agent) go test -count=1 -run TestTheCopiedPointsParser -v ./...

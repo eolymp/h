@@ -10,6 +10,7 @@ type outcome struct {
 	Problem  string          `json:"problem"`
 	Invalid  []invalidTest   `json:"invalid,omitempty"`
 	Attempts []attemptResult `json:"attempts"`
+	Stress   *stressReport   `json:"stress,omitempty"`
 	Findings []findingResult `json:"findings"`
 	Exit     int             `json:"exit"`
 	Error    string          `json:"error,omitempty"`
@@ -39,10 +40,11 @@ type groupResult struct {
 }
 
 type runResult struct {
-	Test    int     `json:"test"`
-	Verdict Verdict `json:"verdict"`
-	MS      int     `json:"ms"`
-	Message string  `json:"message"`
+	Test       int      `json:"test"`
+	Verdict    Verdict  `json:"verdict"`
+	MS         int      `json:"ms"`
+	Message    string   `json:"message"`
+	Transcript []string `json:"transcript,omitempty"`
 }
 
 type findingResult struct {
@@ -65,7 +67,8 @@ func (o *outcome) attempt(solution *Solution, attempt *Attempt) {
 			Runs: []runResult{}}
 		for _, run := range group.Runs {
 			summary.Runs = append(summary.Runs,
-				runResult{Test: run.Index, Verdict: run.Verdict, MS: run.Wall, Message: run.Message})
+				runResult{Test: run.Index, Verdict: run.Verdict, MS: run.Wall, Message: run.Message,
+					Transcript: run.Transcript})
 		}
 		one.Groups = append(one.Groups, summary)
 	}

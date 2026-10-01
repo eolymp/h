@@ -24,7 +24,7 @@ line on the judge, and the channel each role can afford to write to — is in
 | `eo-judge check` | the emulator, reading the whole problem; **never appears in a judge log** |
 | `eo-judge lint` | a textual scan of the source, for what no run can see |
 
-All 78 designed codes are built.
+All 85 designed codes are built.
 
 ## EO1xx — reading a value
 
@@ -44,14 +44,15 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO110` | note | the program | a local input has CRLF line endings | the judge converts them and so does a local run, so this is a note about the file, not the test |
 | `EO111` | note | the program | a token over 1 MB was held in memory | bound its length if the format allows |
 | `EO112` | warning | the program | a message has more or fewer `{}` than values, or a lone `{` or `}`, such as a printf-style `"%d"` | write one `{}` for each value and `{{` or `}}` for a brace; the message keeps every value, the extra ones appended, and the verdict stands; under C++20, `-DEOLYMP_CHECK_PATTERNS` makes a literal message like that a compile error instead |
+| `EO113` | warning | the program | a token is read against a pattern whose every match holds a space, a tab or a line break, as testlib's `readToken("[a-z] {1,5}")` does when ported: testlib drops the space, this library keeps it, and no token can match | read a line with `read_line(pattern, name)`, or drop the space the way testlib did |
 
 ## EO2xx — the checker
 
 | Code | Severity | Reporter | Fires when | What to do |
 | --- | --- | --- | --- | --- |
 | `EO201` | warning | the program | the checker passed the run without reading any of the output | read the output, or use a built-in checker |
-| `EO202` | warning | the program | the checker read neither the input nor the answer | a verdict that cannot depend on the test is not a checker |
-| `EO203` | warning | the program | the answer file still holds unread content when the checker finished | read it, or say why not: `c.jury.skip_rest("...")` |
+| `EO202` | warning | the program | the checker read neither the input nor the answer | a verdict that cannot depend on the test is not a checker; an output-only checker that means it says so with `c.output_only("...")` |
+| `EO203` | warning | the program | the answer file still holds unread content when the checker finished | read it, or say why not: `c.jury.skip_rest("...")`, or `c.output_only("...")` on an output-only problem |
 | `EO204` | warning | the program | a wrong answer carries no message | say what was wrong with it; the message is what the author sees in the log |
 | `EO205` | warning | the program | a score outside 0..1, or negative `eo::points`, was clamped; a score of 2 or more is called a likely percentage or points | keep the formula inside the test; Eolymp reads a fraction of the test cost, not a percentage: use `eo::ratio(a, b)`, or `eo::points` for points |
 | `EO206` | warning | the program | a score is a hair below full marks, from floating-point division, or its points are below the cost but round up to it in the judge's 32-bit float, so the run counts as ACCEPTED | use `eo::ratio(a, b)`, which is exact, or `eo::accept` for full marks |
@@ -111,11 +112,11 @@ the author writes no test code for any of them.
 | Code | Severity | Reporter | Fires when | What to do |
 | --- | --- | --- | --- | --- |
 | `EO801` | warning | `eo-judge check` | the checker does not accept a jury answer, run as `checker(input, answer, answer)` | the checker and the answer files disagree; fix it before a contestant meets it |
-| `EO802` | warning | `eo-judge check` | the checker accepts an empty output | it is not reading the contestant's answer |
+| `EO802` | warning | `eo-judge check` | the checker accepts an empty output; tried on the first test, and on every test of an `OUTPUT` problem, where a contestant may upload an empty file for any test | it is not reading the contestant's answer |
 | `EO803` | warning | `eo-judge check` | the checker accepts the input echoed back as the output | it is not comparing enough |
 | `EO804` | warning | `eo-judge check` | the checker accepts the jury answer with one token changed, on a problem declaring `eo::unique` | the answer is declared unique, so this must be wrong |
 | `EO805` | warning | `eo-judge check` | a hostile output makes the checker crash, hang or report a jury error | a contestant's output must give a wrong answer and nothing else; bound every read |
-| `EO806` | warning | `eo-judge check` | a test is invalid when the validator is given no `--group` | a stress run passes no group, so this input would be called invalid |
+| `EO806` | warning | `eo-judge check` | a test is invalid, with its testset's `--group` or with none; the validator is said to have broken rather than refused the test when the first line it prints starts with `eolymp.h: `, the library's own error, or a signal killed it | a stress run passes no group, so this input would be called invalid |
 | `EO807` | warning | `eo-judge check` | a named bound is never reached, at either end, in some subtask | generate a test that reaches it; this is "the maximal tests really are maximal" check |
 | `EO808` | warning | `eo-judge check` | a feature declared with `v.feature` is marked by no test | generate one, or stop declaring it |
 | `EO809` | warning | `eo-judge check` | two tests in one testset are byte for byte the same | drop one, or generate a different test |
@@ -131,11 +132,15 @@ the author writes no test code for any of them.
 | `EO819` | warning | `eo-judge check` | a subtask no attached solution fails, or a correct solution that does not score full marks | a subtask every solution passes tests nothing; add one that should lose it |
 | `EO820` | warning | `eo-judge check` | a subtask no attached solution passes | check the tests and the limits; nobody can score it |
 | `EO821` | note | `eo-judge check` | the problem has fewer than two correct solutions | a reference no stress run can cross-check |
+| `EO822` | warning | `eo-judge check` | on an `OUTPUT` problem, the checker accepts the jury's answer of the next test, whose input differs, as this test's output; each test is tried with the next one's, and the last with the first's | a contestant may upload any file for any test, so one good file could pass them all; check the output against this test's input, unless that answer really is right for both |
+| `EO823` | warning | `eo-judge check` | on a `FUNCTION` problem, a C++ template's stub, its `source` wrapped in its header and footer, does not compile, or is judged as anything but a wrong answer | a contestant starts from the stub: make the three compile together and return something the checker refuses |
+| `EO824` | warning | `eo-judge check` | on a `FUNCTION` problem, a whole program, `int main() { return 0; }`, compiles inside a C++ template | the template should hold `main()`, in its footer or its header, so a submission that brings its own gets a compilation error, as on the judge |
 
 ## EO9xx — configuration
 
-Also from `eo-judge check`, reading the problem's configuration rather than running anything.
-These are the checks the platform should eventually make when a problem is saved.
+Also from `eo-judge check`, reading the problem's configuration rather than its tests, and
+running the tests `problem.json` declares for the problem's own programs. These are the checks
+the platform should eventually make when a problem is saved.
 
 | Code | Severity | Reporter | Fires when | What to do |
 | --- | --- | --- | --- | --- |
@@ -149,3 +154,6 @@ These are the checks the platform should eventually make when a problem is saved
 | `EO908` | warning | `eo-judge check` | `runCount` is above 1 on a problem that is not interactive | `run_count` chains an interactor's output into the next run |
 | `EO909` | warning | `eo-judge check` | the problem has more than about 1,200 test rows | Basecamp stops judging above that |
 | `EO910` | note | `eo-judge check` | the programs of one problem carry different copies of a header, counting the copy eo-judge carries for a program that attaches none | attach the same release to every program, or none to use the one the judge carries |
+| `EO911` | warning | `eo-judge check` | a test in `validatorTests` gets the other answer from the validator than its `expect`: a `VALID` input refused, an `INVALID` one accepted, or the validator broken on either, its first line starting with `eolymp.h: ` or killed by a signal, or out of its 30 s. `run` does not read them | the validator and the test disagree; fix the validator, or the test's `expect` if the validator is right |
+| `EO912` | warning | `eo-judge check` | a test in `checkerTests` gets another verdict or score from the checker than its `expect`: `ACCEPTED`, `WRONG_ANSWER`, `PARTIAL`, `FAILURE`, or `{"points": x}`, the points the run pays. `run` does not read them | the checker and the test disagree; fix the checker, or the test's `expect` if the checker is right |
+| `EO913` | warning | `eo-judge check` | on a `FUNCTION` problem, a C++ template's header does not end with a `#line` directive followed by a line break and nothing else, or its footer does not start with a line break | end the header with `#line 1 "solution.cpp"`, so a compilation error counts the contestant's own lines, and start the footer with an empty line, so a submission without a final newline does not run into it |

@@ -18,6 +18,7 @@ build_one() {
 }
 build_one exit_codes -O2 $warnings
 build_one exits -O2 $warnings
+build_one dies -O2 $warnings
 build_one validator -O2 $warnings
 build_one checker -O2 $warnings
 build_one swallowing_checker -O2 $warnings
@@ -87,6 +88,19 @@ expect_run() {
     wanted=$3
     shift 3
     "$@" > "$log" 2>&1
+    code=$?
+    [ "$code" = "$wanted_code" ] || { fail "$label exited $code, expected $wanted_code" "$log"; return 1; }
+    case $(cat "$log") in
+        $wanted) return 0 ;;
+    esac
+    fail "$label printed \"$(head -1 "$log")\", expected \"$wanted\""
+}
+expect_death() {
+    label=$1
+    wanted_code=$2
+    wanted=$3
+    shift 3
+    { "$@" > "$log" 2>&1 & wait $!; } 2>/dev/null
     code=$?
     [ "$code" = "$wanted_code" ] || { fail "$label exited $code, expected $wanted_code" "$log"; return 1; }
     case $(cat "$log") in
@@ -283,6 +297,43 @@ expect_run "a checker that calls exit(0) before its verdict" 3 "jury error the c
     else
         fail "a generator that called exit(0) after a line did not write it"
     fi
+dies() {
+    label=$1
+    wanted_code=$2
+    wanted=$3
+    shift 3
+    expect_death "$label" "$wanted_code" "$wanted" env "$@" EOLYMP=1 TEST_COST=40 \
+        "$build/dies" "$build/exits_out.txt" "$build/exits_out.txt" "$build/exits_out.txt"
+}
+case "${CXX:-c++}" in
+    *-fsanitize*)
+        pass "the deaths of a checker and an interactor skipped, the sanitizers take those signals themselves" ;;
+    *)
+        dies "a checker ended by an exception nothing caught" 3 \
+            "jury error an exception nothing caught ended the checker: vector::at: 7 >= 3
+printed before the end
+logged before the end
+said on stderr
+eolymp.h *" ROLE=throws &&
+            dies "a checker ended by a thrown int" 3 \
+                "jury error an exception nothing caught ended the checker, and it is not a std::exception*" \
+                ROLE=throws_int &&
+            dies "a checker that aborts" 134 "jury error the checker died of SIGABRT: it aborted, as a failed assert does
+printed before the end
+logged before the end
+said on stderr
+eolymp.h *" ROLE=aborts &&
+            dies "a checker killed by SIGSEGV" 139 "jury error the checker died of SIGSEGV*said on stderr*" ROLE=segfaults &&
+            dies "a checker killed by SIGFPE" 136 "jury error the checker died of SIGFPE*said on stderr*" ROLE=divides &&
+            { dies "a checker that runs out of stack" 139 "jury error the checker died of SIGSEGV*said on stderr*" \
+                ROLE=overflows || [ "$(uname -s)" = Darwin ]; } &&
+            expect_death "an interactor ended by an exception nothing caught" 3 \
+                "*jury error an exception nothing caught ended the interactor: the interactor lost count*" \
+                env ROLE=interactor TEST_COST=40 "$build/dies" "$build/exits_in.txt" "$build/exits_summary.txt" &&
+            pass "a checker that dies of an exception, an abort, a signal or a stack overflow leaves its verdict first and what it printed in its log"
+        ;;
+esac
+
 expect_run "the generator given an option it never declared" 3 "*unknown option -oops*" \
     generate generated_bad.txt -n=20 -oops=1 &&
     expect_run "a large generator given an option it never declared" 3 "*unknown option -oops*" \

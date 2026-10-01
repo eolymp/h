@@ -8,18 +8,22 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
 )
 
-const version = "2.2.1"
+const version = "2.3.0"
 
 const usage = `eo-judge runs an Eolymp problem the way the judge does.
 
   eo-judge run <problem> [--solution name]   build, generate, validate, judge, score
   eo-judge check <problem> [--deep]          the whole-problem and configuration checks
   eo-judge lint <problem>                    what the header cannot see
+  eo-judge stress <problem> [--args '-n=[1..8]']
+                                             compare the solutions with a reference on
+                                             generated inputs until one breaks its type
   eo-judge init <dir> [--type program|interactive|phases]
                                              write a new problem that run passes
   eo-judge version                           the version of eo-judge
@@ -29,6 +33,12 @@ const usage = `eo-judge runs an Eolymp problem the way the judge does.
   -v         print every run of every test after its testset
   --json     print the result as one JSON object instead of text
   --expect   with run, exit 1 when a solution breaks its declared type
+  --transcript
+             with run on an interactive problem, -v and every run's dialogue
+
+  stress also takes --gen script, --arg one-argument (again for the next), --reference name,
+  --solution name (again for more), --iterations n (100), --timeout seconds (300) and
+  --continue, to go on past an INVALID or BROKEN input.
 
 Flags may come before or after the problem.
 `
@@ -66,7 +76,7 @@ func realMain(args []string, temp string, out, errs io.Writer) int {
 	switch args[0] {
 	case "init":
 		return initProblem(args[1:], out, errs)
-	case "run", "check", "lint":
+	case "run", "check", "lint", "stress":
 	default:
 		fmt.Fprintf(errs, "eo-judge: there is no command %q\n\n%s", args[0], usage)
 		return 2
@@ -91,20 +101,26 @@ func realMain(args []string, temp string, out, errs io.Writer) int {
 }
 
 type options struct {
-	command, dir, only, work            string
-	strict, deep, verbose, json, expect bool
+	command, dir, only, work                        string
+	strict, deep, verbose, json, expect, transcript bool
+	stress                                          stressOptions
 }
 
 func parse(args []string, out, errs io.Writer) (options, int, bool) {
 	opts := options{command: args[0]}
 	flags := flag.NewFlagSet(opts.command, flag.ContinueOnError)
-	flags.BoolVar(&opts.strict, "strict", false, "make every warning fatal")
-	flags.BoolVar(&opts.deep, "deep", false, "run the slow hostile outputs")
-	flags.StringVar(&opts.only, "solution", "", "judge one solution by name")
+	if opts.command == "stress" {
+		opts.stress.register(flags)
+	} else {
+		flags.BoolVar(&opts.strict, "strict", false, "make every warning fatal")
+		flags.BoolVar(&opts.deep, "deep", false, "run the slow hostile outputs")
+		flags.StringVar(&opts.only, "solution", "", "judge one solution by name")
+		flags.BoolVar(&opts.expect, "expect", false, "fail when a solution breaks its declared type")
+		flags.BoolVar(&opts.transcript, "transcript", false, "print the dialogue of every interactive run")
+	}
 	flags.StringVar(&opts.work, "work", "", "keep the workspace here")
 	flags.BoolVar(&opts.verbose, "v", false, "print every run")
 	flags.BoolVar(&opts.json, "json", false, "print the result as JSON")
-	flags.BoolVar(&opts.expect, "expect", false, "fail when a solution breaks its declared type")
 	dir, code, parsed := onePositional(flags, args[1:], out, errs)
 	opts.dir = dir
 	return opts, code, parsed
@@ -140,12 +156,19 @@ type session struct {
 	temp      string
 	out, errs io.Writer
 	result    *outcome
+	planned   *stressPlan
 }
 
 func (s *session) fail(err error) int {
 	fmt.Fprintln(s.errs, "eo-judge:", err)
 	s.result.Error = err.Error()
 	return 3
+}
+
+func (s *session) refuse(why string) int {
+	s.result.Error = why
+	fmt.Fprintln(s.errs, "eo-judge:", why)
+	return 2
 }
 
 func (s *session) report(found Findings) int {
@@ -175,12 +198,29 @@ func (s *session) run() int {
 		return 2
 	}
 
+	if s.transcript && (s.command != "run" || !problem.Interactive()) {
+		return s.refuse(fmt.Sprintf("--transcript prints the dialogue of an interactive problem's runs, so it "+
+			"applies to run on an INTERACTIVE problem; this is %s on a %s problem", s.command, problem.Type))
+	}
+	s.verbose = s.verbose || s.transcript
+
 	if s.command == "lint" {
 		return s.report(Lint(problem))
 	}
 	if problem.Type == "COMMUNICATION" {
 		return s.fail(errors.New("eo-judge does not run COMMUNICATION problems yet; judge one on Eolymp, " +
 			"and lint reads its sources"))
+	}
+	if s.command == "stress" {
+		if problem.Type != "PROGRAM" && !problem.Function() {
+			return s.fail(fmt.Errorf("eo-judge stress runs PROGRAM and FUNCTION problems only, and this one is %s",
+				problem.Type))
+		}
+		planned, why := s.stress.plan(problem)
+		if why != "" {
+			return s.refuse(why)
+		}
+		s.planned = planned
 	}
 
 	space := s.work
@@ -190,8 +230,22 @@ func (s *session) run() int {
 			return s.fail(err)
 		}
 		defer os.RemoveAll(space)
+	} else if space, err = filepath.Abs(space); err != nil {
+		return s.fail(err)
+	} else if why := overlapping(space, s.dir); why != "" {
+		return s.refuse(why)
 	} else if err := os.MkdirAll(space, 0o755); err != nil {
 		return s.fail(err)
+	} else {
+		unlock, err := lockPath(filepath.Join(space, ".eo-judge.lock"), lockExclusive|lockNoWait)
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return s.fail(fmt.Errorf("another eo-judge is using the workspace %s; wait for it to finish, "+
+				"or give this one another --work", s.work))
+		}
+		if err != nil {
+			return s.fail(err)
+		}
+		defer unlock()
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -202,6 +256,7 @@ func (s *session) run() int {
 	}()
 	shop := NewWorkspace(problem, space)
 	shop.Temp = s.temp
+	shop.transcript = s.transcript
 
 	switch s.command {
 	case "check":
@@ -210,6 +265,8 @@ func (s *session) run() int {
 			return s.fail(err)
 		}
 		return s.report(append(found, Lint(problem)...))
+	case "stress":
+		return s.stressTest(ctx, shop)
 	default:
 		return s.judge(ctx, shop)
 	}
@@ -244,7 +301,7 @@ func (s *session) judge(ctx context.Context, shop *Workspace) int {
 
 	broken := 0
 	for _, solution := range judged {
-		attempt, err := shop.Evaluate(ctx, solution.Name, &Program{Source: solution.Source})
+		attempt, err := shop.Evaluate(ctx, solution)
 		if err != nil {
 			return s.fail(err)
 		}
@@ -277,6 +334,9 @@ func (s *session) print(attempt *Attempt) {
 		if s.verbose {
 			for _, one := range group.Runs {
 				fmt.Fprintf(s.out, "    %d:%d %s %dms %s\n", one.Group, one.Index, one.Verdict, one.Wall, one.Message)
+				for _, line := range one.Transcript {
+					fmt.Fprintf(s.out, "      %s\n", line)
+				}
 			}
 		}
 	}
@@ -336,4 +396,45 @@ func report(out io.Writer, found Findings, strict bool) int {
 		return 1
 	}
 	return 0
+}
+
+func overlapping(work, problem string) string {
+	near, far := realPath(work), realPath(problem)
+	if near == "" || far == "" {
+		return ""
+	}
+	switch {
+	case near == far:
+		return fmt.Sprintf("--work %s is the problem's own directory; eo-judge clears the directories it makes "+
+			"in its workspace, so give it a directory outside the problem", work)
+	case within(far, near):
+		return fmt.Sprintf("--work %s holds the problem %s; eo-judge clears the directories it makes in its "+
+			"workspace, so give it a directory outside the problem", work, problem)
+	case within(near, far):
+		return fmt.Sprintf("--work %s is inside the problem %s; eo-judge clears the directories it makes in its "+
+			"workspace, so give it a directory outside the problem", work, problem)
+	}
+	return ""
+}
+
+func realPath(path string) string {
+	whole, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	var rest []string
+	for at := whole; ; at = filepath.Dir(at) {
+		if real, err := filepath.EvalSymlinks(at); err == nil {
+			return filepath.Join(append([]string{real}, rest...)...)
+		}
+		if filepath.Dir(at) == at {
+			return whole
+		}
+		rest = append([]string{filepath.Base(at)}, rest...)
+	}
+}
+
+func within(inner, outer string) bool {
+	rest, err := filepath.Rel(outer, inner)
+	return err == nil && rest != ".." && !strings.HasPrefix(rest, ".."+string(filepath.Separator))
 }

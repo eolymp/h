@@ -96,6 +96,11 @@ verdict whatever the interactor did. Otherwise the interactor's exit code decide
 | 1 or 2 | WRONG_ANSWER; the checker does not run |
 | anything else | INTERACTION_FAILURE: the judge failed, and the submission lands in FAILURE |
 
+An exception nothing caught ends the interactor with exit 3 and
+`jury error an exception nothing caught ended the interactor: …` on its log, where the C++
+library's own abort would leave its words and a signal; the result is the same
+INTERACTION_FAILURE.
+
 **Set a wall `timeLimit`, and set it generously.** The interactor's own time is the
 solution's wall limit plus one second, so without one it is killed after about a second.
 Make `cpuLimit` the real limit for the solution: every round trip costs wall time, and the
@@ -132,8 +137,8 @@ turns them into a wrong answer on the spot:
 wrong answer: the solution, line 1, x: 5000 is above 100
 ```
 
-The read functions are the checker's: `read_int`, `read_long`, `read_real`, `read_token`,
-`read_line`, `read_choice`, `read_ints`, `read_longs`, `read_reals`, `read_tokens`,
+The read functions are the checker's, patterns included: `read_int`, `read_long`,
+`read_real`, `read_token`, `read_line`, `read_choice`, `read_ints`, `read_longs`, `read_reals`, `read_tokens`,
 `read_grid`, `read_edges`, `read_tree`, `read_graph`, `at_eof`, `at_eoln`, with bounds first and the name last, and `eo::any` where a value really
 may be anything. They are described in [checker.md](checker.md).
 

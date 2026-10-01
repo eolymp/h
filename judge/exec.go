@@ -24,6 +24,7 @@ type Built struct {
 type Status struct {
 	ExitCode int
 	Signal   bool
+	Killed   syscall.Signal
 	Wall     int
 	TimedOut bool
 	Stdout   []byte
@@ -76,7 +77,7 @@ func (tools toolchain) build(ctx context.Context, problem *Problem, name string,
 		return nil, err
 	}
 
-	if err := copyFile(problem.Path(program.Source), filepath.Join(dir, "source.cpp")); err != nil {
+	if err := writeSource(problem, program, filepath.Join(dir, "source.cpp")); err != nil {
 		return nil, err
 	}
 	var files []string
@@ -93,6 +94,9 @@ func (tools toolchain) build(ctx context.Context, problem *Problem, name string,
 	}
 	made := compilation{name: name, args: []string{"-std=" + standard(program.Runtime), "-O2"},
 		headers: headers, files: files}
+	if program.wrapped != nil {
+		made.template = program.wrapped.Runtime
+	}
 	if tools.cache != "" {
 		keyed := append(append([]string{}, made.args...), "-idirafter", headers)
 		if key, err := cacheKey(tools.cxx, keyed, dir, files); err == nil {
@@ -114,10 +118,42 @@ func (tools toolchain) build(ctx context.Context, problem *Problem, name string,
 }
 
 type compilation struct {
-	name    string
-	args    []string
-	headers string
-	files   []string
+	name     string
+	args     []string
+	headers  string
+	files    []string
+	template string
+}
+
+type notCompiled struct {
+	name, template, said string
+}
+
+func (e *notCompiled) Error() string {
+	if e.template == "" {
+		return fmt.Sprintf("%s does not compile:\n%s", e.name, e.said)
+	}
+	return fmt.Sprintf("%s does not compile inside the template for %s, which is header, source and footer in "+
+		"one file; a FUNCTION problem's solution is the function alone, and the template gives the rest, main() "+
+		"included:\n%s", e.name, e.template, e.said)
+}
+
+func writeSource(problem *Problem, program *Program, to string) error {
+	if program.wrapped == nil {
+		return copyFile(problem.Path(program.Source), to)
+	}
+	var whole []byte
+	for _, part := range []string{program.wrapped.Header, program.Source, program.wrapped.Footer} {
+		if part == "" {
+			continue
+		}
+		body, err := os.ReadFile(problem.Path(part))
+		if err != nil {
+			return fmt.Errorf("the template for %s: %w", program.wrapped.Runtime, err)
+		}
+		whole = append(whole, body...)
+	}
+	return os.WriteFile(to, whole, 0o644)
 }
 
 func (tools toolchain) compile(ctx context.Context, made compilation, dir, exe string, extra []string) error {
@@ -133,7 +169,7 @@ func (tools toolchain) compile(ctx context.Context, made compilation, dir, exe s
 		if said == "" {
 			said = err.Error()
 		}
-		return fmt.Errorf("%s does not compile:\n%s", name, said)
+		return &notCompiled{name: name, template: made.template, said: said}
 	}
 	return nil
 }
@@ -188,7 +224,7 @@ func run(ctx context.Context, exe string, call Invocation) (*Status, error) {
 	if state := command.ProcessState; state != nil {
 		status.ExitCode = state.ExitCode()
 		if wait, ok := state.Sys().(syscall.WaitStatus); ok && wait.Signaled() {
-			status.Signal = true
+			status.Signal, status.Killed = true, wait.Signal()
 		}
 	}
 	if inner.Err() == context.DeadlineExceeded {
@@ -210,18 +246,6 @@ const (
 func (b *Built) jury(ctx context.Context, limit int, call Invocation) (*Status, error) {
 	call.Dir, call.LimitMS, call.Env = b.Dir, limit, map[string]string{"EOLYMP": "1"}
 	return run(ctx, b.Exe, call)
-}
-
-func grouped(ctx context.Context, name string, args ...string) *exec.Cmd {
-	command := exec.CommandContext(ctx, name, args...)
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	command.Cancel = func() error { return killGroup(command) }
-	command.WaitDelay = 250 * time.Millisecond
-	return command
-}
-
-func killGroup(command *exec.Cmd) error {
-	return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 }
 
 func flatten(env map[string]string) []string {

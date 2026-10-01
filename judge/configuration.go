@@ -98,7 +98,7 @@ func namedPrograms(problem *Problem) map[string]*Program {
 		out[scriptName(name)] = script
 	}
 	for _, solution := range problem.Solutions {
-		out[solutionName(solution.Name)] = &Program{Source: solution.Source}
+		out[solutionName(solution.Name)] = problem.programOf(solution)
 	}
 	return out
 }
@@ -139,6 +139,7 @@ func Configuration(problem *Problem) Findings {
 			"run_count chains an interactor's output into the next run; the problem must be interactive")
 	}
 	headerChecks(problem, &found)
+	templateShapeChecks(problem, &found)
 	return found
 }
 

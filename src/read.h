@@ -27,7 +27,8 @@ private:
                 unsigned const from = static_cast<unsigned char>(spec_[at]);
                 unsigned const to = static_cast<unsigned char>(spec_[at + 2]);
                 if (from > to)
-                    detail::library_error(fmt("the character range \"{}\" in charset(\"{}\") runs backwards",
+                    detail::library_error(fmt("the character range \"{}\" in charset(\"{}\") runs backwards; write "
+                                              "its low end first, or put a - that stands for itself first or last",
                                               spec_.substr(at, 3), spec_));
                 for (unsigned c = from; c <= to; c++) allowed_[c] = true;
                 at += 2;
@@ -102,7 +103,7 @@ inline bool is_round(long long value) {
 }
 
 inline bool nearly_round(long long value) {
-    if (value == std::numeric_limits<long long>::min() || value == std::numeric_limits<long long>::max())
+    if (value == (std::numeric_limits<long long>::min)() || value == (std::numeric_limits<long long>::max)())
         return false;
     return !is_round(value) && (is_round(value - 1) || is_round(value + 1));
 }
@@ -177,6 +178,15 @@ inline bool same_folded(std::string const& left, char const* right) {
         if (one != other) return false;
     }
     return at == left.size() && right[at] == '\0';
+}
+
+inline char folded(char one) { return one >= 'A' && one <= 'Z' ? static_cast<char>(one + 32) : one; }
+
+inline bool same_in_any_case(std::string const& left, std::string const& right) {
+    if (left.size() != right.size()) return false;
+    for (std::size_t at = 0; at < left.size(); at++)
+        if (folded(left[at]) != folded(right[at])) return false;
+    return true;
 }
 
 inline bool is_blank(int character) {

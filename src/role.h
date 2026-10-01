@@ -29,9 +29,9 @@ inline double ratio(long long part, long long whole) {
 
 inline bool close_enough(double expected, double found, double epsilon) {
     double const spread = std::fabs(expected - found);
-    if (spread <= epsilon) return true;
+    if (spread <= epsilon + 1e-15) return true;
     double const scale = std::fabs(expected);
-    return scale > 0 && spread / scale <= epsilon;
+    return scale > 0 && (spread / scale <= epsilon || spread <= (epsilon + 1e-15) * scale);
 }
 
 namespace detail {
@@ -125,7 +125,9 @@ inline std::string format_points(double value) {
     }
     char buffer[40];
     int const written = std::snprintf(buffer, sizeof(buffer), "%.10g", value);
-    return std::string(buffer, static_cast<std::size_t>(written));
+    std::string printed(buffer, static_cast<std::size_t>(written));
+    with_a_dot(printed, 0);
+    return printed;
 }
 
 inline double test_cost() {
@@ -145,15 +147,44 @@ inline double test_cost() {
     return 0;
 }
 
+inline std::string what_ended(char const* role) {
+    std::exception_ptr const thrown = std::current_exception();
+    if (thrown == nullptr) return fmt("std::terminate ended the {} before its verdict", role);
+    try {
+        std::rethrow_exception(thrown);
+    } catch (std::exception const& one) {
+        return fmt("an exception nothing caught ended the {}: {}", role, shorten(one.what(), 200));
+    } catch (...) {
+        return fmt("an exception nothing caught ended the {}, and it is not a std::exception", role);
+    }
+}
+
+inline void (*&terminate_before())() {
+    static void (*kept)() = nullptr;
+    return kept;
+}
+
 class scorer {
 public:
     double cost() const { return test_cost(); }
     virtual void pass(double fraction, std::string const& message) = 0;
     virtual void fail_run(std::string const& message) = 0;
     virtual void fail_jury(std::string const& message) = 0;
+    virtual char const* called() const = 0;
+
+    static void ended_by_terminate() {
+        scorer* const one = live_scorer();
+        if (one != nullptr && !one->delivered_) one->fail_jury(what_ended(one->called()));
+        terminate_before()();
+    }
 
 protected:
     ~scorer() = default;
+
+    static void end_on_terminate() {
+        static bool const installed = (terminate_before() = std::set_terminate(&scorer::ended_by_terminate), true);
+        (void)installed;
+    }
 
     void fail_closed(char const* role) {
         if (delivered_) return;
@@ -219,7 +250,7 @@ private:
 template <class... Args>
 [[noreturn]] inline void accept(detail::pattern_for<Args...> pattern = "", Args const&... args) {
     detail::judging().pass(1, fmt(pattern, args...));
-    __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
+    detail::unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
@@ -227,20 +258,20 @@ template <class... Args>
     std::string const message = fmt(pattern, args...);
     if (detail::blaming() != nullptr) detail::blaming()->refuse(detail::value_name(unnamed), message);
     detail::judging().fail_run(message);
-    __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
+    detail::unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
 [[noreturn]] inline void jury_error(detail::pattern_for<Args...> pattern = "", Args const&... args) {
     detail::judging().fail_jury(fmt(pattern, args...));
-    __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
+    detail::unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
 [[noreturn]] inline void score(detail::scored fraction, detail::pattern_for<Args...> pattern = "",
                                Args const&... args) {
     detail::judging().pass(detail::clamped(fraction.value, fraction.where), fmt(pattern, args...));
-    __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
+    detail::unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
@@ -249,7 +280,7 @@ template <class... Args>
     detail::scorer& one = detail::judging();
     double const paid = detail::rounded(detail::clamped(fraction.value, fraction.where) * one.cost(), how.digits);
     one.pass(one.cost() > 0 ? paid / one.cost() : 0, fmt(pattern, args...));
-    __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
+    detail::unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>
@@ -266,7 +297,7 @@ template <class... Args>
         detail::warn("EO207", fmt("{} points is more than the test's {}", paid, one.cost()),
                      "the judge clamps it", given.where);
     one.pass(one.cost() > 0 ? paid / one.cost() : 0, fmt(pattern, args...));
-    __builtin_unreachable();  // LCOV_EXCL: the verdict above ends the program
+    detail::unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
 
 template <class... Args>

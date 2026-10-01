@@ -10,6 +10,7 @@
 #include "fmt.h"
 #include "io.h"
 #include "parse.h"
+#include "pattern.h"
 #include "read.h"
 
 namespace eo {
@@ -51,6 +52,8 @@ struct seen_bounds {
     char const* spelled = nullptr;
 };
 
+enum class number_read { none, integer, real };
+
 inline char const* phrase_of(std::string const& kind) {
     if (kind == "real") return "a number";
     if (kind == "length") return "a length";
@@ -86,9 +89,13 @@ public:
     }
 
     long long line() const { return from_.line(); }
+    long long position() const { return from_.position(); }
     bool carriage_returns() const { return from_.carriage_returns(); }
     std::string last_value() const { return last_indexed_ ? fmt("{}[{}]", last_value_, last_index_) : last_value_; }
-    void mark_separated() { separated_ = true; }
+    void mark_separated() {
+        separated_ = true;
+        just_read_ = number_read::none;
+    }
     std::map<std::string, seen_bounds> const& bounds() const { return bounds_; }
     bool read_anything() const { return read_anything_; }
     void exponents(bool allowed) { exponents_ = allowed; }
@@ -112,12 +119,13 @@ public:
     std::size_t room_for(long long count, value_name const& name) {
         if (count < 0) refuse(name, fmt("a count of {} cannot be read", count));
         long long const left = from_.bytes_left();
-        if (left >= 0) return static_cast<std::size_t>(std::min(count, left / 2 + 1));
-        return static_cast<std::size_t>(std::min(count, static_cast<long long>(mebibyte)));
+        if (left >= 0) return static_cast<std::size_t>((std::min)(count, left / 2 + 1));
+        return static_cast<std::size_t>((std::min)(count, static_cast<long long>(mebibyte)));
     }
 
     void blame(fault whose) { whose_ = whose; }
     void relaxed(bool loose) { relaxed_ = loose; }
+    bool relaxed() const { return relaxed_; }
 
     int peek() { return from_.peek(); }
     int take() { return from_.take(); }
@@ -184,15 +192,19 @@ public:
                 last_bounds_->read_whole = true;
             }
         }
+        just_read_ = number_read::integer;
+        integer_just_read_ = parsed.value;
         return parsed.value;
     }
 
     double fractional(double low, double high, stated bounds, int least_decimals, int most_decimals,
                       bool decimals_stated, value_name const& name, site where) {
-        std::string const token = take_number(name, where, true, "a number");
+        std::string token = take_number(name, where, true, "a number");
         real_read const parsed = parse_real(token, exponents_, lenient_);
-        if (parsed.problem != number_problem::none)
+        if (parsed.problem != number_problem::none) {
+            if (token_goes_on()) refuse_the_whole_number(name, token, number_read::real);
             refuse(name, fmt("expected a number, found \"{}\": {}", shorten(token), describe(parsed.problem)));
+        }
         if (name.absent() && fresh("EO101", where))
             warn("EO101", "this value is read without a name", "name it, or say eo::unnamed if it needs none",
                  where);
@@ -206,6 +218,7 @@ public:
             if (parsed.value > high) refuse(name, fmt("{} is above {}", parsed.value, high));
         }
         if (decimals_stated && (parsed.decimals < least_decimals || parsed.decimals > most_decimals)) {
+            if (token_goes_on()) refuse_the_whole_number(name, token, number_read::real);
             std::string const said = fmt("{} has {} digits after the point, not {}..{}", shorten(token),
                                          parsed.decimals, least_decimals, most_decimals);
             refuse(name, said);
@@ -213,6 +226,10 @@ public:
         if (bounds == stated::yes)
             remember(name, "real", low, high, parsed.value == low, parsed.value == high,
                      where);
+        if (!lenient_) {
+            just_read_ = number_read::real;
+            real_just_read_.swap(token);
+        }
         return parsed.value;
     }
 
@@ -237,9 +254,7 @@ public:
         } else if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this token is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
-        if (token.size() > mebibyte && fresh("EO111", where))
-            note("EO111", fmt("a token of {} bytes was held in memory", token.size()),
-                 "bound its length if the format allows", where);
+        note_a_large_token(token, where);
         if (bounds == stated::yes) {
             long long const length = static_cast<long long>(token.size());
             if (length > most)
@@ -257,32 +272,43 @@ public:
         }
     }
 
+    std::string matching(eo::pattern const& told, value_name const& name, site where) {
+        if (!told.in_a_token_ && fresh("EO113", where))
+            warn("EO113",
+                 fmt("\"{}\" matches only text with a blank in it, and a token holds none", escaped(told.text())),
+                 "read the line with read_line; testlib drops a space its pattern does not quote, so its "
+                 "\"[a-z] {1,5}\" is \"[a-z]{1,5}\" here",
+                 where);
+        std::string token;
+        long long const cap = told.longest_ == unbounded ? 0 : told.longest_ + 1;
+        take_word_into(token, name, where, "a token", cap);
+        note_a_large_token(token, where);
+        if (cap > 0 && static_cast<long long>(token.size()) == cap)
+            refuse(name, fmt("a token that starts \"{}\" is longer than the {} characters \"{}\" allows",
+                             shorten(token), told.longest_, escaped(told.text())));
+        if (!told.matches(token))
+            refuse(name, fmt("\"{}\" does not match \"{}\"", shorten(token), escaped(told.text())));
+        return token;
+    }
+
+    std::string line_matching(eo::pattern const& told, value_name const& name) {
+        std::string text;
+        long long const cap = told.longest_ == unbounded ? 0 : told.longest_ + 1;
+        long long const seen = line_into(text, cap, name);
+        if (cap > 0 && seen >= cap)
+            refuse(name, fmt("a line that starts \"{}\" is longer than the {} characters \"{}\" allows",
+                             shorten(text), told.longest_, escaped(told.text())));
+        if (!told.matches(text))
+            refuse(name, fmt("the line \"{}\" does not match \"{}\"", shorten(text), escaped(told.text())));
+        end_the_line(name);
+        return text;
+    }
+
     std::string rest_of_line(long long least, long long most, charset const* allowed, stated bounds,
                              value_name const& name, site where) {
-        settle();
         std::string text;
         long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
-        long long seen = 0;
-        while (true) {
-            int const next = from_.peek();
-            if (next < 0 || next == '\n') break;
-            std::size_t const run = plain_run();
-            if (run > 0) {
-                std::size_t const room = cap == 0 ? run : seen >= cap ? 0 : static_cast<std::size_t>(cap - seen);
-                text.append(from_.window(), std::min(run, room));
-                seen += static_cast<long long>(run);
-                from_.skip_plain(run);
-                continue;
-            }
-            from_.take();
-            seen++;
-            if (cap == 0 || seen <= cap) text.push_back(static_cast<char>(next));
-        }
-        if (from_.peek() < 0 && !lenient_) refuse(name, "the line has no line break at its end");
-        if (lenient_ && !text.empty() && text.back() == '\r') {
-            text.pop_back();
-            seen--;
-        }
+        long long const seen = line_into(text, cap, name);
         if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this line is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
@@ -299,10 +325,40 @@ public:
         if (bounds == stated::yes)
             remember(name, "length", least, most, length == least, length == most,
                      where);
+        end_the_line(name);
+        return text;
+    }
+
+    long long line_into(std::string& text, long long cap, value_name const& name) {
+        settle();
+        long long seen = 0;
+        while (true) {
+            int const next = from_.peek();
+            if (next < 0 || next == '\n') break;
+            std::size_t const run = plain_run();
+            if (run > 0) {
+                std::size_t const room = cap == 0 ? run : seen >= cap ? 0 : static_cast<std::size_t>(cap - seen);
+                text.append(from_.window(), (std::min)(run, room));
+                seen += static_cast<long long>(run);
+                from_.skip_plain(run);
+                continue;
+            }
+            from_.take();
+            seen++;
+            if (cap == 0 || seen <= cap) text.push_back(static_cast<char>(next));
+        }
+        if (from_.peek() < 0 && !lenient_) refuse(name, "the line has no line break at its end");
+        if (lenient_ && !text.empty() && text.back() == '\r') {
+            text.pop_back();
+            seen--;
+        }
+        return seen;
+    }
+
+    void end_the_line(value_name const& name) {
         if (from_.peek() == '\n') from_.take();
         was_read(name);
         separated_ = true;
-        return text;
     }
 
     std::string line_up_to(std::size_t keep, bool& longer, value_name const& name) {
@@ -315,7 +371,7 @@ public:
             std::size_t const run = plain_run();
             if (run > 0) {
                 char const* const at = from_.window();
-                std::size_t const kept = std::min(run, keep - std::min(keep, text.size()));
+                std::size_t const kept = (std::min)(run, keep - (std::min)(keep, text.size()));
                 text.append(at, kept);
                 for (std::size_t past = kept; past < run && !longer; past++)
                     if (at[past] != ' ' && at[past] != '\t') longer = true;
@@ -342,6 +398,12 @@ public:
         refuse(name, fmt("expected {}, found {}", expected, name_of(here)));
     }
 
+    void refuse_a_number_that_goes_on(int found) {
+        if (just_read_ == number_read::none || found < 0 || is_blank(found)) return;
+        std::string const read = just_read_ == number_read::integer ? fmt("{}", integer_just_read_) : real_just_read_;
+        refuse_the_whole_number(named_just_read_ ? value_name(last_value()) : value_name(unnamed), read, just_read_);
+    }
+
     [[noreturn]] void missing_separator(value_name const& name, site where, int found) {
         char const* const call = found == '\n' ? "read_eoln()" : "read_space()";
         finish(3, fmt("{}: {}{}: {} follows {}; read it with {}", where_of(where), case_prefix(), line_of(name),
@@ -360,8 +422,10 @@ public:
     integer_read spelled_integer(value_name const& name) {
         std::string const token = number_here(name, false, "an integer");
         integer_read const parsed = parse_integer(token, relaxed_);
-        if (parsed.problem != number_problem::none)
+        if (parsed.problem != number_problem::none) {
+            if (token_goes_on()) refuse_the_whole_number(name, token, number_read::integer);
             refuse(name, fmt("expected an integer, found \"{}\": {}", shorten(token), describe(parsed.problem)));
+        }
         return parsed;
     }
 
@@ -506,6 +570,27 @@ public:
 private:
     static bool fresh(char const* code, site where) { return !diagnostics::shared().again(code, where); }
 
+    bool token_goes_on() {
+        if (lenient_) return false;
+        int const next = from_.peek();
+        return next >= 0 && !is_blank(next);
+    }
+
+    [[noreturn]] void refuse_the_whole_number(value_name const& name, std::string token, number_read kind) {
+        token += ahead_of_the_value();
+        bool const real = kind == number_read::real;
+        number_problem const problem =
+            real ? parse_real(token, exponents_, lenient_).problem : parse_integer(token, relaxed_).problem;
+        refuse(name, fmt("expected {}, found \"{}\": {}", real ? "a number" : "an integer", shorten(token),
+                         describe(problem)));
+    }
+
+    static void note_a_large_token(std::string const& token, site where) {
+        if (token.size() > mebibyte && fresh("EO111", where))
+            note("EO111", fmt("a token of {} bytes was held in memory", token.size()),
+                 "bound its length if the format allows", where);
+    }
+
     bool read_before(long long bound) const {
         for (auto const& one : bounds_)
             if (one.second.read_whole && one.second.last_whole >= bound - 1 && one.second.last_whole <= bound + 1)
@@ -540,7 +625,9 @@ private:
     }
 
     void was_read(value_name const& name) {
+        just_read_ = number_read::none;
         if (!lenient_) {
+            named_just_read_ = name.known();
             if (!name.known()) last_value_ = "the value before";
             else if (last_value_ != name.key()) last_value_ = name.key();
             last_indexed_ = name.known() && name.indexed();
@@ -628,6 +715,10 @@ private:
     void* owner_ = nullptr;
     std::string end_text_;
     studied_bounds last_study_;
+    number_read just_read_ = number_read::none;
+    long long integer_just_read_ = 0;
+    std::string real_just_read_;
+    bool named_just_read_ = false;
 };
 
 }  // namespace detail

@@ -1,0 +1,33 @@
+{
+  "title": "the largest sum of two elements, written as a function",
+  "type": "FUNCTION",
+  "timeLimit": 2000,
+  "memoryLimit": 268435456,
+  "checker": {"source": "checker.cpp"},
+  "validator": {"source": "validator.cpp"},
+  "scripts": {
+    "gen": {"source": "generator.cpp"}
+  },
+  "templates": [
+    {"runtime": "cpp:20-gnu14", "header": "templates/cpp-header.cpp", "source": "templates/cpp-source.cpp",
+     "footer": "templates/cpp-footer.cpp"},
+    {"runtime": "python:3.14-python", "header": "templates/python-header.py",
+     "source": "templates/python-source.py", "footer": "templates/python-footer.py"},
+    {"runtime": "java:1.21", "header": "templates/java-header.java", "source": "templates/java-source.java",
+     "footer": "templates/java-footer.java"}
+  ],
+  "solutions": [
+    {"name": "main", "source": "main.cpp", "runtime": "cpp:20-gnu14", "type": "CORRECT"},
+    {"name": "sorted", "source": "sorted.cpp", "type": "CORRECT"},
+    {"name": "first-two", "source": "first-two.cpp", "type": "WRONG_ANSWER"},
+    {"name": "with-main", "source": "with-main.cpp", "type": "DONT_RUN"}
+  ],
+  "testsets": [
+    {"index": 1, "scoringMode": "EACH", "feedbackPolicy": "COMPLETE",
+     "tests": [
+       {"index": 1, "score": 30, "input": "01.in", "answer": "01.ans"},
+       {"index": 2, "score": 30, "input": "02.in", "answer": "02.ans"},
+       {"index": 3, "score": 40, "input": "03.in", "answer": "03.ans"}
+     ]}
+  ]
+}

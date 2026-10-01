@@ -63,7 +63,7 @@ EO_TEST(a_value_that_is_not_a_number_says_what_is_wrong_with_it) {
         EO_CHECK_EQ(v.read_int(1, 10, "n"), 9);
         v.read_eoln();
     });
-    EO_CHECK_EQ(suffix.text, std::string("line 1: expected a line break after n, found \"a\""));
+    EO_CHECK_EQ(suffix.text, std::string("line 1, n: expected an integer, found \"9a\": it has a character that cannot be part of the number"));
     eot::outcome const plus = validate("+5\n", [](eo::validator& v) { v.read_int(1, 10, "n"); });
     EO_CHECK_EQ(plus.text, std::string("line 1, n: expected an integer, found \"+5\""));
     eot::outcome const zeroes = validate("007\n", [](eo::validator& v) { v.read_int(1, 10, "n"); });
@@ -227,7 +227,7 @@ EO_TEST(numbers_are_read_with_their_digits_declared) {
         v.read_real(0.0, 1e9, 0, 6, "p");
         v.read_eoln();
     });
-    EO_CHECK_EQ(broken.text, std::string("line 1: expected a line break after p, found \"e\""));
+    EO_CHECK_EQ(broken.text, std::string("line 1, p: expected a number, found \"1e5\": it has a character that cannot be part of the number"));
     eot::outcome const nothing = validate("x\n", [](eo::validator& v) { v.read_real(0.0, 1.0, 1, 1, "p"); });
     EO_CHECK_EQ(nothing.text, std::string("line 1, p: expected a number, found \"x\""));
 }
@@ -1144,4 +1144,270 @@ EO_TEST(an_element_is_named_by_index_and_covered_under_its_sequence) {
     });
     EO_CHECK(refused.stopped);
     EO_CHECK_IN(refused.text, "a[2]");
+}
+
+EO_TEST(a_validator_reads_a_token_that_matches_a_pattern) {
+    eo::pattern const name("[A-Z][a-z]{0,9}");
+    eot::outcome const good = validate("Anna Bo\nYES\n", [&](eo::validator& v) {
+        EO_CHECK_EQ(v.read_token(name, "first"), std::string("Anna"));
+        v.read_space();
+        EO_CHECK_EQ(v.read_token(name, "last"), std::string("Bo"));
+        v.read_eoln();
+        EO_CHECK_EQ(v.read_token(eo::pattern("YES|NO"), "answer"), std::string("YES"));
+        v.read_eoln();
+    });
+    EO_CHECK(!good.stopped);
+    EO_CHECK_EQ(warnings_of_last_run(), std::string(""));
+    eot::outcome const lower = validate("anna\n", [&](eo::validator& v) { v.read_token(name, "first"); });
+    EO_CHECK_EQ(lower.code, 3);
+    EO_CHECK_EQ(lower.text, std::string("line 1, first: \"anna\" does not match \"[A-Z][a-z]{0,9}\""));
+    eot::outcome const longer = validate("Annabellelee\n", [&](eo::validator& v) { v.read_token(name, "first"); });
+    EO_CHECK_EQ(longer.text, std::string("line 1, first: a token that starts \"Annabellele\" is longer than the 10 "
+                                         "characters \"[A-Z][a-z]{0,9}\" allows"));
+    eot::outcome const missing = validate("\n", [&](eo::validator& v) { v.read_token(name, "first"); });
+    EO_CHECK_EQ(missing.text, std::string("line 1, first: expected a token, found a line break"));
+    eot::outcome const loose = validate("5\n", [&](eo::validator& v) {
+        v.read_token(eo::pattern("[0-9]+"), "k");
+        v.read_eoln();
+    });
+    EO_CHECK(!loose.stopped);
+    eot::outcome const unnamed = validate("x\n", [&](eo::validator& v) {
+        v.read_token(eo::pattern("y"), eo::unnamed);
+    });
+    EO_CHECK_EQ(unnamed.text, std::string("line 1: \"x\" does not match \"y\""));
+}
+
+EO_TEST(a_token_pattern_that_only_matches_with_a_blank_is_pointed_out) {
+    eot::outcome const spaced = validate("ab\n", [](eo::validator& v) { v.read_token(eo::pattern("[a-z] {1,5}"), "s"); });
+    EO_CHECK_EQ(spaced.code, 3);
+    EO_CHECK_IN(warnings_of_last_run(), "warning EO113: \"[a-z] {1,5}\" matches only text with a blank in it, and a "
+                                        "token holds none");
+    for (char const* fine : {"[a-z ]+", "( |x)", "a|\\ b", "[^ ]", "( a)?", "(a|b)( c)*"}) {
+        validate("x\n", [&](eo::validator& v) { (void)eot::run_until_stop([&] { v.read_token(eo::pattern(fine), "s"); }); });
+        EO_CHECK(!eot::contains(warnings_of_last_run(), "EO113"));
+    }
+    for (char const* blank : {"a b", "(\\ |\t)", "[ \t]+", "x( y)+"}) {
+        validate("x\n", [&](eo::validator& v) { (void)eot::run_until_stop([&] { v.read_token(eo::pattern(blank), "s"); }); });
+        EO_CHECK_IN(warnings_of_last_run(), "EO113");
+    }
+    validate("a b\n", [](eo::validator& v) { v.read_line(eo::pattern("a b"), "s"); });
+    EO_CHECK(!eot::contains(warnings_of_last_run(), "EO113"));
+}
+
+EO_TEST(a_validator_reads_tokens_and_a_line_that_match_a_pattern) {
+    eo::pattern const word("[a-z]{1,3}");
+    eot::outcome const good = validate("ab c def\nhello world 42\n", [&](eo::validator& v) {
+        std::vector<std::string> const words = v.read_tokens(3, word, "w");
+        EO_CHECK(words == std::vector<std::string>({"ab", "c", "def"}));
+        v.read_eoln();
+        EO_CHECK_EQ(v.read_line(eo::pattern("[a-z]+( [a-z0-9]+)*"), "line"), std::string("hello world 42"));
+    });
+    EO_CHECK(!good.stopped);
+    eot::outcome const third = validate("ab c dxf1\n", [&](eo::validator& v) { v.read_tokens(3, word, "w"); });
+    EO_CHECK_EQ(third.text,
+                std::string("line 1, w[3]: a token that starts \"dxf1\" is longer than the 3 characters \"[a-z]{1,3}\" "
+                            "allows"));
+    eot::outcome const line = validate("hello  world\n", [&](eo::validator& v) {
+        v.read_line(eo::pattern("[a-z]+( [a-z]+)*"), "line");
+    });
+    EO_CHECK_EQ(line.text, std::string("line 1, line: the line \"hello  world\" does not match \"[a-z]+( [a-z]+)*\""));
+    eot::outcome const wide = validate("abcdef\n", [&](eo::validator& v) { v.read_line(word, "line"); });
+    EO_CHECK_EQ(wide.text, std::string("line 1, line: a line that starts \"abcd\" is longer than the 3 characters "
+                                       "\"[a-z]{1,3}\" allows"));
+    eot::outcome const empty = validate("\n", [&](eo::validator& v) { v.read_line(eo::pattern("(x)?"), "line"); });
+    EO_CHECK(!empty.stopped);
+    eot::outcome const unended = validate("ab", [&](eo::validator& v) { v.read_line(word, "line"); });
+    EO_CHECK_EQ(unended.text, std::string("line 1, line: the line has no line break at its end"));
+    eot::outcome const crlf = validate("ab\r\ncd\r\n", [&](eo::validator& v) {
+        EO_CHECK_EQ(v.read_line(word, "line"), std::string("ab"));
+        EO_CHECK_EQ(v.read_token(word, "w"), std::string("cd"));
+        v.read_eoln();
+    });
+    EO_CHECK(!crlf.stopped);
+    for (char const* one : {"(a*){0}b", "(){3}b", "(|b)", "(b|a*){0}b", "(ab){0,5}|b"}) {
+        eot::outcome const capped = validate("bbbbbbbbbbbb\n", [&](eo::validator& v) {
+            v.read_token(eo::pattern(one), "t");
+        });
+        EO_CHECK_IN(capped.text, "a token that starts \"b");
+    }
+    for (char const* one : {"(ab)*b*", "(ab|b)+", "b{2,}", "(b{3}|a)*"}) {
+        eot::outcome const endless = validate("bbbbbbbbbbbb\n", [&](eo::validator& v) {
+            v.read_token(eo::pattern(one), "t");
+            v.read_eoln();
+        });
+        EO_CHECK(!endless.stopped);
+    }
+    eot::outcome const empty_pattern = validate("x\n", [&](eo::validator& v) { v.read_line(eo::pattern(""), "line"); });
+    EO_CHECK_EQ(empty_pattern.text,
+                std::string("line 1, line: a line that starts \"x\" is longer than the 0 characters \"\" allows"));
+}
+
+EO_TEST(a_huge_token_read_against_an_endless_pattern_is_noted) {
+    std::string const huge(eo::detail::mebibyte + 3, 'a');
+    eot::outcome const read = validate(huge + "\n", [&](eo::validator& v) {
+        EO_CHECK_EQ(v.read_token(eo::pattern("a+"), "s").size(), huge.size());
+        v.read_eoln();
+    });
+    EO_CHECK(!read.stopped);
+    EO_CHECK_IN(warnings_of_last_run(), "note EO111: a token of 1048579 bytes was held in memory");
+}
+
+namespace {
+
+void read_the_cases(eo::validator& v) {
+    int const t = v.read_int(1, 10, "t");
+    v.read_eoln();
+    eo::sum_limit total(100, "sum of n");
+    v.cases(t, [&] {
+        int const n = v.read_int(1, 10, "n");
+        total += n;
+        v.read_eoln();
+        v.read_ints(n, 1, 9, "a");
+        v.read_eoln();
+    });
+}
+
+}  // namespace
+
+EO_TEST(a_validator_writes_one_case_of_a_test_as_a_test_of_its_own) {
+    std::string const test = "3\n2\n1 2\n1\n5\n3\n1 2 3\n";
+    eot::outcome const second = validate(test, read_the_cases, {"--eo-case", "2"});
+    EO_CHECK(!second.stopped);
+    EO_CHECK_EQ(second.printed, std::string("1\n1\n5\n"));
+    eot::outcome const first = validate(test, read_the_cases, {"--eo-case=1"});
+    EO_CHECK_EQ(first.printed, std::string("1\n2\n1 2\n"));
+    eot::outcome const last = validate(test, read_the_cases, {"--eo-case=3"});
+    EO_CHECK_EQ(last.printed, std::string("1\n3\n1 2 3\n"));
+    auto const with_a_limit = [](eo::validator& v) {
+        v.read_int(1, 1000, "limit");
+        v.read_space();
+        int const t = v.read_int(1, 10, "t");
+        v.read_eoln();
+        v.cases(t, [&] {
+            v.read_int(1, 9, "x");
+            v.read_eoln();
+        });
+        v.read_token(eo::pattern("end"), "marker");
+        v.read_eoln();
+    };
+    eot::outcome const shared = validate("500 10\n1\n2\n3\n4\n5\n6\n7\n8\n9\n1\nend\n", with_a_limit, {"--eo-case=9"});
+    EO_CHECK_EQ(shared.printed, std::string("500 1\n9\nend\n"));
+    auto const computed = [](eo::validator& v) {
+        v.cases(2, [&] {
+            v.read_int(1, 9, "x");
+            v.read_eoln();
+        });
+    };
+    eot::outcome const literal = validate("1\n2\n", computed, {"--eo-case=2"});
+    EO_CHECK_EQ(literal.text, std::string("eolymp.h: --eo-case needs the count given to v.cases, 2, to be the one "
+                                          "integer of that value before the first case, so that it can be written as "
+                                          "1; there is none"));
+    auto const worded = [](eo::validator& v) {
+        int const t = v.read_int(1, 10, "t");
+        v.read_space();
+        v.read_token(eo::pattern("cases|12a"), "word");
+        v.read_eoln();
+        v.cases(t, [&] {
+            v.read_int(1, 9, "x");
+            v.read_eoln();
+        });
+    };
+    eot::outcome const after_a_word = validate("2 12a\n1\n2\n", worded, {"--eo-case=2"});
+    EO_CHECK_EQ(after_a_word.printed, std::string("1 12a\n2\n"));
+    auto const counted_first = [](eo::validator& v) {
+        int const t = v.read_int(1, 10, "t");
+        v.read_space();
+        v.read_int(1, 1000, "limit");
+        v.read_eoln();
+        v.cases(t, [&] {
+            v.read_int(1, 9, "x");
+            v.read_eoln();
+        });
+    };
+    eot::outcome const counted_before = validate("2 500\n1\n2\n", counted_first, {"--eo-case=2"});
+    EO_CHECK_EQ(counted_before.printed, std::string("1 500\n2\n"));
+}
+
+EO_TEST(a_case_that_cannot_be_written_alone_is_refused) {
+    std::string const test = "3\n2\n1 2\n1\n5\n3\n1 2 3\n";
+    eot::outcome const beyond = validate(test, read_the_cases, {"--eo-case=4"});
+    EO_CHECK_EQ(beyond.code, 3);
+    EO_CHECK_EQ(beyond.text, std::string("eolymp.h: --eo-case=4, but the test has 3 cases"));
+    eot::outcome const zero = validate(test, read_the_cases, {"--eo-case=0"});
+    EO_CHECK_EQ(zero.text, std::string("eolymp.h: --eo-case=0, but the test has 3 cases"));
+    eot::outcome const word = validate(test, read_the_cases, {"--eo-case=two"});
+    EO_CHECK_EQ(word.text, std::string("eolymp.h: --eo-case two is not a case number"));
+    eot::outcome const bare = validate(test, read_the_cases, {"--eo-case"});
+    EO_CHECK_EQ(bare.text, std::string("eolymp.h: --eo-case needs the number of a case after it"));
+    eot::outcome const twice_asked = validate(test, read_the_cases, {"--eo-case=1", "--eo-case", "3"});
+    EO_CHECK_EQ(twice_asked.text, std::string("eolymp.h: --eo-case is given twice, as 1 and 3; ask for one case"));
+    eot::outcome const plain = validate("5\n", [](eo::validator& v) {
+        v.read_int(1, 9, "n");
+        v.read_eoln();
+    }, {"--eo-case=1"});
+    EO_CHECK_EQ(plain.text, std::string("eolymp.h: --eo-case needs a validator that reads the cases with v.cases"));
+    auto const twice = [](eo::validator& v) {
+        for (int round = 0; round < 2; round++) {
+            int const t = v.read_int(1, 10, "t");
+            v.read_eoln();
+            v.cases(t, [&] {
+                v.read_int(1, 9, "x");
+                v.read_eoln();
+            });
+        }
+    };
+    eot::outcome const again = validate("1\n1\n1\n2\n", twice, {"--eo-case=1"});
+    EO_CHECK_EQ(again.text, std::string("eolymp.h: --eo-case needs one run of v.cases, and this validator ran it 2 "
+                                        "times"));
+    eot::outcome const invalid = validate("3\n2\n1 2\n1\n0\n", read_the_cases, {"--eo-case=1"});
+    EO_CHECK_EQ(invalid.text, std::string("case 2: line 5, a[1]: 0 is below 1"));
+    EO_CHECK_EQ(invalid.printed, invalid.text + "\n");
+    eot::outcome const both = validate(test, read_the_cases, {"--eo-case=1", "--eo-describe"});
+    EO_CHECK_EQ(both.text, std::string("eolymp.h: --eo-case and --eo-describe both write to stdout; ask for one"));
+}
+
+EO_TEST(a_validator_describes_where_each_case_lies) {
+    std::string const test = "3\n2\n1 2\n1\n5\n3\n1 2 3\n";
+    eot::outcome const described = validate(test, read_the_cases, {"--eo-describe"});
+    EO_CHECK(!described.stopped);
+    EO_CHECK_IN(described.printed, "eo-describe case 1 2 8\n"
+                                   "eo-describe case 2 8 12\n"
+                                   "eo-describe case 3 12 20\n");
+}
+
+EO_TEST(a_case_is_written_from_a_test_on_standard_input) {
+    std::string const test = "2\n1\n7\n1\n8\n";
+    scratch_file input(test);
+    int const kept = ::dup(0);
+    int const opened = ::open(input.path.c_str(), O_RDONLY);
+    ::dup2(opened, 0);
+    ::close(opened);
+    eo::detail::diagnostics::shared().forget_everything();
+    std::string program = "validator.cpp";
+    std::string flag = "--eo-case=2";
+    std::vector<char*> arguments{program.data(), flag.data()};
+    eot::outcome const result = eot::run_until_stop([&] {
+        eo::validator v(static_cast<int>(arguments.size()), arguments.data());
+        read_the_cases(v);
+    });
+    ::dup2(kept, 0);
+    ::close(kept);
+    EO_CHECK(!result.stopped);
+    EO_CHECK_EQ(result.printed, std::string("1\n1\n8\n"));
+    int ends[2];
+    EO_CHECK_EQ(::pipe(ends), 0);
+    EO_CHECK_EQ(::write(ends[1], test.data(), test.size()), static_cast<ssize_t>(test.size()));
+    ::close(ends[1]);
+    int const saved = ::dup(0);
+    ::dup2(ends[0], 0);
+    ::close(ends[0]);
+    eot::outcome const piped = eot::run_until_stop([&] {
+        eo::validator v(static_cast<int>(arguments.size()), arguments.data());
+        read_the_cases(v);
+    });
+    ::dup2(saved, 0);
+    ::close(saved);
+    EO_CHECK_EQ(piped.code, 3);
+    EO_CHECK_EQ(piped.text, std::string("eolymp.h: --eo-case needs the test in a file, and standard input is not "
+                                        "one; give the file's path"));
 }

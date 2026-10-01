@@ -57,7 +57,7 @@ func (w *Workspace) interactiveChecks(ctx context.Context, found *Findings) erro
 			return err
 		}
 		_, jury, err := w.onePhase(ctx, first.Input, filepath.Join(work, "summary.txt"),
-			client, interactor, work, limit, w.metadata(nil), "")
+			client, interactor, work, limit, w.metadata(nil), "", nil)
 		if err != nil {
 			return err
 		}
@@ -89,15 +89,18 @@ func (w *Workspace) solutionChecks(ctx context.Context, found *Findings) error {
 		}
 	}
 	if correct < 2 {
-		found.note("EO821", "", fmt.Sprintf("the problem has %d correct solution(s)", correct),
-			"a second correct solution is what a stress run compares the reference with")
+		why := "a second correct solution is what a stress run compares the reference with"
+		if w.Problem.Output() {
+			why = "a second set of correct answer files shows that the checker accepts more than the jury's answers"
+		}
+		found.note("EO821", "", fmt.Sprintf("the problem has %d correct solution(s)", correct), why)
 	}
 
 	passed := map[int]bool{}
 	failed := map[int]bool{}
 
 	for _, one := range w.Problem.Judged("") {
-		attempt, err := w.Evaluate(ctx, one.Name, &Program{Source: one.Source})
+		attempt, err := w.Evaluate(ctx, one)
 		if err != nil {
 			return err
 		}
@@ -122,7 +125,7 @@ func (w *Workspace) solutionChecks(ctx context.Context, found *Findings) error {
 			w.headroom(found, one, attempt)
 		}
 
-		twice, err := w.Evaluate(ctx, one.Name, &Program{Source: one.Source})
+		twice, err := w.Evaluate(ctx, one)
 		if err != nil {
 			return err
 		}
@@ -198,6 +201,12 @@ func (w *Workspace) Check(ctx context.Context, deep bool) (Findings, error) {
 		found = append(found, w.findingsOf(made.Warnings)...)
 	}
 
+	if err := w.validatorTestChecks(ctx, &found); err != nil {
+		return found, err
+	}
+	if err := w.checkerTestChecks(ctx, &found); err != nil {
+		return found, err
+	}
 	if err := w.checkerChecks(ctx, &found, deep); err != nil {
 		return found, err
 	}
@@ -208,6 +217,9 @@ func (w *Workspace) Check(ctx context.Context, deep bool) (Findings, error) {
 		return found, err
 	}
 	if err := w.generatorChecks(ctx, &found); err != nil {
+		return found, err
+	}
+	if err := w.templateChecks(ctx, &found); err != nil {
 		return found, err
 	}
 	if err := w.interactiveChecks(ctx, &found); err != nil {

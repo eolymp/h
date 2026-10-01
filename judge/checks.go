@@ -106,6 +106,12 @@ func (w *Workspace) checkerChecks(ctx context.Context, found *Findings, deep boo
 		}
 	}
 
+	if w.Problem.Output() {
+		if err := w.outputChecks(ctx, found); err != nil {
+			return err
+		}
+	}
+
 	if partial {
 		for _, testset := range w.Problem.Testsets {
 			if testset.ScoringMode == "ALL" {
@@ -116,6 +122,64 @@ func (w *Workspace) checkerChecks(ctx context.Context, found *Findings, deep boo
 		}
 	}
 	return nil
+}
+
+func (w *Workspace) outputChecks(ctx context.Context, found *Findings) error {
+	made := w.sorted()
+	if len(made) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Join(w.Dir, "probe"), 0o755); err != nil {
+		return err
+	}
+	empty := filepath.Join(w.Dir, "probe", "empty.txt")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		return err
+	}
+	for at, one := range made {
+		where := fmt.Sprintf("test %d:%d", one.Group, one.Test.Index)
+		if at > 0 {
+			got, err := w.probeChecker(ctx, one, empty, one.Test.Score)
+			if err != nil {
+				return err
+			}
+			hostileFinding("nothing at all", got, where, found)
+		}
+		if len(made) < 2 {
+			continue
+		}
+		other := made[(at+1)%len(made)]
+		same, err := sameBytes(one.Input, other.Input)
+		if err != nil {
+			return err
+		}
+		if same {
+			continue
+		}
+		got, err := w.probeChecker(ctx, one, other.Answer, one.Test.Score)
+		if err != nil {
+			return err
+		}
+		if got.exit == 0 {
+			found.warn("EO822", where, fmt.Sprintf("the checker accepts the answer of test %d:%d as this test's output",
+				other.Group, other.Test.Index),
+				"a contestant may upload any file for any test, so one good file could pass them all; check the "+
+					"output against this test's input, unless that answer really is right for both")
+		}
+	}
+	return nil
+}
+
+func sameBytes(one, other string) (bool, error) {
+	a, err := os.ReadFile(one)
+	if err != nil {
+		return false, err
+	}
+	b, err := os.ReadFile(other)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(a, b), nil
 }
 
 func (w *Workspace) ownAnswerChecks(ctx context.Context, made *Prepared, answer []byte, found *Findings) error {
@@ -242,13 +306,13 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 		if err != nil {
 			return err
 		}
-		if status.ExitCode == juryError {
+		if status.ExitCode != 0 && validatorBroke(status) {
 			found.warn("EO806", where,
-				fmt.Sprintf("the validator could not run: %s", firstLine(string(status.Stdout)+string(status.Stderr))),
+				fmt.Sprintf("the validator could not run: %s", validatorSaid(status)),
 				"the validator is broken, so every test reads invalid — fix the validator, not the tests")
 		} else if status.ExitCode != 0 {
 			found.warn("EO806", where,
-				fmt.Sprintf("the test is invalid with no --group: %s", firstLine(string(status.Stdout)+string(status.Stderr))),
+				fmt.Sprintf("the test is invalid with no --group: %s", validatorSaid(status)),
 				"a stress run passes no group, so this input would be called invalid")
 		}
 
@@ -263,7 +327,7 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 			if status.ExitCode != 0 {
 				found.warn("EO810", where,
 					fmt.Sprintf("testset %d depends on testset %d but the test is invalid there: %s",
-						testset.Index, made.Group, firstLine(string(status.Stdout)+string(status.Stderr))),
+						testset.Index, made.Group, validatorSaid(status)),
 					"the groups do not nest the way the scoring assumes")
 			}
 		}
@@ -526,7 +590,7 @@ func (w *Workspace) validateBody(ctx context.Context, body []byte) string {
 	if status.ExitCode == 0 {
 		return ""
 	}
-	return firstLine(string(status.Stdout) + string(status.Stderr))
+	return validatorSaid(status)
 }
 
 func otherCompiler(ctx context.Context, cxx string) string {

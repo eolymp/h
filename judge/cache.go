@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -202,16 +201,20 @@ func lockEntry(entry string) (func(), error) {
 	if err := os.MkdirAll(entry, 0o755); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(entry+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	return lockPath(entry+".lock", lockExclusive)
+}
+
+func lockPath(path string, how int) (func(), error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockFile(file, how); err != nil {
 		file.Close()
 		return nil, err
 	}
 	return func() {
-		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		unlockFile(file)
 		file.Close()
 	}, nil
 }
@@ -276,6 +279,11 @@ func (tools toolchain) buildInto(ctx context.Context, made compilation, dir, ent
 	defer os.Remove(filepath.Join(entry, fresh))
 	if err := tools.compile(ctx, made, entry, fresh, []string{"-MD", "-MF", deps}); err != nil {
 		inside := entry + string(os.PathSeparator)
+		var refused *notCompiled
+		if errors.As(err, &refused) {
+			refused.said = strings.ReplaceAll(refused.said, inside, dir+string(os.PathSeparator))
+			return false, refused
+		}
 		return false, errors.New(strings.ReplaceAll(err.Error(), inside, dir+string(os.PathSeparator)))
 	}
 	if err := os.Rename(filepath.Join(entry, fresh), filepath.Join(entry, "program")); err != nil {

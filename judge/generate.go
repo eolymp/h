@@ -65,7 +65,9 @@ type Workspace struct {
 	Temp     string
 
 	tools          toolchain
+	transcript     bool
 	generatorLimit int
+	validatorLimit int
 }
 
 func normalise(body []byte) []byte {
@@ -84,7 +86,7 @@ func keyOf(parts ...string) string {
 func NewWorkspace(problem *Problem, dir string) *Workspace {
 	return &Workspace{Problem: problem, Dir: dir,
 		Programs: map[string]*Built{}, Tests: map[string]*Prepared{}, tools: hostToolchain(),
-		generatorLimit: generatorLimit}
+		generatorLimit: generatorLimit, validatorLimit: validatorLimit}
 }
 
 func (w *Workspace) Build(ctx context.Context, name string, program *Program) (*Built, error) {
@@ -106,6 +108,10 @@ type wanted struct {
 
 func (w *Workspace) recipe(program *Program) string {
 	parts := []string{w.Problem.Path(program.Source), standard(program.Runtime)}
+	if template := program.wrapped; template != nil {
+		parts = append(parts, "template", template.Runtime, w.Problem.Path(template.Header),
+			w.Problem.Path(template.Footer))
+	}
 	for _, one := range program.Files {
 		parts = append(parts, w.Problem.Path(one))
 	}
@@ -133,7 +139,10 @@ func (w *Workspace) BuildAll(ctx context.Context, solutions []*Solution) error {
 		jobs = append(jobs, wanted{scriptName(name), problem.Scripts[name]})
 	}
 	for _, one := range solutions {
-		jobs = append(jobs, wanted{solutionName(one.Name), &Program{Source: one.Source}})
+		if problem.Output() {
+			continue
+		}
+		jobs = append(jobs, wanted{solutionName(one.Name), problem.programOf(one)})
 	}
 
 	var first []wanted
@@ -377,9 +386,9 @@ func (w *Workspace) Validate(ctx context.Context) error {
 		}
 		said := string(status.Stdout) + string(status.Stderr)
 		made.Valid = status.ExitCode == 0
-		made.Broken = status.ExitCode == juryError
+		made.Broken = !made.Valid && validatorBroke(status)
 		if !made.Valid {
-			made.Why = firstLine(said)
+			made.Why = validatorSaid(status)
 		}
 		made.Warnings = append(made.Warnings, warningsIn("validator", said)...)
 	}
@@ -387,12 +396,28 @@ func (w *Workspace) Validate(ctx context.Context) error {
 }
 
 func validating(ctx context.Context, built *Built, input string, flags ...string) (*Status, error) {
+	return validatingWithin(ctx, built, validatorLimit, input, flags...)
+}
+
+func validatingWithin(ctx context.Context, built *Built, limit int, input string, flags ...string) (*Status, error) {
 	test, err := os.Open(input)
 	if err != nil {
 		return nil, err
 	}
 	defer test.Close()
-	return built.jury(ctx, validatorLimit, Invocation{Args: append([]string{input}, flags...), Stdin: test})
+	return built.jury(ctx, limit, Invocation{Args: append([]string{input}, flags...), Stdin: test})
+}
+
+func validatorBroke(status *Status) bool {
+	return status.Signal || strings.HasPrefix(firstLine(string(status.Stdout)+string(status.Stderr)), "eolymp.h: ")
+}
+
+func validatorSaid(status *Status) string {
+	said := firstLine(string(status.Stdout) + string(status.Stderr))
+	if said == "" && status.Signal {
+		return fmt.Sprintf("it was killed by signal %d, %s", int(status.Killed), status.Killed)
+	}
+	return said
 }
 
 func (w *Workspace) describe(ctx context.Context, made *Prepared) (string, error) {

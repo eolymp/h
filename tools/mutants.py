@@ -12,8 +12,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 from common import ROOT, compiler
+
+alone_limit = 600
+least_limit = 60
 
 MUTANTS = [
     ("a sum limit that allows one more", "src/validate.h",
@@ -40,7 +44,7 @@ MUTANTS = [
      "while (loop < edges.size() && edges[loop].u != edges[loop].v) loop++;",
      "while (loop < edges.size()) loop++;"),
     ("a tolerance that excludes its bound", "src/role.h",
-     "if (spread <= epsilon) return true;", "if (spread < epsilon) return true;"),
+     "if (spread <= epsilon + 1e-15) return true;", "if (spread <= epsilon) return true;"),
     ("two infinities that are not equal within a tolerance", "src/check.h",
      "if (found == by_the_jury || close_enough(by_the_jury, found, allowed.epsilon))",
      "if (close_enough(by_the_jury, found, allowed.epsilon))"),
@@ -64,22 +68,50 @@ MUTANTS = [
      "            if (cap > 0 && static_cast<long long>(token.size()) >= cap) break;", ""),
     ("a channel read through the default 1 MB buffer", "src/io.h",
      "return over_file(path, false, pipe_chunk);", "return over_file(path, false);"),
-    ("a large send that stops taking in the answers", "src/io.h",
-     "            absorbed const what = from.absorb(absorb_limit);\n",
-     "            absorbed const what = absorbed::nothing;\n"),
-    ("a buffer for the answers of 64 MB", "src/io.h",
+    ("a large send that stops taking in the answers", "src/os.h",
+     "            absorbed const what = from.absorb(absorb_limit);\n            if (what == absorbed::full) warn",
+     "            absorbed const what = absorbed::nothing;\n            if (what == absorbed::full) warn"),
+    ("a buffer for the answers of 64 MB", "src/os.h",
      "absorb_limit = std::size_t{1} << 24;", "absorb_limit = std::size_t{1} << 26;"),
-    ("a large send that does not listen to the other side", "src/io.h",
+    ("a large send that does not listen to the other side", "src/os.h",
      "{listening ? from.listening_descriptor() : -1, POLLIN, 0}", "{-1, POLLIN, 0}"),
-    ("a send cut short by a signal taken for a deaf reader", "src/io.h",
+    ("a send cut short by a signal taken for a deaf reader", "src/os.h",
      "if (ready < 0 && errno != EINTR && errno != EAGAIN) deaf = true;", "if (ready < 0) deaf = true;"),
+    ("a sum by hand that overflows one early", "src/core.h",
+     "right > 0 ? left > LLONG_MAX - right", "right > 0 ? left >= LLONG_MAX - right"),
+    ("a difference by hand that overflows one early", "src/core.h",
+     "right < 0 ? left > LLONG_MAX + right", "right < 0 ? left >= LLONG_MAX + right"),
+    ("a product by hand that lets the most negative value times -1 through", "src/core.h",
+     "return left != 0 && right < LLONG_MAX / left;",
+     "return left != 0 && right < LLONG_MAX / left && right != LLONG_MIN;"),
     ("a look ahead that reads", "src/io.h",
      "        while (held() < limit && top_up()) {\n        }\n",
      "        have(limit);\n"),
+    ("a repeat of a class that forgets its entry one character early", "src/pattern.h",
+     "after - entries[head] > step.most) head++;", "after - entries[head] >= step.most) head++;"),
+    ("a repeat of a class that ends one character late", "src/pattern.h",
+     "if (at - entries[head] >= step.least) reach(into, step.next, at);",
+     "if (at - entries[head] > step.least) reach(into, step.next, at);"),
+    ("a repeat of a class that may be empty and is never skipped", "src/pattern.h",
+     "if (step.code == step_code::counted && step.least == 0) pending_.push_back(step.next);", ""),
+    ("a class written with ^ read as the class itself", "src/pattern.h",
+     "for (std::uint64_t& word : chosen) word = ~word;", ""),
+    ("a token that a pattern read lets one character past its longest match", "src/stream.h",
+     "if (cap > 0 && static_cast<long long>(token.size()) == cap)",
+     "if (cap > 0 && static_cast<long long>(token.size()) > cap)"),
+    ("tokens in any case compared in their case", "src/check.h",
+     "if (fold ? !detail::same_in_any_case(want, got) : want != got)", "if (want != got)"),
+    ("reals within an absolute error that also allow a relative one", "src/check.h",
+     "                                           : std::fabs(wanted.value - found.value) <= epsilon + 1e-15;",
+     "                                           : close_enough(wanted.value, found.value, epsilon);"),
+    ("an output-only checker whose unread answer is still reported", "src/check.h",
+     "        output_only_ = true;\n        jury.skip_rest(reason);", "        output_only_ = true;"),
+    ("an output-only checker still reported for reading neither file", "src/check.h",
+     "!stock_ && !output_only_ &&", "!stock_ &&"),
 ]
 
 
-def run_a_copy(root, compiler, where=None, old=None, new=None):
+def run_a_copy(root, compiler, limit, where=None, old=None, new=None):
     with tempfile.TemporaryDirectory(prefix="eolymp-mutant-") as scratch:
         copy = pathlib.Path(scratch)
         for part in ("src", "tools", "tests"):
@@ -92,19 +124,20 @@ def run_a_copy(root, compiler, where=None, old=None, new=None):
                                 "tests/all.cpp"], cwd=copy, capture_output=True)
         if built.returncode != 0:
             return "does not compile"
+        started = time.monotonic()
         try:
-            ran = subprocess.run(["./mutant"], cwd=copy, capture_output=True, timeout=30)
+            ran = subprocess.run(["./mutant"], cwd=copy, capture_output=True, timeout=limit)
         except subprocess.TimeoutExpired:
-            return "timed out"
-        return "passed" if ran.returncode == 0 else "failed"
+            return "timed out", limit
+        return "passed" if ran.returncode == 0 else "failed", time.monotonic() - started
 
 
-def attempt(root, mutant, compiler):
+def attempt(root, mutant, compiler, limit):
     name, where, old, new = mutant
     before = (root / where).read_text()
     if before.count(old) != 1:
         return name, f"its anchor appears {before.count(old)} times in {where}"
-    outcome = run_a_copy(root, compiler, where, old, new)
+    outcome, _ = run_a_copy(root, compiler, limit, where, old, new)
     if outcome == "does not compile":
         return name, "the mutant does not compile"
     return name, "survived" if outcome == "passed" else None
@@ -114,13 +147,14 @@ def main() -> int:
     root = ROOT
     command = compiler()
     workers = int(os.environ.get("JOBS", os.cpu_count() or 1))
-    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
-        control = pool.submit(run_a_copy, root, command)
-        outcomes = list(pool.map(lambda one: attempt(root, one, command), MUTANTS))
-    if control.result() != "passed":
-        print(f"mutants: the unchanged sources, copied and built the same way, {control.result()}; "
+    control, alone = run_a_copy(root, command, alone_limit)
+    if control != "passed":
+        print(f"mutants: the unchanged sources, copied and built the same way, {control}; "
               f"no mutant can be said to be killed")
         return 1
+    limit = max(least_limit, int(alone * workers))
+    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+        outcomes = list(pool.map(lambda one: attempt(root, one, command, limit), MUTANTS))
     failed = [(name, why) for name, why in outcomes if why]
     print(f"mutants: {len(MUTANTS) - len(failed)} of {len(MUTANTS)} killed")
     for name, why in failed:

@@ -8,14 +8,13 @@
 #include <string>
 #include <vector>
 
-#include <unistd.h>
-
 #include "check.h"
 #include "core.h"
 #include "diag.h"
 #include "fmt.h"
 #include "interact.h"
 #include "io.h"
+#include "os.h"
 #include "random.h"
 #include "role.h"
 #include "stream.h"
@@ -90,6 +89,8 @@ public:
         fail_closed("controller");
     }
 
+    char const* called() const final { return "controller"; }
+
     long long instance_limit() const { return detail::environment_integer("INSTANCE_LIMIT"); }
 
     channel& spawn(detail::site where = detail::site::here()) {
@@ -108,7 +109,7 @@ public:
         auto made = std::make_unique<channel>();
         made->owner_ = this;
         made->index_ = static_cast<long long>(team_.size()) + 1;
-        made->writes_ = ::open(to_them.c_str(), O_WRONLY);
+        made->writes_ = detail::open_to_write(to_them.c_str());
         if (made->writes_ < 0) fail_jury(fmt("cannot write to instance {}", made->index_));
         std::string const named = fmt("instance {}", made->index_);
         detail::source listening = detail::source::over_channel(from_them.c_str());
@@ -137,9 +138,9 @@ private:
         char const* const in = detail::environment("CONTROL_INPUT_FILE");
         if (out == nullptr || in == nullptr)
             fail_jury("this problem is not set up for instances: there is no control channel");
-        requests_ = std::fopen(out, "w");
+        requests_ = std::fopen(out, "wb");
         if (requests_ == nullptr) fail_jury("cannot reach the judge's control channel");
-        replies_ = std::fopen(in, "r");
+        replies_ = std::fopen(in, "rb");
         if (replies_ == nullptr) fail_jury("cannot hear the judge's control channel");
     }
 
@@ -210,7 +211,7 @@ inline void channel::close() {
     if (shut_) return;
     flush();
     shut_ = true;
-    if (writes_ >= 0) ::close(writes_);
+    if (writes_ >= 0) detail::close_descriptor(writes_);
     writes_ = -1;
 }
 

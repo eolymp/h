@@ -138,12 +138,15 @@ Bounds are inclusive, and come first; the name is last.
 | `s.read_real(low, high, name)` | a real number in `[low, high]` |
 | `s.read_token(least, most, eo::charset("a-z"), name)` | a token of that length over those characters |
 | `s.read_line(least, most, eo::charset("a-z "), name)` | the rest of the line, without its line break |
+| `s.read_token(eo::pattern("[a-z]{1,5}"), name)` | a token that matches the pattern, in the syntax of [validator.md](validator.md#patterns) |
+| `s.read_line(eo::pattern("[a-z]+( [a-z]+)*"), name)` | the rest of the line, which matches the pattern |
 | `s.read_choice({"YES", "NO"}, name)` | a token equal to one of the choices |
 | `s.read_choice({"YES", "NO"}, eo::any_case, name)` | the same, ignoring letter case, returning the choice as you wrote it |
 | `s.read_ints(count, low, high, name)` | `count` integers |
 | `s.read_longs(count, low, high, name)` | the same, 64-bit |
 | `s.read_reals(count, low, high, name)` | `count` real numbers |
 | `s.read_tokens(count, least, most, eo::charset("a-z"), name)` | `count` tokens |
+| `s.read_tokens(count, eo::pattern("[a-z]{1,5}"), name)` | `count` tokens that match the pattern |
 | `s.read_grid(rows, cols, eo::charset(".#"), name)` | `rows` tokens of exactly `cols` characters, as `std::vector<std::string>` |
 | `s.read_edges(m, n, name)` | `m` edges, each two vertices in `[1, n]`, as `std::vector<eo::edge>` |
 | `s.read_edges(m, n, eo::weighted(low, high), name)` | the same with a weight in `[low, high]` after each, as `std::vector<eo::weighted_edge>` |
@@ -195,8 +198,9 @@ c.output.numbers(eo::lenient);
 c.output.reals(eo::plain);
 ```
 
-A number read consumes the number, not the rest of the token, so anything it does not
-consume is still there to be read — and, at the end, to be complained about.
+A number read on a stream reads the whole token, so `1e5` read as an int, or `0,5` read as a
+real, is named whole: `expected an integer, found "1e5": it has a character that cannot be
+part of the number`.
 
 ### Looking ahead
 
@@ -270,12 +274,31 @@ a line that ends in a space
 
 and a blank line above
 n = 3
-eolymp.h 2.2.1
+eolymp.h 2.3.0
 ```
 
 Either of those lines would kill the parse if it reached the log before the verdict. Print
 freely with `std::cout`, `printf` or `eo::log("n = {}", n)`; debug output cannot cost a score.
 More than 64 KB of it gets note EO210, because stored logs are truncated.
+
+**An exception nothing caught still leaves a log.** While a checker, an interactor or a
+controller is live, `std::terminate` ends it as a jury error that says what the exception
+was, and a checker then writes what it held as it would after any verdict:
+
+```
+jury error an exception nothing caught ended the checker: vector::at: 7 >= 3
+printed before the end
+eolymp.h 2.3.0
+```
+
+A checker on the judge that dies of a signal — `SIGSEGV`, a stack overflow included, `SIGABRT`
+from `abort` or a failed `assert`, `SIGFPE`, `SIGBUS` or `SIGILL` — writes the same log from
+its signal handler, `jury error the checker died of SIGSEGV: …` and then what it held, and
+then hands the signal to the handler that was there before, the C library's, which ends the
+program, or a sanitizer's, which reports. `std::cerr` reaches the log, since it is written at once,
+and so does `eo::log` up to the 64 KB a stored log keeps, since on the judge each of its lines
+is flushed until then; what `printf` or `std::cout` still holds in its own buffer is lost.
+Either way the verdict is VERIFICATION_FAILURE, as it was when the log came out empty.
 
 ## Reading the jury's answer and the contestant's with one function
 
@@ -371,9 +394,15 @@ Each of these gives the verdict and ends the program.
 | Call | Accepts when |
 | --- | --- |
 | `c.tokens()` | the output has exactly the answer's tokens, in order; whitespace does not matter, letter case does |
+| `c.tokens(eo::any_case)` | the same, with `A` to `Z` equal to `a` to `z`; every other byte, UTF-8 letters included, is compared as it is |
+| `c.tokens(eo::any_order)` | the output has the answer's tokens, each as many times, in any order; the answer is held in memory, and the output is read no further than one token more than the answer has, each no longer than the answer's longest |
 | `c.lines()` | the output has the answer's non-blank lines, in order, compared without the spaces, tabs and carriage returns at the start and the end of each line; blank lines are skipped on both sides, and spacing inside a line counts |
 | `c.lines(eo::exact)` | line k of the output is line k of the answer, blank lines and the blanks that start a line included; only the spaces, tabs and carriage returns that end a line, and the blank lines that end a file, are ignored |
-| `c.reals(eps)` | token by token: numbers agree within an absolute or relative error of `eps`, other tokens are equal; a token longer than 4096 characters and than the answer's is wrong |
+| `c.integers()` | token by token, every token of both is an integer that fits a `long long`, in the stream's syntax, and the numbers are equal; with `c.output.numbers(eo::lenient)`, `+5` and `007` are 5 and 7 |
+| `c.integers(eo::big)` | the same at any length: every token is an integer of any number of digits, compared exactly; with `numbers(eo::lenient)` on a stream, its `+`, leading zeros and `-0` are dropped first |
+| `c.reals(eps)` | token by token: numbers agree within an absolute or relative error of `eps`, with `1e-15` more for rounding, other tokens are equal; a token longer than 4096 characters and than the answer's is wrong |
+| `c.reals(eps, eo::absolute)` | the same, with numbers that agree within an absolute error of `eps` alone, allowing `1e-15` more, as testlib does, so that `0.500001` against `0.5` at `1e-6` is not lost to rounding |
+| `c.yes_no()` | every word of the answer and of the output is `YES` or `NO` in any case, and the output says what the answer says, word by word, as many times |
 | `c.yes_no(certificate)` | a `YES`/`NO` answer, with a certificate after `YES` |
 | `c.yes_no(certificate, "POSSIBLE", "IMPOSSIBLE")` | the same with other words |
 
@@ -382,6 +411,9 @@ every line, on both sides, so `a`, a blank line and `b` is accepted for `a` and 
 for `*`. That is kept as it is, because changing it would reject runs it accepts today. When
 blank lines or indentation are part of the answer — a grid with empty rows, a drawing, a
 pretty-printed tree — use `c.lines(eo::exact)`.
+
+testlib's 21 stock checkers map onto these, one call each; the table is in
+[testlib.md](testlib.md#testlibs-stock-checkers).
 
 Eolymp also has built-in `TOKENS` and `LINES` checkers that need no program at all. Use them
 when they are enough — but note that the built-in `TOKENS` fails with a system failure on a
@@ -418,6 +450,39 @@ c.jury.skip_rest("only the first line is compared; the rest is the jury's certif
 ```
 
 The reason is not optional.
+
+## Output-only problems
+
+On an `OUTPUT` problem the contestant uploads one file per test instead of a program, and the
+judge runs the checker on the test's input, that file and the jury's answer, as it would on a
+program's output. Its checker often reads neither the input nor the answer: every test may be
+the same task, any valid answer is accepted, and the answer file is only one example. Say so
+once, with the reason, and the library raises neither EO202 nor EO203 for it:
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    c.output_only("every test is the same 8x8 board, and any placement of 8 queens is accepted");
+    std::vector<int> column(8), up(15), down(15);
+    for (int row = 0; row < 8; row++) {
+        std::string const line = c.output.read_token(8, 8, eo::charset(".Q"), "row");
+        for (int at = 0; at < 8; at++) {
+            if (line[at] != 'Q') continue;
+            if (column[at]++ || up[row + at]++ || down[row - at + 7]++)
+                eo::wrong("the queen in row {}, column {} is attacked", row + 1, at + 1);
+        }
+    }
+    if (std::count(column.begin(), column.end(), 1) != 8) eo::wrong("there are not 8 queens");
+    eo::accept("8 queens");
+}
+```
+
+`c.output_only("why")` leaves the rest of the answer unread on purpose, as
+`c.jury.skip_rest` does, and stops EO202; the checker may still read the input and the answer
+when it needs them. EO201 stays: a checker that passes a file without reading it is wrong on
+every type. [judge.md](judge.md#output-only-problems) says how `eo-judge` runs such a problem.
 
 ## What the checker knows about the test
 
@@ -550,7 +615,7 @@ machine-readable `eo-report` line.
 
 `EOLYMP_STRICT=1` turns every warning into a jury error while you prepare a problem. Notes
 stay notes. State the intent where there is a way to — `eo::any`, `eo::unnamed`,
-`trailing(eo::ignore)`, `skip_rest`, `answers` — and otherwise silence one code in a scope,
+`trailing(eo::ignore)`, `skip_rest`, `output_only`, `answers` — and otherwise silence one code in a scope,
 with a reason that the report prints:
 
 ```cpp
@@ -559,9 +624,7 @@ eo::allow quiet("EO103", "k is checked against n two lines below");
 
 ## Not here yet
 
-Still missing:
-
-- A pattern syntax. Use a charset and a length, or `read_choice`.
+Nothing a checker reads is missing.
 
 ## Reference card
 
@@ -571,9 +634,10 @@ Still missing:
 | `c.input`, `c.jury`, `c.output` | the three streams |
 | `c.read_both(reader)` | reads the jury's answer, then the output, with one function |
 | `c.answers(eo::unique)`, `c.answers(eo::many)` | how many answers are correct |
+| `c.output_only("why")` | an output-only checker that reads neither the input nor the answer on purpose |
 | `c.optimum(by_the_jury, found, eo::minimize)`, `eo::maximize` | compare and end |
 | `c.optimum(by_the_jury, found, eo::minimize, eo::within(eps))` | the same for reals, equal within `eps` |
-| `c.tokens()`, `c.lines()`, `c.lines(eo::exact)`, `c.reals(eps)`, `c.yes_no(certificate)` | ready-made comparisons |
+| `c.tokens()`, `c.tokens(eo::any_case)`, `c.tokens(eo::any_order)`, `c.integers()`, `c.integers(eo::big)`, `c.lines()`, `c.lines(eo::exact)`, `c.reals(eps)`, `c.reals(eps, eo::absolute)`, `c.yes_no()`, `c.yes_no(certificate)` | ready-made comparisons |
 | `c.cost()`, `c.group()`, `c.index()`, `c.test_id()` | the test |
 | `c.cases(t, body)` | numbers the messages of a multi-test output |
 
@@ -593,7 +657,7 @@ Still missing:
 | --- | --- |
 | `eo::accept`, `eo::wrong`, `eo::score`, `eo::points`, `eo::jury_error` | end with a verdict |
 | `eo::ratio(a, b)`, `eo::round_to(d)` | an exact fraction, and rounding |
-| `eo::close_enough(expected, found, eps)` | compare reals |
+| `eo::close_enough(expected, found, eps)` | compare reals: within `eps + 1e-15` of `expected`, or within a relative error of `eps`, or within `(eps + 1e-15)` times `expected` |
 | `eo::compare(found, by_the_jury, direction)`, `(…, eo::within(eps))` | `eo::standing::better`, `equal` or `worse`, ending nothing |
 | `eo::fmt("…", args)`, `eo::log("…", args)` | build a string, write a line to the log |
 | `eo::any`, `eo::unnamed`, `eo::charset("a-z")` | no bounds, no name, allowed characters |

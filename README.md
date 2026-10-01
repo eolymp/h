@@ -10,6 +10,11 @@ whose instances run side by side. A second, opt-in header holds the test shapes 
 draws from, and `eo-judge` runs a whole problem the way the judge does, before it is
 uploaded.
 
+**It builds on Windows too**, with MSVC for x64 and x86, clang-cl and mingw-w64, at `/W4 /WX`
+and `-Wall -Wextra -Werror`, and there it gives the verdicts, messages and exit codes it gives
+on Linux: CI runs the same scenarios on both and fails on a single byte of difference. How,
+and the few things that are Windows' own, are in [docs/README.md](docs/README.md#windows).
+
 ```cpp
 #include <eolymp.h>
 
@@ -39,6 +44,7 @@ validator.cpp:6: line 1, a[1]: a line break follows n; read it with read_eoln()
 | [docs/interactor.md](docs/interactor.md) | writing an interactor: sends that do not deadlock the pair, the summary the checker reads, and `run_count` phases |
 | [docs/generator.md](docs/generator.md) | writing a generator: declared options, named random streams, and a writer that cannot leave a trailing space |
 | [docs/controller.md](docs/controller.md) | writing a controller: spawning instances, channels, and the flush and large sends that keep them all moving |
+| [docs/templates.md](docs/templates.md) | writing a function problem's code templates: the `#line` header and footer in C++, Python and Java, and a submission with its own `main` |
 | [docs/README.md](docs/README.md) | the repository: what the library gives you, how a problem gets the header, what each directory holds, and what every gate proves |
 | [docs/warnings.md](docs/warnings.md) | every warning code, one self-contained row each |
 | [docs/testlib.md](docs/testlib.md) | coming from testlib: each call beside its eolymp.h counterpart, and what behaves differently |
@@ -58,8 +64,8 @@ make check
 ```
 
 `make check` is the whole C++ gate, and CI runs it on GCC, clang, musl and macOS beside
-`make judge`, `make mutants`, `make sanitize`, `make fuzz` and, on a pull request,
-`make version`. What each part proves is in
+`make judge`, `make transcript` and its comparison on Windows, `make mutants`,
+`make sanitize`, `make fuzz` and, on a pull request, `make version`. What each part proves is in
 [docs/README.md](docs/README.md#building-and-testing).
 
 ## Where to read

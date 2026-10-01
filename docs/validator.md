@@ -115,11 +115,14 @@ Bounds are inclusive, and come first; the name is last.
 | `v.read_real(low, high, least, most, name)` | a decimal in `[low, high]` with between `least` and `most` digits after the point | `double` |
 | `v.read_token(least, most, eo::charset("a-z"), name)` | a token of that length made only of those characters | `std::string` |
 | `v.read_line(least, most, eo::charset("a-z "), name)` | the rest of the line, and its line break | `std::string` |
+| `v.read_token(eo::pattern("[A-Z][a-z]*"), name)` | a token that matches the [pattern](#patterns) | `std::string` |
+| `v.read_line(eo::pattern("[a-z]+( [a-z]+)*"), name)` | the rest of the line, which matches the pattern, and its line break | `std::string` |
 | `v.read_choice({"insert", "erase"}, name)` | a token equal to one of the choices | `std::string` |
 | `v.read_ints(count, low, high, name)` | `count` integers separated by single spaces | `std::vector<int>` |
 | `v.read_longs(count, low, high, name)` | the same, 64-bit | `std::vector<long long>` |
 | `v.read_reals(count, low, high, least, most, name)` | `count` decimals | `std::vector<double>` |
 | `v.read_tokens(count, least, most, eo::charset("a-z"), name)` | `count` tokens | `std::vector<std::string>` |
+| `v.read_tokens(count, eo::pattern("[a-z]{1,3}"), name)` | `count` tokens that match the pattern | `std::vector<std::string>` |
 | `v.read_grid(rows, cols, eo::charset(".#"), name)` | `rows` lines of exactly `cols` characters from the charset, each with its line break | `std::vector<std::string>` |
 
 Two rules about line breaks:
@@ -139,7 +142,8 @@ A charset is single characters and ranges: `eo::charset("a-z")` is the 26 letter
 `eo::charset("a-z0-9_")` is 37 characters. A `-` between two characters makes a range, and the
 range has to ascend, so `charset("z-a")` is a jury error before the first read. So is the `)- `
 inside `charset("()- ")`, which reads as a range from `)` to the space: the library says `the
-character range ")- " in charset("()- ") runs backwards`. A `-` that should be a character of
+character range ")- " in charset("()- ") runs backwards; write its low end first, or put a -
+that stands for itself first or last`. A `-` that should be a character of
 its own goes first or last, where there is nothing for it to join: `charset("() -")` is the two
 brackets, a space and a hyphen.
 
@@ -151,11 +155,80 @@ line: `read_ints(0, …)` followed by `read_eoln()` expects exactly `\n`.
 An integer is an optional `-` followed by digits. `+5`, `007` and `-0` are invalid, and so is a value too large for the type it is read into. Real numbers are plain
 decimals — `3`, `3.25`, `-0.5` — with no exponent, no infinity and no NaN;
 `read_real(0.0, 1.0, 1, 6, "p")` accepts `0.5` and `0.123456` but not `1` or `0.1234567`.
+The point is a dot whatever the program's locale: after `setlocale(LC_NUMERIC, "de_DE")`,
+`1.5` still reads as 1.5, and `eo::fixed(1.5, 2)` and a checker's points are still written
+with a dot.
 
 **A number read consumes the number, not the rest of the token.** That is what makes
 `read_char(':')` work on `12:30`. Anything the number does not consume is still yours to
-read, so nothing invalid slips through: on the input `9a`, `read_int` returns 9 and the next
-`read_eoln()` fails with `line 1: expected a line break after n, found "a"`.
+read, so nothing invalid slips through, and when what follows a number is not the space or
+the line break the validator expects, the message names the whole token and the value, as
+it would for any other malformed number: on the input `9a`, `read_int` returns 9 and the
+next `read_eoln()` fails with
+`line 1, n: expected an integer, found "9a": it has a character that cannot be part of the number`.
+`1e5` read as an int, and `1e-3`, `0,5` or `1.5e3` read as a real, are named the same way. A
+bound is checked first, so `100e5` read with bounds 1..10 is `100 is above 10`. The reason is
+the whole token's, so it can stand where a narrower one would have: `-0x` is "a character
+that cannot be part of the number" rather than "zero written with a minus", and a number too
+long for its type followed by a letter the same, rather than "does not fit".
+
+### Patterns
+
+`eo::pattern("[a-z]{1,10}")` is testlib's pattern syntax. `v.read_token(p, name)`,
+`v.read_tokens(count, p, name)` and `v.read_line(p, name)` read what must match it, and
+`p.matches(token)` says whether a whole token matches; a pattern never matches part of one.
+
+| Write | Matches |
+| --- | --- |
+| `a`, `\.`, `\[` | that character; a backslash before any symbol means the symbol |
+| `[a-z_]`, `[^0-9]` | one character of the class, or one outside it; a `-` first or last is itself |
+| `x?`, `x*`, `x+` | at most one, any number, at least one |
+| `x{3}`, `x{1,10}`, `x{2,}` | exactly 3, from 1 to 10, at least 2 |
+| `YES\|NO`, `(ab\|cd){2}` | either side; a group repeats as one |
+
+A class is a set of bytes: `[a-z]` is 26 bytes, and a UTF-8 letter is two or more bytes, each
+of which a class or a repeat counts on its own.
+
+**What a match costs.** Matching never backtracks: it keeps the set of places in the pattern
+that the token so far can have reached, so its cost is the token's length times the number of
+those places that are live at once, which the pattern bounds. A repeat of a character or a
+class is one place at any count, so `[a-z]{1,1000000}` costs what `[a-z]` costs; a repeated
+group is one copy per count, so `(ab|cd){1,100}` holds up to 100 copies of its group. A pattern
+whose places would number more than 4,096 is refused where it is made, and the largest pattern
+in these pages, the tests and testlib's own examples needs 27. A pattern with a longest match,
+`[a-z]{1,10}` or `(YES|NO)`, stops a read one character past it, as a read with a stated
+maximum length does, so a contestant's endless token costs no more than the pattern; one
+without, such as `[a-z]+( [a-z]+)*`, reads the whole token or line, and a line of a million
+characters against a pattern of 300 live places is 300 million steps. Building a pattern
+takes a few microseconds, so build it once, before the loop that uses it.
+
+A read's message names the value and the pattern:
+`line 1, first: "anna" does not match "[A-Z][a-z]{0,9}"`.
+
+A pattern that does not parse is refused where it is made, with the column and what to write
+instead: `eo::pattern("[a-z") does not parse at column 1: the [ that opens here has no ] to
+close it`. So are the things testlib would read in a way nobody means: a `]`, `}` or `{` that
+opens or closes nothing, a repeat with nothing before it (`*a`, `a|+`), a repeat of a repeat
+(`a**`, `a{2}{3}`, `a+?`), a count above 1,000,000,000, a backslash at the end, a backslash
+before a letter or a digit, `^` and `$`, an empty class, and groups nested more than 50 deep. Under
+C++20 with `-DEOLYMP_CHECK_PATTERNS`, a literal pattern is parsed while the program builds, and
+one that does not parse stops the build at `a_pattern_that_does_not_parse`.
+
+It differs from testlib's in five places:
+
+- **It matches as a regular expression does.** testlib's matcher takes as many characters as
+  a repeat allows and never gives one back, so `[a-z]*a` matches `ba` here and nothing there.
+- **A space is a space.** testlib drops every space a backslash does not quote, so its
+  `[a-z ]` is `[a-z]`; `\ ` is a space in both. A ported `readToken("[a-z] {1,5}")` therefore
+  matches no token here, since a token holds no blank, and warning EO113 says so.
+- **`{2,}` is two or more**, where testlib reads it as exactly two.
+- **A group can be repeated, and can stand anywhere:** testlib refuses `(ab|cd){2}` and
+  `x(ab|cd)y`.
+- **`\d`, `\w` and the like, `^`, `$` and an empty class are refused,** where testlib reads
+  the first three as the letter or the character itself, and `[]` as a class of nothing.
+
+As in testlib, `.` is a dot and not "any character", so `[^ ]` or a class says what may
+stand there.
 
 ### Looking ahead
 
@@ -316,6 +389,34 @@ total once, at the end: `sum of n is 200005, above 200000`. Several can live sid
 validator that uses `cases` with no `sum_limit` at all gets note EO304, because most
 multi-test statements bound the sum of `n`.
 
+### Pulling one case out
+
+A failing solution on a test of 10,000 cases is easier to debug on the one case it fails.
+`./validator test.txt --eo-case=1234` validates the whole test as usual and, when it is valid,
+writes case 1234 alone as a test to stdout: what comes before the first case, with the count
+that `v.cases` was given written as `1`, then the case's own bytes, then whatever follows the
+last case. `--eo-case 1234` says the same.
+
+```
+$ ./validator test.txt --eo-case=2 > case.txt
+```
+
+turns `3`, `2`, `1 2`, `1`, `5`, `3`, `1 2 3` into `1`, `1`, `5`. It needs one run of
+`v.cases`, the count it was given as the one integer of that value before the first case, and
+the test in a file: a path, or standard input redirected from a file. Each is refused with its reason
+otherwise, and so is a case number outside the test, and the flag given twice.
+
+With `--eo-describe`, a validator that uses `v.cases` also prints where each case lies in the
+test, as byte offsets from the start of the file, the end excluded:
+
+```
+eo-describe case 1 2 8
+eo-describe case 2 8 12
+eo-describe case 3 12 20
+```
+
+The two flags write to the same stdout, so asking for both is refused.
+
 ## Conditions and structure
 
 Anything the reads cannot express goes through `v.require`:
@@ -460,13 +561,9 @@ eo::allow quiet("EO106", "the statement really says n <= 200001");
 
 ## Not here yet
 
-Still missing:
-
-- A pattern syntax. Use a charset and a length, which is exact and faster; `v.read_choice`
-  covers a fixed set of words.
-
-The whole-problem checks EO806–EO811 and the configuration checks EO9xx are in
-[judge.md](judge.md); they read the coverage this validator records.
+Nothing a validator reads is missing. The whole-problem checks EO806–EO811 and the
+configuration checks EO9xx are in [judge.md](judge.md); they read the coverage this validator
+records.
 
 ## Reference card
 
@@ -474,7 +571,7 @@ The whole-problem checks EO806–EO811 and the configuration checks EO9xx are in
 | --- | --- |
 | `eo::validator v(argc, argv)` | makes the program a validator; `v` is also the input |
 | `read_int`, `read_long`, `read_real` | numbers |
-| `read_token`, `read_line`, `read_choice` | text |
+| `read_token`, `read_line`, `read_choice` | text, by a length and a charset or by an `eo::pattern` |
 | `read_ints`, `read_longs`, `read_reals`, `read_tokens` | several values on one line |
 | `read_grid(rows, cols, charset, name)` | a grid, one row per line |
 | `read_space()`, `read_eoln()`, `read_char(c)`, `read_eof()` | separators |
@@ -497,6 +594,7 @@ The whole-problem checks EO806–EO811 and the configuration checks EO9xx are in
 | `eo::edge`, `eo::weighted_edge` | what the edge readers return: `u`, `v`, and `w` |
 | `eo::any`, `eo::unnamed` | "no bounds, on purpose", "no name, on purpose" |
 | `eo::charset("a-z")` | allowed characters: single ones and ranges |
+| `eo::pattern("[a-z]{1,10}")` | testlib's pattern syntax; `matches(token)` |
 | `eo::element(name, index)` | names one element of a sequence, without a coverage entry of its own |
 | `eo::fmt("…", args)` | build a string with `{}` placeholders |
 | `eo::allow name("EO106", "why")` | silence one warning code in a scope |

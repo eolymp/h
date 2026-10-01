@@ -15,6 +15,7 @@ build_and_run() {
 }
 
 build_and_run organiser_names -Wall -Wextra -Wshadow -Werror
+build_and_run windows_macros -Wall -Wextra -Wshadow -Werror
 
 if printf '#include <cstddef>\n#ifndef __GLIBCXX__\n#error\n#endif\n' | $CXX -std=$CXXSTD -fsyntax-only -x c++ - 2>/dev/null; then
     build_and_run header_alone -Wall -Wextra -Werror
@@ -69,6 +70,7 @@ if printf '#ifndef __cpp_consteval\n#error\n#endif\n' | $CXX $checked -fsyntax-o
     build_and_run checked_patterns $checked -Wall -Wextra -Wshadow -Werror
     refused_with pattern_count a_message_needs_one_placeholder_for_each_value $checked
     refused_with pattern_brace a_message_needs_two_braces_to_print_one $checked
+    refused_with pattern_syntax a_pattern_that_does_not_parse $checked
 else
     echo "hostile: the compile-time check of messages skipped, this compiler has no consteval"
 fi

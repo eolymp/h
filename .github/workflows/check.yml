@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y llvm
         if: matrix.compiler == 'clang++'
+      - run: sudo locale-gen de_DE.UTF-8
       - run: make -j"$(nproc)" check
         env:
           CXX: ${{ matrix.compiler }}
@@ -52,6 +53,76 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make -j"$(sysctl -n hw.ncpu)" check
+
+  transcript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make transcript
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: transcript-linux
+          path: build/transcript.txt
+
+  windows:
+    needs: transcript
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [ mingw, cl, cl-x86, clang-cl ]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: transcript-linux
+          path: build/linux
+      - name: Take the compiler from the Visual Studio developer prompt
+        if: matrix.compiler != 'mingw'
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set studio=%%i
+          set target=x64
+          if "${{ matrix.compiler }}"=="cl-x86" set target=x86
+          call "%studio%\VC\Auxiliary\Build\vcvarsall.bat" %target% > nul
+          echo PATH=%PATH%>> "%GITHUB_ENV%"
+          echo INCLUDE=%INCLUDE%>> "%GITHUB_ENV%"
+          echo LIB=%LIB%>> "%GITHUB_ENV%"
+          echo LIBPATH=%LIBPATH%>> "%GITHUB_ENV%"
+      - name: Build with ${{ matrix.compiler }}
+        run: |
+          if [ "${{ matrix.compiler }}" = mingw ]; then
+            CXX=g++ EXTRA=-static sh tests/windows/build.sh build/transcript
+          else
+            PATH="$(dirname "$(command -v cl)"):$PATH" CXX=${{ matrix.compiler == 'cl-x86' && 'cl' || matrix.compiler }} \
+              sh tests/windows/build.sh build/transcript msvc
+          fi
+      - run: sh tests/windows/transcript.sh build/transcript > build/transcript.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: transcript-windows-${{ matrix.compiler }}
+          path: build/transcript.txt
+      - name: Every scenario gives the bytes it gives on Linux
+        run: diff -u build/linux/transcript.txt build/transcript.txt
+      - name: The unit tests pass on Windows
+        run: env -u TMPDIR build/transcript/tests.exe
+      - name: eo-judge built for Windows points at WSL2
+        if: matrix.compiler == 'mingw'
+        run: |
+          (cd judge && go build -o ../build/eo-judge.exe .)
+          if build/eo-judge.exe version 2> build/refused.txt; then exit 1; fi
+          grep -q 'Install WSL2' build/refused.txt
+      - name: A program builds and runs with <windows.h> before or after the headers
+        run: |
+          for program in windows_first windows_last; do
+            printf '5\n' | "build/transcript/$program.exe"
+          done
 
   judge:
     strategy:
@@ -106,7 +177,7 @@ jobs:
       - run: make mutants
 
   release:
-    needs: [ linux, musl, gcc9, macos, judge, sanitize, mutants ]
+    needs: [ linux, musl, gcc9, macos, transcript, windows, judge, sanitize, mutants ]
     if: github.repository == 'eolymp/h' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     concurrency:

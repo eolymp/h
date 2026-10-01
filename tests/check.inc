@@ -581,7 +581,7 @@ EO_TEST(a_real_optimum_without_a_tolerance_keeps_its_verdict_and_says_so) {
     EO_CHECK_EQ(moved.code, 1);
     EO_CHECK_EQ(moved.text, std::string("wrong answer the answer is 0.30000000000000004; the optimum is 0.3"));
     EO_CHECK_IN(checker_warnings(), "warning EO214: c.optimum compares two reals with ==");
-    EO_CHECK_IN(checker_warnings(), "tests/check.inc:");
+    EO_CHECK_IN(checker_warnings(), "check.inc:");
     eot::outcome const under = run("0.29999999999999999\n", "0.30000000000000004\n");
     EO_CHECK_EQ(under.code, 3);
     EO_CHECK_IN(under.text, "the contestant's 0.3 beats the jury's 0.30000000000000004");
@@ -941,6 +941,38 @@ EO_TEST(a_checker_that_judges_nothing_is_reported) {
     EO_CHECK_IN(checker_warnings(), "warning EO202: the checker read neither the input nor the answer");
 }
 
+EO_TEST(an_output_only_checker_says_why_it_reads_only_the_output) {
+    eot::outcome const queens = check_run("8\n", "Q\n", "Q\n", [](eo::checker& c) {
+        c.output_only("every test is the same board, and any placement is accepted");
+        c.output.read_token(1, 1, "row");
+        eo::accept();
+    });
+    EO_CHECK_EQ(queens.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO202"));
+    EO_CHECK(!eot::contains(checker_warnings(), "EO203"));
+    eot::outcome const unread = check_run("8\n", "Q\n", "Q\n", [](eo::checker& c) {
+        c.output_only("any placement is accepted");
+        c.output.trailing(eo::ignore);
+        eo::accept();
+    });
+    EO_CHECK_EQ(unread.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO201: the checker passed the run without reading any of the output");
+    eot::outcome const compared = check_run("8\n", "5\n", "5 certificate\n", [](eo::checker& c) {
+        c.output_only("the answer file is one example");
+        c.input.read_int(1, 9, "n");
+        if (c.output.read_int(1, 9, "a") != c.jury.read_int(1, 9, "a")) eo::wrong("differs");
+        eo::accept();
+    });
+    EO_CHECK_EQ(compared.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO203"));
+    eot::outcome const unreasoned = check_run("8\n", "Q\n", "Q\n", [](eo::checker& c) {
+        c.output_only("");
+        eo::accept();
+    });
+    EO_CHECK_EQ(unreasoned.code, 3);
+    EO_CHECK_IN(unreasoned.text, "output_only needs a reason");
+}
+
 EO_TEST(a_verdict_with_nothing_to_say_is_reported) {
     eot::outcome const silent = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
         c.input.read_int(1, 9, "n");
@@ -1004,6 +1036,7 @@ EO_TEST(messages_inside_cases_are_numbered) {
     EO_CHECK_IN(located.text, "wrong answer: case 2: output.txt");
 }
 
+#if !defined(_WIN32)
 EO_TEST(on_the_judge_the_verdict_line_comes_first) {
     eo::detail::diagnostics::shared().forget_everything();
     forget_the_environment();
@@ -1063,7 +1096,9 @@ std::string round_trip(std::FILE* file) {
 }
 
 }  // namespace
+#endif
 
+#if !defined(_WIN32)
 EO_TEST(a_checker_finds_a_scratch_file_where_it_can) {
 #ifdef __linux__
     EO_CHECK_EQ(round_trip(eo::detail::scratch_in_memory()), std::string("held"));
@@ -1103,6 +1138,7 @@ EO_TEST(a_checker_finds_a_scratch_file_where_it_can) {
     EO_CHECK_EQ(result.code, 3);
     EO_CHECK_IN(result.text, "eolymp.h: the checker cannot open a scratch file for its own output");
 }
+#endif
 
 EO_TEST(on_the_judge_a_checker_without_a_verdict_is_a_jury_error) {
     eo::detail::diagnostics::shared().forget_everything();
@@ -1574,4 +1610,328 @@ EO_TEST(a_checker_near_its_time_limit_is_reported) {
     });
     EO_CHECK_EQ(garbled.code, 1);
     EO_CHECK_IN(checker_warnings(), "warning EO209: the checker ran for ");
+}
+
+EO_TEST(a_stream_reads_what_matches_a_pattern_and_blames_its_side) {
+    eo::pattern const word("[a-z]{1,5}");
+    eot::outcome const good = check_run("1\n", "  hello  \nab cd\nsome words here\r\n", "yes\n", [&](eo::checker& c) {
+        c.input.read_int(1, 1, "n");
+        c.jury.read_token(eo::pattern("yes|no"), "answer");
+        EO_CHECK_EQ(c.output.read_token(word, "w"), std::string("hello"));
+        EO_CHECK(c.output.read_tokens(2, word, "pair") == std::vector<std::string>({"ab", "cd"}));
+        EO_CHECK_EQ(c.output.read_line(eo::pattern("( ?[a-z]+)*"), "rest"), std::string(""));
+        EO_CHECK_EQ(c.output.read_line(eo::pattern("[a-z]+( [a-z]+)*"), "line"), std::string("some words here"));
+        eo::accept();
+    });
+    EO_CHECK_EQ(good.code, 0);
+    eot::outcome const theirs = check_run("1\n", "heLLo\n", "yes\n", [&](eo::checker& c) {
+        c.output.read_token(word, "w");
+        eo::accept();
+    });
+    EO_CHECK_EQ(theirs.code, 1);
+    EO_CHECK_EQ(theirs.text, std::string("wrong answer: output.txt, line 1, w: \"heLLo\" does not match \"[a-z]{1,5}\""));
+    eot::outcome const ours = check_run("1\n", "yes\n", "nay\n", [&](eo::checker& c) {
+        c.jury.read_token(eo::pattern("yes|no"), "answer");
+        eo::accept();
+    });
+    EO_CHECK_EQ(ours.code, 3);
+    EO_CHECK_EQ(ours.text, std::string("jury error: answer.txt, line 1, answer: \"nay\" does not match \"yes|no\""));
+    eot::outcome const longer = check_run("1\n", "abcdefgh\n", "yes\n", [&](eo::checker& c) {
+        c.output.read_line(word, "line");
+        eo::accept();
+    });
+    EO_CHECK_EQ(longer.text, std::string("wrong answer: output.txt, line 1, line: a line that starts \"abcdef\" is "
+                                         "longer than the 5 characters \"[a-z]{1,5}\" allows"));
+    eot::outcome const unended = check_run("1\n", "abc", "yes\n", [&](eo::checker& c) {
+        EO_CHECK_EQ(c.output.read_line(word, "line"), std::string("abc"));
+        eo::accept();
+    });
+    EO_CHECK_EQ(unended.code, 0);
+}
+
+namespace {
+
+std::string compared_by(std::string const& out, std::string const& ans, void (*compare)(eo::checker&)) {
+    return check_run("1\n", out, ans, [&](eo::checker& c) {
+               c.input.skip_rest("not needed");
+               compare(c);
+           })
+        .text;
+}
+
+}  // namespace
+
+EO_TEST(tokens_in_any_case_ignore_the_case_of_letters_only) {
+    auto const folded = [](eo::checker& c) { c.tokens(eo::any_case); };
+    EO_CHECK_EQ(compared_by("Hello  WORLD\nx9_\n", "hello world X9_", folded), std::string("ok 3 tokens"));
+    EO_CHECK_EQ(compared_by("hello wurld", "hello world", folded),
+                std::string("wrong answer token 2 is \"wurld\", expected \"world\" in any case"));
+    EO_CHECK_EQ(compared_by("\xc3\xa9", "\xc3\x89", folded),
+                std::string("wrong answer token 1 is \"\xc3\xa9\", expected \"\xc3\x89\" in any case"));
+    EO_CHECK_EQ(compared_by("ab abc", "AB ab", folded),
+                std::string("wrong answer token 2 is longer than the expected \"ab\"; it starts \"abc\""));
+    EO_CHECK_EQ(compared_by("a", "a b", folded),
+                std::string("wrong answer the output ended after 1 tokens, the answer has more"));
+    EO_CHECK_EQ(compared_by("a b c", "A B", folded), std::string("wrong answer the answer has 2 tokens, the output has more"));
+    EO_CHECK_EQ(compared_by("[@", "{`", folded), std::string("wrong answer token 1 is \"[@\", expected \"{`\" in any case"));
+}
+
+EO_TEST(tokens_in_any_order_compare_the_answer_and_the_output_as_multisets) {
+    auto const unordered = [](eo::checker& c) { c.tokens(eo::any_order); };
+    EO_CHECK_EQ(compared_by("3 1\n2\n", "1 2 3", unordered), std::string("ok 3 tokens in any order"));
+    EO_CHECK_EQ(compared_by("", "\n", unordered), std::string("ok 0 tokens in any order"));
+    EO_CHECK_EQ(compared_by("1 1 2", "2 1 2", unordered),
+                std::string("wrong answer \"1\" is in the answer once and in the output 2 times"));
+    EO_CHECK_EQ(compared_by("1 2 4", "3 2 1", unordered),
+                std::string("wrong answer \"3\" is in the answer once and in the output 0 times"));
+    EO_CHECK_EQ(compared_by("b a", "a b c", unordered), std::string("wrong answer the output has 2 tokens, the answer has 3"));
+    EO_CHECK_EQ(compared_by("a b c d", "c b a", unordered),
+                std::string("wrong answer the answer has 3 tokens, the output has more"));
+    EO_CHECK_EQ(compared_by("x", "", unordered), std::string("wrong answer the answer has 0 tokens, the output has more"));
+    EO_CHECK_EQ(compared_by("ab abcd", "ab abc", unordered),
+                std::string("wrong answer token 2 is longer than every token of the answer; it starts \"abcd\""));
+    EO_CHECK_EQ(compared_by("A", "a", unordered), std::string("wrong answer \"A\" is in the answer 0 times and in the output once"));
+}
+
+EO_TEST(integers_are_compared_as_numbers_one_by_one) {
+    auto const numeric = [](eo::checker& c) { c.integers(); };
+    EO_CHECK_EQ(compared_by("1 -2\n3\n", "1 -2 3", numeric), std::string("ok 3 integers"));
+    EO_CHECK_EQ(compared_by("", "", numeric), std::string("ok 0 integers"));
+    EO_CHECK_EQ(compared_by("1 5 3", "1 2 3", numeric), std::string("wrong answer integer 2 is 5, expected 2"));
+    EO_CHECK_EQ(compared_by("1", "1 2", numeric),
+                std::string("wrong answer the output ended after 1 integers, the answer has more"));
+    EO_CHECK_EQ(compared_by("1 2 x", "1 2", numeric),
+                std::string("wrong answer the answer has 2 integers, the output has more"));
+    EO_CHECK_EQ(compared_by("1 07", "1 7", numeric),
+                std::string("wrong answer: output.txt, line 1: expected an integer, found \"07\": it has a leading "
+                            "zero"));
+    EO_CHECK_EQ(compared_by("1 99999999999999999999", "1 7", numeric),
+                std::string("wrong answer: output.txt, line 1: expected an integer, found \"99999999999999999999\": "
+                            "it does not fit the type it is read into"));
+    eot::outcome const jury = check_run("1\n", "1\n", "one\n", [](eo::checker& c) {
+        c.input.skip_rest("not needed");
+        c.integers();
+    });
+    EO_CHECK_EQ(jury.code, 3);
+    EO_CHECK_EQ(jury.text, std::string("jury error: answer.txt, line 1: expected an integer, found \"one\": it has a "
+                                       "character that cannot be part of the number"));
+    eot::outcome const loose = check_run("1\n", "+5 007 -0\n", "5 7 0\n", [](eo::checker& c) {
+        c.input.skip_rest("not needed");
+        c.output.numbers(eo::lenient);
+        c.integers();
+    });
+    EO_CHECK_EQ(loose.text, std::string("ok 3 integers"));
+}
+
+EO_TEST(big_integers_are_compared_exactly_at_any_length) {
+    auto const huge = [](eo::checker& c) { c.integers(eo::big); };
+    std::string const googol = "1" + std::string(100, '0');
+    EO_CHECK_EQ(compared_by(googol + "\n-" + googol + " 0\n", googol + " -" + googol + " 0", huge),
+                std::string("ok 3 integers"));
+    EO_CHECK_EQ(compared_by("123456789012345678901234567890 5", "123456789012345678901234567890 6", huge),
+                std::string("wrong answer integer 2 is 5, expected 6"));
+    EO_CHECK_EQ(compared_by(googol + "1", googol + "2", huge),
+                std::string("wrong answer integer 1 is 102 characters long and the answer's 102; they differ first "
+                            "at character 102"));
+    EO_CHECK_EQ(compared_by("-" + googol, googol, huge),
+                std::string("wrong answer integer 1 is 102 characters long and the answer's 101; they differ first "
+                            "at character 1"));
+    EO_CHECK_EQ(compared_by("1", "1 2", huge),
+                std::string("wrong answer the output ended after 1 integers, the answer has more"));
+    EO_CHECK_EQ(compared_by("1 2", "1", huge), std::string("wrong answer the answer has 1 integers, the output has more"));
+    EO_CHECK_EQ(compared_by("-0", "0", huge),
+                std::string("wrong answer: output.txt, line 1: expected an integer, found \"-0\": it is zero written "
+                            "with a minus"));
+    EO_CHECK_EQ(compared_by("1 012", "1 12", huge),
+                std::string("wrong answer: output.txt, line 1: expected an integer, found \"012\": it has a leading zero"));
+    EO_CHECK_EQ(compared_by("1 1x", "1 12", huge),
+                std::string("wrong answer: output.txt, line 1: expected an integer, found \"1x\": it has a character "
+                            "that cannot be part of the number"));
+    EO_CHECK_EQ(compared_by("+", "1", huge),
+                std::string("wrong answer: output.txt, line 1: expected an integer, found \"+\": it has a character "
+                            "that cannot be part of the number"));
+    EO_CHECK_EQ(compared_by("-", "1", huge),
+                std::string("wrong answer: output.txt, line 1: expected an integer, found \"-\": it has no digits "
+                            "where digits are required"));
+    EO_CHECK_EQ(compared_by(std::string(5000, '7'), "7", huge),
+                "wrong answer token 1 is longer than 4096 characters: \"" + std::string(40, '7') + "...\"");
+    EO_CHECK_EQ(compared_by("1", "0x1", huge),
+                std::string("jury error: answer.txt, line 1: expected an integer, found \"0x1\": it has a character "
+                            "that cannot be part of the number"));
+    eot::outcome const loose = check_run("1\n", "+5 0007 -000 -01\n", "5 7 0 -1\n", [](eo::checker& c) {
+        c.input.skip_rest("not needed");
+        c.output.numbers(eo::lenient);
+        c.integers(eo::big);
+    });
+    EO_CHECK_EQ(loose.text, std::string("ok 4 integers"));
+}
+
+EO_TEST(yes_no_without_a_certificate_compares_every_word_in_any_case) {
+    auto const words = [](eo::checker& c) { c.yes_no(); };
+    EO_CHECK_EQ(compared_by("Yes\nno\nYES\n", "YES NO yes", words), std::string("ok 3 answers, 2 of them YES"));
+    EO_CHECK_EQ(compared_by("no", "NO", words), std::string("ok 1 answers, 0 of them YES"));
+    EO_CHECK_EQ(compared_by("yes yes", "YES NO", words), std::string("wrong answer answer 2 is YES, expected NO"));
+    EO_CHECK_EQ(compared_by("yes maybe", "YES NO", words),
+                std::string("wrong answer: output.txt, line 1: \"maybe\" is not one of YES, NO"));
+    EO_CHECK_EQ(compared_by("yes", "YES NO", words),
+                std::string("wrong answer the output ended after 1 answers, the answer has more"));
+    EO_CHECK_EQ(compared_by("yes no no", "YES NO", words),
+                std::string("wrong answer the answer has 2 answers, the output has more"));
+    EO_CHECK_EQ(compared_by("yes", "Perhaps", words),
+                std::string("jury error: answer.txt, line 1: \"Perhaps\" is not one of YES, NO"));
+}
+
+EO_TEST(reals_within_an_absolute_error_ignore_the_relative_one) {
+    auto const absolute = [](eo::checker& c) { c.reals(1.5e-6, eo::absolute); };
+    EO_CHECK_EQ(compared_by("1.0000014 2 x", "1 2 x", absolute), std::string("ok 3 values"));
+    EO_CHECK_EQ(compared_by("1000000.5", "1000000", absolute),
+                std::string("wrong answer value 1 is 1000000.5, expected 1000000"));
+    EO_CHECK_EQ(compared_by("1000000.5", "1000000", [](eo::checker& c) { c.reals(1.5e-6); }), std::string("ok 1 values"));
+    EO_CHECK_EQ(compared_by("1 2", "1", absolute), std::string("wrong answer the answer has 1 tokens, the output has more"));
+    EO_CHECK_EQ(compared_by("y", "x", absolute), std::string("wrong answer token 1 is \"y\", expected \"x\""));
+    auto const micro = [](eo::checker& c) { c.reals(1e-6, eo::absolute); };
+    EO_CHECK_EQ(compared_by("0.500001 0.499999", "0.5 0.5", micro), std::string("ok 2 values"));
+    EO_CHECK_EQ(compared_by("0.5000011", "0.5", micro), std::string("wrong answer value 1 is 0.5000011, expected 0.5"));
+}
+
+namespace {
+
+int& replaced_handler_calls() {
+    static int count = 0;
+    return count;
+}
+
+void replaced_handler() { replaced_handler_calls()++; }
+
+}  // namespace
+
+EO_TEST(an_exception_nothing_caught_ends_a_role_as_a_jury_error) {
+    eot::outcome const thrown = check_run("1\n", "1\n", "1\n", [](eo::checker&) {
+        try {
+            throw std::out_of_range("vector::at: 7 >= 3");
+        } catch (...) {
+            eo::detail::scorer::ended_by_terminate();
+        }
+    });
+    EO_CHECK_EQ(thrown.code, 3);
+    EO_CHECK_EQ(thrown.text, std::string("jury error an exception nothing caught ended the checker: vector::at: 7 >= 3"));
+    eot::outcome const odd = check_run("1\n", "1\n", "1\n", [](eo::checker&) {
+        try {
+            throw 7;
+        } catch (...) {
+            eo::detail::scorer::ended_by_terminate();
+        }
+    });
+    EO_CHECK_EQ(odd.text, std::string("jury error an exception nothing caught ended the checker, and it is not a "
+                                      "std::exception"));
+    eot::outcome const called = check_run("1\n", "1\n", "1\n", [](eo::checker&) {
+        eo::detail::scorer::ended_by_terminate();
+    });
+    EO_CHECK_EQ(called.text, std::string("jury error std::terminate ended the checker before its verdict"));
+    eot::outcome const long_winded = check_run("1\n", "1\n", "1\n", [](eo::checker&) {
+        try {
+            throw std::runtime_error(std::string(300, 'w'));
+        } catch (...) {
+            eo::detail::scorer::ended_by_terminate();
+        }
+    });
+    EO_CHECK_EQ(long_winded.text, "jury error an exception nothing caught ended the checker: " + std::string(200, 'w') + "...");
+    void (*const kept)() = eo::detail::terminate_before();
+    eo::detail::terminate_before() = &replaced_handler;
+    eo::detail::scorer::ended_by_terminate();
+    eo::detail::terminate_before() = kept;
+    EO_CHECK_EQ(replaced_handler_calls(), 1);
+    EO_CHECK(std::get_terminate() == &eo::detail::scorer::ended_by_terminate);
+}
+
+namespace {
+
+using signal_handler = void (*)(int);
+
+signal_handler handler_of(int number) {
+#if defined(_WIN32)
+    signal_handler const was = std::signal(number, SIG_DFL);
+    std::signal(number, was);
+    return was;
+#else
+    struct sigaction seen {};
+    ::sigaction(number, nullptr, &seen);
+    return seen.sa_handler;
+#endif
+}
+
+}  // namespace
+
+EO_TEST(on_the_judge_a_deadly_signal_writes_the_held_log_before_the_checker_dies) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    three_files files("1\n", "5\n", "5\n");
+    ::setenv("EOLYMP", "1", 1);
+    ::setenv("TEST_COST", "40", 1);
+    std::string program = "checker.cpp";
+    std::vector<char*> arguments{program.data(), const_cast<char*>(files.input.c_str()),
+                                 const_cast<char*>(files.output.c_str()),
+                                 const_cast<char*>(files.answer.c_str())};
+    signal_handler const before = handler_of(SIGSEGV);
+#if defined(SIGBUS)
+    std::string const signals[] = {"SIGSEGV", "SIGABRT", "SIGFPE", "SIGBUS", "SIGILL"};
+    int const numbers[] = {SIGSEGV, SIGABRT, SIGFPE, SIGBUS, SIGILL};
+#else
+    std::string const signals[] = {"SIGSEGV", "SIGABRT", "SIGFPE", "SIGILL"};
+    int const numbers[] = {SIGSEGV, SIGABRT, SIGFPE, SIGILL};
+#endif
+    int const kinds = static_cast<int>(std::size(numbers));
+    signal_handler before_each[std::size(numbers)] = {};
+    for (int at = 0; at < kinds; at++) before_each[at] = handler_of(numbers[at]);
+    for (int at = 0; at < kinds; at++) {
+        bool caught = false;
+        bool handed_back = false;
+        eot::outcome const result = eot::run_until_stop([&] {
+            eo::checker c(static_cast<int>(arguments.size()), arguments.data());
+            caught = handler_of(numbers[at]) == &eo::detail::deadly_signal;
+            std::fprintf(stderr, "said before dying\n");
+            c.input.read_int(1, 9, "n");
+            try {
+                eo::detail::deadly_signal(numbers[at]);
+            } catch (eo::detail::stop const&) {
+                handed_back = handler_of(numbers[at]) == before_each[at] &&
+                              eo::detail::on_a_deadly_signal() == nullptr;
+                throw;
+            }
+        });
+        EO_CHECK(caught);
+        EO_CHECK(handed_back);
+        EO_CHECK_EQ(result.code, 128 + numbers[at]);
+        EO_CHECK(result.printed.rfind("jury error the checker died of " + signals[at], 0) == 0);
+        EO_CHECK_IN(result.printed, "\nsaid before dying\neolymp.h " EOLYMP_H_VERSION "\n");
+    }
+    forget_the_environment();
+    EO_CHECK(handler_of(SIGSEGV) == before);
+    eot::outcome const with_no_checker = eot::run_until_stop([] { eo::detail::deadly_signal(SIGFPE); });
+    EO_CHECK_EQ(with_no_checker.code, 128 + SIGFPE);
+    EO_CHECK_EQ(with_no_checker.printed, std::string(""));
+}
+
+EO_TEST(on_the_judge_a_logged_line_survives_a_deadly_signal_after_many) {
+    eo::detail::diagnostics::shared().forget_everything();
+    forget_the_environment();
+    three_files files("1\n", "5\n", "5\n");
+    ::setenv("EOLYMP", "1", 1);
+    ::setenv("TEST_COST", "40", 1);
+    std::string program = "checker.cpp";
+    std::vector<char*> arguments{program.data(), const_cast<char*>(files.input.c_str()),
+                                 const_cast<char*>(files.output.c_str()),
+                                 const_cast<char*>(files.answer.c_str())};
+    eot::outcome const result = eot::run_until_stop([&] {
+        eo::checker c(static_cast<int>(arguments.size()), arguments.data());
+        for (int line = 0; line < 1500; line++) eo::log("an early line, number {}", line);
+        eo::log("the marker");
+        for (int line = 0; line < 2000; line++) eo::log("a late line, number {}", line);
+        c.input.read_int(1, 9, "n");
+        eo::detail::deadly_signal(SIGSEGV);
+    });
+    forget_the_environment();
+    EO_CHECK_EQ(result.code, 128 + SIGSEGV);
+    EO_CHECK(result.printed.rfind("jury error the checker died of SIGSEGV", 0) == 0);
+    EO_CHECK_IN(result.printed, "\nan early line, number 1499\nthe marker\n");
 }

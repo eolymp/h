@@ -390,7 +390,7 @@ func TestInitWritesOnlyIntoANewOrEmptyDirectory(t *testing.T) {
 		t.Errorf("init with no directory exited %d", code)
 	}
 	code, out, errs = invoke("init", filepath.Join(dir, "other"), "--json")
-	if code != 2 || out != "" || errs != "eo-judge: --json applies to run, check and lint; init prints only the files it wrote\n" {
+	if code != 2 || out != "" || errs != "eo-judge: --json applies to run, check, lint and stress; init prints only the files it wrote\n" {
 		t.Errorf("init --json exited %d, printed %q, said %q", code, out, errs)
 	}
 	if code, out, _ := invoke("init", filepath.Join(dir, "third"), "--type", "interactive"); code != 0 ||
@@ -408,5 +408,139 @@ func TestVerboseShowsTheInteractorNextToACrash(t *testing.T) {
 	}
 	if !regexp.MustCompile(`\n    1:2 RUNTIME_ERROR \d+ms exit 3; the interactor said: ok 9 queries\n`).MatchString(out) {
 		t.Errorf("printed %q", out)
+	}
+}
+
+func TestARelativeWorkspaceIsWhereTheProgramsFindTheirFiles(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	here, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(here, filepath.Join(t.TempDir(), "work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := invoke("run", "testdata/authored", "--work", relative)
+	if code != 0 || strings.Contains(out, "invalid") || !strings.Contains(out, "sum: ACCEPTED, 100") {
+		t.Errorf("run --work %s exited %d, printed %q, said %q", relative, code, out, errs)
+	}
+	code, out, errs = invoke("stress", "testdata/stress", "--args", "-n=[3..8] -max=[1..100]", "--solution", "pairs",
+		"--work", relative)
+	if code != 1 || !strings.Contains(out, "iteration 1: COUNTEREXAMPLE") ||
+		!strings.Contains(out, "kept in "+filepath.Join(relative, "stress", "1")+": ") {
+		t.Errorf("stress --work %s exited %d, printed %q, said %q", relative, code, out, errs)
+	}
+}
+
+func TestInitWritesATestForTheValidatorAndOneForTheChecker(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	for _, kind := range kinds {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			dir := filepath.Join(t.TempDir(), "new")
+			if code, _, errs := invoke("init", dir, "--type", kind); code != 0 {
+				t.Fatalf("exit %d, said %q", code, errs)
+			}
+			problem, err := LoadProblem(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(problem.ValidatorTests) != 1 || len(problem.CheckerTests) != 1 {
+				t.Fatalf("%d validator and %d checker tests", len(problem.ValidatorTests), len(problem.CheckerTests))
+			}
+			flipped := relocated(t, dir, func(problem *Problem) {
+				problem.ValidatorTests[0].Expect = "VALID"
+				problem.CheckerTests[0].Expect = CheckerExpect{Verdict: "FAILURE"}
+			})
+			said := map[string]string{}
+			for _, code := range []string{"EO911", "EO912"} {
+				for where, message := range authoredFindings(t, flipped, code) {
+					said[where] = message
+				}
+			}
+			if !strings.HasPrefix(said["validator test 1"], "it is expected VALID, and the validator refuses it: ") ||
+				!strings.HasPrefix(said["checker test 1"], "it is expected FAILURE, and the checker gives ") {
+				t.Errorf("the flipped tests found %v", said)
+			}
+		})
+	}
+}
+
+func problemWithADirectory(t *testing.T, name string) string {
+	t.Helper()
+	dir := relocated(t, "testdata/stress", func(*Problem) {})
+	if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name, "keep.txt"), []byte("the author's\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestAWorkspaceThatOverlapsTheProblemIsRefused(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	for command, name := range map[string]string{"run": "tests", "check": "tests", "stress": "stress"} {
+		dir := problemWithADirectory(t, name)
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(dir, link); err != nil {
+			t.Fatal(err)
+		}
+		for work, want := range map[string]string{
+			dir:                           "is the problem's own directory",
+			link:                          "is the problem's own directory",
+			filepath.Dir(dir):             "holds the problem " + dir,
+			filepath.Join(dir, "w"):       "is inside the problem " + dir,
+			filepath.Join(link, "a", "b"): "is inside the problem " + dir,
+		} {
+			args := []string{command, dir, "--work", work}
+			if command == "stress" {
+				args = append(args, "--args", "-n=[1..8] -max=[1..100]", "--solution", "twin", "--iterations", "1")
+			}
+			code, out, errs := invokeIn(t.TempDir(), args...)
+			if code != 2 || out != "" || !strings.Contains(errs, "eo-judge: --work "+work+" "+want+
+				"; eo-judge clears the directories it makes in its workspace, so give it a directory outside the problem") {
+				t.Errorf("%s --work %s exited %d, printed %q, said %q", command, work, code, out, errs)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(dir, name, "keep.txt")); err != nil {
+			t.Errorf("%s: %v", command, err)
+		}
+	}
+	code, _, errs := invokeIn(t.TempDir(), "run", "testdata/authored", "--work", filepath.Join(t.TempDir(), "authored"))
+	if code != 0 {
+		t.Errorf("a workspace beside the problem exited %d, said %q", code, errs)
+	}
+}
+
+func TestAWorkspaceIsUsedByOneEoJudgeAtATime(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	work := filepath.Join(t.TempDir(), "work")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := lockPath(filepath.Join(work, ".eo-judge.lock"), lockExclusive|lockNoWait)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"run", "testdata/authored"},
+		{"check", "testdata/authored"},
+		{"stress", "testdata/stress", "--args", "-n=[1..8] -max=[1..100]", "--solution", "twin", "--iterations", "1"},
+	} {
+		code, out, errs := invoke(append(args, "--work", work)...)
+		if code != 3 || strings.Contains(out, "ACCEPTED") || errs != "eo-judge: another eo-judge is using the workspace "+
+			work+"; wait for it to finish, or give this one another --work\n" {
+			t.Errorf("%s exited %d, printed %q, said %q", args[0], code, out, errs)
+		}
+	}
+	unlock()
+	if code, _, errs := invoke("run", "testdata/authored", "--work", work); code != 0 {
+		t.Errorf("once the workspace is free, run exited %d, said %q", code, errs)
 	}
 }

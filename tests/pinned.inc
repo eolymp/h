@@ -727,16 +727,41 @@ EO_TEST(pin_reals_read_and_written_under_another_rounding_mode) {
     }
 }
 
-EO_TEST(pin_reals_read_and_written_in_a_locale_with_a_decimal_comma) {
+EO_TEST(reals_are_read_and_written_with_a_dot_in_a_locale_with_a_decimal_comma) {
     char const* const comma = comma_locale();
-    if (comma == nullptr) return;
+    if (comma == nullptr) {
+        ::dprintf(eot::complaints_go_to(), "skipped: no de_DE, fr_FR, ru_RU or uk_UA locale, so reals are not read "
+                                           "under a decimal comma\n");
+        return;
+    }
     double const read = eo::detail::parse_real("1.5", false).value;
-    double const expected = std::strtod("1.5", nullptr);
     std::string const written = eo::fmt("{}", eo::fixed(1.5, 2));
-    std::string const by_printf = printf_fixed(1.5, 2);
+    std::string const wide = eo::fmt("{}", eo::fixed(0.125, 45));
+    std::string const points = eo::detail::format_points(20.5);
+    int const before = std::fegetround();
+    std::fesetround(FE_UPWARD);
+    double const read_upward = eo::detail::parse_real("1.5", false).value;
+    std::string const written_upward = eo::fmt("{}", eo::fixed(1.5, 2));
+    std::fesetround(before);
+    eot::outcome const nearly = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
+        c.input.read_int(1, 1, "n");
+        c.output.read_int(1, 1, "x");
+        c.jury.read_int(1, 1, "x");
+        eo::points(39.99999999);
+    });
     std::setlocale(LC_NUMERIC, "C");
-    EO_CHECK_EQ(bits_of(read), bits_of(expected));
-    EO_CHECK_EQ(written, by_printf);
+    EO_CHECK_EQ(read, 1.5);
+    EO_CHECK_EQ(written, std::string("1.50"));
+    EO_CHECK_EQ(wide, "0.125" + std::string(42, '0'));
+    EO_CHECK_EQ(points, std::string("20.5"));
+#if defined(_MSC_VER)
+    EO_CHECK_EQ(read_upward, std::nextafter(1.5, 2.0));
+#else
+    EO_CHECK_EQ(read_upward, 1.5);
+#endif
+    EO_CHECK_EQ(written_upward, std::string("1.50"));
+    EO_CHECK_EQ(nearly.text, std::string("points 39.99999999"));
+    EO_CHECK_IN(checker_warnings(), "EO206");
 }
 
 namespace {
@@ -922,4 +947,242 @@ EO_TEST(a_warning_code_is_known_by_its_text_and_not_its_address) {
     std::string const again = "EO101";
     EO_CHECK(shared.again(again.c_str(), here));
     shared.forget_everything();
+}
+
+namespace {
+
+std::string refused_by_a_validator(std::string const& text, void (*read)(eo::validator&)) {
+    return validate(text, [&](eo::validator& v) { read(v); }).text;
+}
+
+}  // namespace
+
+EO_TEST(a_number_that_a_token_character_follows_is_named_whole) {
+    auto const integer_then_line = [](eo::validator& v) {
+        v.read_int(1, 1000000, "n");
+        v.read_eoln();
+    };
+    auto const integer_then_space = [](eo::validator& v) {
+        v.read_int(1, 1000000, "n");
+        v.read_space();
+    };
+    auto const real_then_line = [](eo::validator& v) {
+        v.read_real(0, 10000, 1, 6, "p");
+        v.read_eoln();
+    };
+    auto const integers_then_line = [](eo::validator& v) {
+        v.read_ints(3, 1, 9, "a");
+        v.read_eoln();
+    };
+    auto const integer_alone = [](eo::validator& v) { v.read_int(1, 1000000, "n"); };
+    auto const unnamed_then_line = [](eo::validator& v) {
+        v.read_int(1, 1000000, eo::unnamed);
+        v.read_eoln();
+    };
+    auto const clock = [](eo::validator& v) {
+        v.read_int(0, 23, "hour");
+        v.read_char(':');
+    };
+    EO_CHECK_EQ(refused_by_a_validator("1e5\n", integer_then_line),
+                std::string("line 1, n: expected an integer, found \"1e5\": it has a character that cannot be part of the number"));
+    EO_CHECK_EQ(refused_by_a_validator("12abc 5\n", integer_then_space),
+                std::string("line 1, n: expected an integer, found \"12abc\": it has a character that cannot be part of the number"));
+    EO_CHECK_EQ(refused_by_a_validator("7.5\n", integer_then_line),
+                std::string("line 1, n: expected an integer, found \"7.5\": it has a character that cannot be part of the number"));
+    EO_CHECK_EQ(refused_by_a_validator("1e-3\n", real_then_line),
+                std::string("line 1, p: expected a number, found \"1e-3\": it has a character that cannot be part of the number"));
+    EO_CHECK_EQ(refused_by_a_validator("0,5\n", real_then_line),
+                std::string("line 1, p: expected a number, found \"0,5\": it has a character that cannot be part of the number"));
+    EO_CHECK_EQ(refused_by_a_validator("1.5e3\n", real_then_line),
+                std::string("line 1, p: expected a number, found \"1.5e3\": it has a character that cannot be part of the number"));
+    EO_CHECK_EQ(refused_by_a_validator("1.x\n", real_then_line),
+                std::string("line 1, p: expected a number, found \"1.x\": it has no digits where digits are required"));
+    EO_CHECK_EQ(refused_by_a_validator("1 2x 3\n", integers_then_line),
+                std::string("line 1, a[2]: expected an integer, found \"2x\": it has a character that cannot be part of the number"));
+    EO_CHECK_EQ(refused_by_a_validator("5x\n", integer_alone),
+                std::string("line 1, n: expected an integer, found \"5x\": it has a character that cannot be part of the number"));
+    EO_CHECK_EQ(refused_by_a_validator("5x\n", unnamed_then_line),
+                std::string("line 1: expected an integer, found \"5x\": it has a character that cannot be part of the number"));
+    EO_CHECK_EQ(refused_by_a_validator("0012\n", integer_then_line),
+                std::string("line 1, n: expected an integer, found \"0012\": it has a leading zero"));
+    EO_CHECK_EQ(refused_by_a_validator("012x\n", integer_then_line),
+                std::string("line 1, n: expected an integer, found \"012x\": it has a character that cannot be part of the number"));
+    auto const small_then_line = [](eo::validator& v) {
+        v.read_int(1, 10, "n");
+        v.read_eoln();
+    };
+    EO_CHECK_EQ(refused_by_a_validator("100e5\n", small_then_line), std::string("line 1, n: 100 is above 10"));
+    EO_CHECK_EQ(refused_by_a_validator("12x30\n", clock), std::string("line 1: expected \":\" after hour, found \"x\""));
+    EO_CHECK_EQ(refused_by_a_validator("5\r\n", integer_then_line), std::string(""));
+    auto const on_a_stream = [](std::string const& output, void (*read)(eo::checker&)) {
+        return check_run("1\n", output, "1\n", [&](eo::checker& c) {
+                   c.input.skip_rest("not needed");
+                   c.jury.skip_rest("not needed");
+                   read(c);
+                   eo::accept();
+               })
+            .text;
+    };
+    auto const stream_integer = [](eo::checker& c) { c.output.read_int(1, 1000000, "n"); };
+    auto const stream_real = [](eo::checker& c) { c.output.read_real(0, 10, "p"); };
+    EO_CHECK_EQ(on_a_stream("1e5\n", stream_integer),
+                std::string("wrong answer: output.txt, line 1, n: expected an integer, found \"1e5\": it has a "
+                            "character that cannot be part of the number"));
+    EO_CHECK_EQ(on_a_stream("0,5\n", stream_real),
+                std::string("wrong answer: output.txt, line 1, p: expected a number, found \"0,5\": it has a "
+                            "character that cannot be part of the number"));
+    EO_CHECK_EQ(on_a_stream("12abc\n", stream_integer),
+                std::string("wrong answer: output.txt, line 1, n: expected an integer, found \"12abc\": it has a "
+                            "character that cannot be part of the number"));
+}
+
+EO_TEST(a_warning_raised_on_one_line_of_two_files_is_counted_in_each) {
+    eo::detail::diagnostics& shared = eo::detail::diagnostics::shared();
+    shared.forget_everything();
+    eo::detail::warn("EO101", "a value without a name", "name it", eo::detail::site{"validator.cpp", 12});
+    eo::detail::warn("EO101", "a value without a name", "name it", eo::detail::site{"common.h", 12});
+    std::string const other = "common.h";
+    eo::detail::warn("EO101", "a value without a name", "name it", eo::detail::site{other.c_str(), 12});
+    EO_CHECK_EQ(shared.all().size(), static_cast<std::size_t>(2));
+    EO_CHECK_EQ(shared.all().front().count, 1LL);
+    EO_CHECK_EQ(shared.all().back().count, 2LL);
+    EO_CHECK_EQ(shared.local_block(), std::string("validator.cpp:12: warning EO101: a value without a name\n"
+                                                  "  name it\n"
+                                                  "common.h:12: warning EO101: a value without a name (2 times)\n"
+                                                  "  name it\n"));
+    shared.forget_everything();
+}
+
+namespace {
+
+std::string refused_from_a_slow_pipe(char const* first, char const* second, void (*read)(eo::validator&)) {
+    int ends[2];
+    if (::pipe(ends) != 0) return "no pipe";
+#if defined(_WIN32)
+    std::thread writer([&] {
+        long long const said = ::write(ends[1], first, static_cast<unsigned>(std::strlen(first)));
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        long long const more = said < 0 ? said : ::write(ends[1], second, static_cast<unsigned>(std::strlen(second)));
+        (void)more;
+        ::close(ends[1]);
+    });
+#else
+    pid_t const writer = ::fork();
+    if (writer == 0) {
+        ::close(ends[0]);
+        if (::write(ends[1], first, std::strlen(first)) < 0) ::_exit(1);
+        ::usleep(300000);
+        if (::write(ends[1], second, std::strlen(second)) < 0) ::_exit(1);
+        ::_exit(0);
+    }
+    ::close(ends[1]);
+#endif
+    int const kept = ::dup(0);
+    ::dup2(ends[0], 0);
+    ::close(ends[0]);
+    eo::detail::diagnostics::shared().forget_everything();
+    std::string program = "validator.cpp";
+    std::vector<char*> arguments{program.data()};
+    eot::outcome const result = eot::run_until_stop([&] {
+        eo::validator v(static_cast<int>(arguments.size()), arguments.data());
+        read(v);
+    });
+    ::dup2(kept, 0);
+    ::close(kept);
+#if defined(_WIN32)
+    writer.join();
+#else
+    int status = 0;
+    ::waitpid(writer, &status, 0);
+#endif
+    return result.text;
+}
+
+}  // namespace
+
+EO_TEST(a_validator_on_a_pipe_that_pauses_looks_ahead_as_far_as_on_a_file) {
+    auto const integer_then_line = [](eo::validator& v) {
+        v.read_int(1, 9, "n");
+        v.read_eoln();
+    };
+    EO_CHECK_EQ(refused_from_a_slow_pipe("5x", "yz\n", integer_then_line),
+                std::string("line 1, n: expected an integer, found \"5xyz\": it has a character that cannot be part "
+                            "of the number"));
+    EO_CHECK_EQ(refused_from_a_slow_pipe("5\nx", "yz\n", integer_then_line),
+                std::string("line 2: expected the end of the input, found \"xyz\""));
+}
+
+EO_TEST(eo_case_refuses_a_count_that_another_integer_before_the_cases_equals) {
+    auto const counted_then_k = [](eo::validator& v) {
+        int const t = v.read_int(1, 10, "t");
+        v.read_space();
+        v.read_int(1, 10, "k");
+        v.read_eoln();
+        v.cases(t, [&] {
+            v.read_int(1, 9, "x");
+            v.read_eoln();
+        });
+    };
+    eot::outcome const first = validate("2 2\n7\n8\n", counted_then_k, {"--eo-case=1"});
+    EO_CHECK_EQ(first.code, 3);
+    EO_CHECK_EQ(first.text, std::string("eolymp.h: --eo-case needs the count given to v.cases, 2, to be the one "
+                                        "integer of that value before the first case, so that it can be written as "
+                                        "1; there are 2, and it cannot tell which"));
+    eot::outcome const apart = validate("2 3\n7\n8\n", counted_then_k, {"--eo-case=2"});
+    EO_CHECK_EQ(apart.printed, std::string("1 3\n8\n"));
+}
+
+EO_TEST(a_real_one_rounding_above_its_tolerance_is_within_it) {
+    EO_CHECK(eo::close_enough(0.5, 0.500001, 1e-6));
+    EO_CHECK(!eo::close_enough(0.5, 0.5000011, 1e-6));
+    EO_CHECK(eo::close_enough(1e9, 1e9 + 1000, 1e-6));
+    EO_CHECK(!eo::close_enough(1e9, 1e9 + 1001, 1e-6));
+    EO_CHECK(eo::close_enough(0.5, 0.499999, 1e-6));
+    EO_CHECK(eo::close_enough(913908.32525340363, 914822.23357865703, 1e-3));
+    EO_CHECK(eo::close_enough(1000, 1000.1, 1e-4));
+    EO_CHECK(eo::close_enough(1000, 999.9, 1e-4));
+    EO_CHECK(eo::close_enough(1000000, 1000000.001, 1e-9));
+    EO_CHECK(!eo::close_enough(1000, 1000.11, 1e-4));
+    for (double const expected : {0.75, 3.0, 913908.32525340363, 1e45, -7.5e12})
+        for (double const epsilon : {1e-3, 1e-5, 1e-9})
+            for (int const steps : {-3, -1, 0, 1, 3}) {
+                double const found = expected * (1 + epsilon) + steps * std::fabs(expected) * 1e-16;
+                bool const by_the_quotient = std::fabs(expected - found) / std::fabs(expected) <= epsilon;
+                if (by_the_quotient) EO_CHECK(eo::close_enough(expected, found, epsilon));
+            }
+    EO_CHECK(eo::compare(0.500001, 0.5, eo::minimize, eo::within(1e-6)) == eo::standing::equal);
+    auto const micro = [](eo::checker& c) { c.reals(1e-6); };
+    EO_CHECK_EQ(compared_by("0.500001", "0.5", micro), std::string("ok 1 values"));
+    EO_CHECK_EQ(compared_by("0.499999", "0.5", micro), std::string("ok 1 values"));
+    auto const milli = [](eo::checker& c) { c.reals(1e-3); };
+    EO_CHECK_EQ(compared_by("914822.23357865703", "913908.32525340363", milli), std::string("ok 1 values"));
+    auto const ten_thousandth = [](eo::checker& c) { c.reals(1e-4); };
+    EO_CHECK_EQ(compared_by("1000.1 999.9", "1000 1000", ten_thousandth), std::string("ok 2 values"));
+    eot::outcome const optimum = check_run("1\n", "0.500001\n", "0.5\n", [](eo::checker& c) {
+        c.input.skip_rest("not needed");
+        c.optimum(c.jury.read_real(eo::any, "best"), c.output.read_real(eo::any, "best"), eo::minimize,
+                  eo::within(1e-6));
+    });
+    EO_CHECK_EQ(optimum.text, std::string("ok 0.500001"));
+}
+
+EO_TEST(a_hyphen_that_reads_as_a_backwards_range_is_told_where_to_go) {
+    eot::outcome const set = eot::run_until_stop([] { eo::charset const made("A-Za-z0-9_.,:;()- "); });
+    EO_CHECK_EQ(set.code, 3);
+    EO_CHECK_EQ(set.text, std::string("eolymp.h: the character range \")- \" in charset(\"A-Za-z0-9_.,:;()- \") runs "
+                                      "backwards; write its low end first, or put a - that stands for itself first "
+                                      "or last"));
+    eot::outcome const pattern = eot::run_until_stop([] { eo::pattern const made("[A-Za-z0-9_.,:;()- ]+"); });
+    EO_CHECK_EQ(pattern.code, 3);
+    EO_CHECK_IN(pattern.text, "eo::pattern(\"[A-Za-z0-9_.,:;()- ]+\") does not parse at column 17: this range runs "
+                              "backwards; write its low end first, or put a - that stands for itself first or "
+                              "last");
+}
+
+EO_TEST(pin_the_report_line_of_a_warning_raised_in_a_windows_path) {
+    clean_slate fresh;
+    raise_warning(eo::detail::site{"C:\\Users\\author\\my \"best\" checker.cpp", 7});
+    EO_CHECK_EQ(diagnostics().report_line(),
+                std::string("eo-report {\"version\":1,\"warnings\":[{\"code\":\"EO101\",\"at\":\"C:\\\\Users\\\\author"
+                            "\\\\my \\\"best\\\" checker.cpp:7\",\"count\":1}]}\n"));
 }

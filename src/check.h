@@ -2,25 +2,26 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <initializer_list>
+#include <iterator>
 #include <set>
 #include <string_view>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <sys/syscall.h>
-#include <unistd.h>
-
 #include "core.h"
 #include "diag.h"
 #include "fmt.h"
 #include "io.h"
+#include "os.h"
 #include "read.h"
 #include "stream.h"
 #include "role.h"
@@ -34,12 +35,18 @@ struct lenient_t {};
 struct plain_t {};
 struct any_case_t {};
 struct exact_t {};
+struct any_order_t {};
+struct big_t {};
+struct absolute_t {};
 
 inline constexpr ignore_t ignore{};
 inline constexpr lenient_t lenient{};
 inline constexpr plain_t plain{};
 inline constexpr any_case_t any_case{};
 inline constexpr exact_t exact{};
+inline constexpr any_order_t any_order{};
+inline constexpr big_t big{};
+inline constexpr absolute_t absolute{};
 
 enum class answers_are { unique, many };
 
@@ -103,30 +110,6 @@ inline checker*& live_checker() {
     return only;
 }
 
-inline std::FILE* opened_scratch(int descriptor) {
-    if (descriptor < 0) return nullptr;
-    std::FILE* const file = ::fdopen(descriptor, "w+b");
-    if (file == nullptr) ::close(descriptor);
-    return file;
-}
-
-inline std::FILE* scratch_in_memory() {
-#if defined(__linux__) && defined(SYS_memfd_create)
-    return opened_scratch(static_cast<int>(::syscall(SYS_memfd_create, "eolymp-checker-output", 0)));
-#else
-    return nullptr;
-#endif
-}
-
-inline std::FILE* scratch_in_the_temporary_directory() { return std::tmpfile(); }
-
-inline std::FILE* scratch_in_the_workspace() {
-    char name[] = "eolymp-checker-output-XXXXXX";
-    int const descriptor = ::mkstemp(name);
-    if (descriptor >= 0) ::unlink(name);
-    return opened_scratch(descriptor);
-}
-
 using scratch_maker = std::FILE* (*)();
 
 inline std::array<scratch_maker, 3> scratch_makers() {
@@ -141,6 +124,20 @@ inline std::FILE* first_scratch(std::array<scratch_maker, Count> const& makers) 
 }
 
 inline std::FILE* scratch_file() { return first_scratch(scratch_makers()); }
+
+inline void (*&on_a_deadly_signal())(int) {
+    static void (*hook)(int) = nullptr;
+    return hook;
+}
+
+inline void deadly_signal(int caught) {
+    if (on_a_deadly_signal() != nullptr) on_a_deadly_signal()(caught);
+#ifdef EOLYMP_TESTING
+    throw stop{128 + caught, how_it_died(caught)};
+#else
+    ::raise(caught);
+#endif
+}
 
 class reader;
 
@@ -211,6 +208,12 @@ public:
         return reader_.word(0, 0, nullptr, detail::stated::deliberate, name, where);
     }
 
+    std::string read_token(pattern const& told, detail::value_name name, detail::site where = detail::site::here()) {
+        return reader_.matching(told, name, where);
+    }
+
+    std::string read_line(pattern const& told, detail::value_name name) { return reader_.line_matching(told, name); }
+
     std::string read_line(long long least, long long most, detail::value_name name,
                           detail::site where = detail::site::here()) {
         return reader_.rest_of_line(least, most, nullptr, detail::stated::yes, name, where);
@@ -269,6 +272,12 @@ public:
         return reader_.many<std::string>(count, name, [&](detail::value_name const& each) {
             return reader_.word(least, most, &allowed, detail::stated::yes, each, where);
         });
+    }
+
+    std::vector<std::string> read_tokens(long long count, pattern const& told, detail::value_name name,
+                                         detail::site where = detail::site::here()) {
+        return reader_.many<std::string>(
+            count, name, [&](detail::value_name const& each) { return reader_.matching(told, each, where); });
     }
 
     std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
@@ -401,6 +410,7 @@ public:
     checker(int argc, char** argv, detail::site where = detail::site::here()) {
         if (detail::live_checker() != nullptr)
             detail::library_error(fmt("{}: this program already has a checker", detail::where_of(where)));
+        detail::keep_binary(1);
         detail::diagnostics::shared().start_the_clock("EO209", "checker", 10000, where);
         std::array<char const*, 3> const given = detail::test_paths(argc, argv);
         char const* const kinds[3] = {"input", "output", "answer"};
@@ -421,25 +431,28 @@ public:
         jury = stream(detail::source::over_file(paths[2].c_str(), true), detail::fault::jury_error,
                       "answer.txt");
         if (detail::on_judge()) {
-            saved_out_ = ::dup(1);
-            saved_err_ = ::dup(2);
+            saved_out_ = detail::duplicate(1);
+            saved_err_ = detail::duplicate(2);
             held_ = detail::scratch_file();
             if (held_ == nullptr)
                 detail::library_error("the checker cannot open a scratch file for its own output: not in memory, "
                                       "not in the temporary directory and not in the workspace");
-            ::dup2(::fileno(held_), 1);
-            ::dup2(::fileno(held_), 2);
+            detail::duplicate_onto(detail::descriptor_of(held_), 1);
+            detail::duplicate_onto(detail::descriptor_of(held_), 2);
             detail::emitter() = &checker::write_log;
+            catch_deadly_signals();
         }
         detail::live_checker() = this;
         detail::live_scorer() = this;
         detail::close_on_exit(&checker::exited_early);
+        end_on_terminate();
     }
 
     checker(checker const&) = delete;
     checker& operator=(checker const&) = delete;
 
     ~checker() noexcept(false) {
+        detail::on_a_deadly_signal() = nullptr;
         detail::unfinished() = nullptr;
         detail::live_checker() = nullptr;
         detail::live_scorer() = nullptr;
@@ -466,6 +479,12 @@ public:
     }
 
     void answers(answers_are how) { declared_ = how; }
+
+    void output_only(std::string const& reason) {
+        if (reason.empty()) detail::library_error("output_only needs a reason");
+        output_only_ = true;
+        jury.skip_rest(reason);
+    }
 
     template <class Body>
     void cases(long long count, Body&& body) {
@@ -502,30 +521,59 @@ public:
         fail_run(fmt("the answer is {}; the optimum is {}", found, by_the_jury));
     }
 
-    [[noreturn]] void tokens() {
+    [[noreturn]] void tokens() { token_by_token(false); }
+
+    [[noreturn]] void tokens(any_case_t) { token_by_token(true); }
+
+    [[noreturn]] void tokens(any_order_t) {
+        compared_only_ = true;
+        std::vector<std::string> wanted;
+        std::size_t longest = 0;
+        while (!jury.at_eof()) {
+            wanted.emplace_back();
+            jury_token(wanted.back(), detail::site::here());
+            longest = (std::max)(longest, wanted.back().size());
+        }
+        std::vector<std::string> found;
+        while (!output.at_eof()) {
+            if (found.size() == wanted.size())
+                fail_run(fmt("the answer has {} tokens, the output has more", wanted.size()));
+            found.emplace_back();
+            contestant_token(found.back(), longest);
+            if (found.back().size() > longest)
+                fail_run(fmt("token {} is longer than every token of the answer; it starts \"{}\"", found.size(),
+                             detail::shorten(found.back())));
+        }
+        if (found.size() < wanted.size())
+            fail_run(fmt("the output has {} tokens, the answer has {}", found.size(), wanted.size()));
+        std::sort(wanted.begin(), wanted.end());
+        std::sort(found.begin(), found.end());
+        auto const differ = std::mismatch(wanted.begin(), wanted.end(), found.begin());
+        if (differ.first != wanted.end()) {
+            std::string const& token = (std::min)(*differ.first, *differ.second);
+            fail_run(fmt("\"{}\" is in the answer {} and in the output {}", detail::shorten(token),
+                         times_in(wanted, token), times_in(found, token)));
+        }
+        pass(1, fmt("{} tokens in any order", wanted.size()));
+    }
+
+    [[noreturn]] void integers() {
         compared_only_ = true;
         long long seen = 0;
-        std::string want;
-        std::string got;
         while (true) {
             bool const jury_done = jury.at_eof();
             bool const output_done = output.at_eof();
-            if (jury_done && output_done) pass(1, fmt("{} tokens", seen));
+            if (jury_done && output_done) pass(1, fmt("{} integers", seen));
             seen++;
-            if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
-            jury_token(want, detail::site::here());
-            if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
-            contestant_token(got, want.size());
-            if (got.size() > want.size())
-                fail_run(fmt("token {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
-                             detail::shorten(want), detail::shorten(got)));
-            if (want != got)
-                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
-                             detail::shorten(want)));
+            if (jury_done) fail_run(fmt("the answer has {} integers, the output has more", seen - 1));
+            long long const want = jury.read_long(any, unnamed);
+            if (output_done) fail_run(fmt("the output ended after {} integers, the answer has more", seen - 1));
+            long long const got = output.read_long(any, unnamed);
+            if (got != want) fail_run(fmt("integer {} is {}, expected {}", seen, got, want));
         }
     }
 
-    [[noreturn]] void reals(double epsilon) {
+    [[noreturn]] void integers(big_t) {
         compared_only_ = true;
         long long seen = 0;
         std::string want;
@@ -533,28 +581,29 @@ public:
         while (true) {
             bool const jury_done = jury.at_eof();
             bool const output_done = output.at_eof();
-            if (jury_done && output_done) pass(1, fmt("{} values", seen));
+            if (jury_done && output_done) pass(1, fmt("{} integers", seen));
             seen++;
-            if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
+            if (jury_done) fail_run(fmt("the answer has {} integers, the output has more", seen - 1));
             jury_token(want, detail::site::here());
-            if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
+            spelled_as_an_integer(jury, want);
+            if (output_done) fail_run(fmt("the output ended after {} integers, the answer has more", seen - 1));
             std::size_t const longest = std::max<std::size_t>(want.size(), detail::reader::longest_number);
             contestant_token(got, longest);
             if (got.size() > longest)
                 fail_run(fmt("token {} is longer than {} characters: \"{}\"", seen, longest, detail::shorten(got)));
-            detail::real_read const wanted = detail::parse_real(want, true, true);
-            detail::real_read const found = detail::parse_real(got, true, true);
-            if (wanted.problem == detail::number_problem::none &&
-                found.problem == detail::number_problem::none) {
-                if (!close_enough(wanted.value, found.value, epsilon))
-                    fail_run(fmt("value {} is {}, expected {}", seen, found.value, wanted.value));
-                continue;
-            }
-            if (want != got)
-                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
-                             detail::shorten(want)));
+            spelled_as_an_integer(output, got);
+            if (want == got) continue;
+            if (want.size() <= 40 && got.size() <= 40) fail_run(fmt("integer {} is {}, expected {}", seen, got, want));
+            std::size_t same = 0;
+            while (want[same] == got[same]) same++;
+            fail_run(fmt("integer {} is {} characters long and the answer's {}; they differ first at character {}",
+                         seen, got.size(), want.size(), same + 1));
         }
     }
+
+    [[noreturn]] void reals(double epsilon) { value_by_value(epsilon, true); }
+
+    [[noreturn]] void reals(double epsilon, absolute_t) { value_by_value(epsilon, false); }
 
     [[noreturn]] void lines() {
         compared_only_ = true;
@@ -620,6 +669,24 @@ public:
         pass(detail::clamped(mapping(said), where), said.message());
     }
 
+    [[noreturn]] void yes_no() {
+        compared_only_ = true;
+        long long seen = 0;
+        long long yes = 0;
+        while (true) {
+            bool const jury_done = jury.at_eof();
+            bool const output_done = output.at_eof();
+            if (jury_done && output_done) pass(1, fmt("{} answers, {} of them YES", seen, yes));
+            seen++;
+            if (jury_done) fail_run(fmt("the answer has {} answers, the output has more", seen - 1));
+            std::string const want = jury.read_choice({"YES", "NO"}, any_case, unnamed);
+            if (output_done) fail_run(fmt("the output ended after {} answers, the answer has more", seen - 1));
+            std::string const got = output.read_choice({"YES", "NO"}, any_case, unnamed);
+            if (want != got) fail_run(fmt("answer {} is {}, expected {}", seen, got, want));
+            if (got == "YES") yes++;
+        }
+    }
+
     template <class Certificate>
     [[noreturn]] void yes_no(Certificate certificate, char const* yes = "YES", char const* no = "NO") {
         std::string const by_the_jury = jury.read_choice({yes, no}, any_case, "verdict");
@@ -650,7 +717,8 @@ public:
         if (fraction >= 1) deliver(0, "ok", message);
         double const paid = fraction * cost();
         std::string const printed = detail::format_points(paid);
-        if (cost() > 0 && std::strtof(printed.c_str(), nullptr) >= static_cast<float>(cost()))
+        if (cost() > 0 && std::strtof(detail::with_the_local_point(printed).c_str(), nullptr) >=
+                              static_cast<float>(cost()))
             detail::warn("EO206", fmt("'points {}' is below the test's {}, but the judge reads points as a "
                                       "float, which rounds it to the full cost: the run counts as accepted",
                                       printed, cost()),
@@ -677,8 +745,79 @@ public:
         deliver(3, "jury error", message);
     }
 
+    char const* called() const final { return "checker"; }
+
 private:
     static bool trailing_blank(char one) { return one == ' ' || one == '\t' || one == '\r'; }
+
+    [[noreturn]] void value_by_value(double epsilon, bool relative) {
+        compared_only_ = true;
+        long long seen = 0;
+        std::string want;
+        std::string got;
+        while (true) {
+            bool const jury_done = jury.at_eof();
+            bool const output_done = output.at_eof();
+            if (jury_done && output_done) pass(1, fmt("{} values", seen));
+            seen++;
+            if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
+            jury_token(want, detail::site::here());
+            if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
+            std::size_t const longest = std::max<std::size_t>(want.size(), detail::reader::longest_number);
+            contestant_token(got, longest);
+            if (got.size() > longest)
+                fail_run(fmt("token {} is longer than {} characters: \"{}\"", seen, longest, detail::shorten(got)));
+            detail::real_read const wanted = detail::parse_real(want, true, true);
+            detail::real_read const found = detail::parse_real(got, true, true);
+            if (wanted.problem == detail::number_problem::none &&
+                found.problem == detail::number_problem::none) {
+                bool const within_reach = relative ? close_enough(wanted.value, found.value, epsilon)
+                                           : std::fabs(wanted.value - found.value) <= epsilon + 1e-15;
+                if (!within_reach)
+                    fail_run(fmt("value {} is {}, expected {}", seen, found.value, wanted.value));
+                continue;
+            }
+            if (want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"", seen, detail::shorten(got),
+                             detail::shorten(want)));
+        }
+    }
+
+    static void spelled_as_an_integer(stream& side, std::string& token) {
+        detail::number_problem const problem = detail::integer_spelling(token, side.inside().relaxed());
+        if (problem != detail::number_problem::none)
+            side.wrong("expected an integer, found \"{}\": {}", detail::shorten(token), detail::describe(problem));
+        detail::canonical_integer(token);
+    }
+
+    static std::string times_in(std::vector<std::string> const& sorted, std::string const& token) {
+        auto const range = std::equal_range(sorted.begin(), sorted.end(), token);
+        std::size_t const count = static_cast<std::size_t>(range.second - range.first);
+        return count == 1 ? std::string("once") : fmt("{} times", count);
+    }
+
+    [[noreturn]] void token_by_token(bool fold) {
+        compared_only_ = true;
+        long long seen = 0;
+        std::string want;
+        std::string got;
+        while (true) {
+            bool const jury_done = jury.at_eof();
+            bool const output_done = output.at_eof();
+            if (jury_done && output_done) pass(1, fmt("{} tokens", seen));
+            seen++;
+            if (jury_done) fail_run(fmt("the answer has {} tokens, the output has more", seen - 1));
+            jury_token(want, detail::site::here());
+            if (output_done) fail_run(fmt("the output ended after {} tokens, the answer has more", seen - 1));
+            contestant_token(got, want.size());
+            if (got.size() > want.size())
+                fail_run(fmt("token {} is longer than the expected \"{}\"; it starts \"{}\"", seen,
+                             detail::shorten(want), detail::shorten(got)));
+            if (fold ? !detail::same_in_any_case(want, got) : want != got)
+                fail_run(fmt("token {} is \"{}\", expected \"{}\"{}", seen, detail::shorten(got),
+                             detail::shorten(want), fold ? " in any case" : ""));
+        }
+    }
 
     void jury_token(std::string& want, detail::site where) {
         jury.inside().word_into(want, 0, 0, nullptr, detail::stated::deliberate, unnamed, where);
@@ -746,7 +885,7 @@ private:
         if (!output.inside().read_anything())
             detail::warn("EO201", "the checker passed the run without reading any of the output",
                          "read the output, or use a built-in checker", detail::site::here());
-        if (!stock_ && !input.inside().read_anything() && !jury.inside().read_anything())
+        if (!stock_ && !output_only_ && !input.inside().read_anything() && !jury.inside().read_anything())
             detail::warn("EO202", "the checker read neither the input nor the answer",
                          "a verdict that cannot depend on the test", detail::site::here());
         if (declared_ == answers_are::many && compared_only_)
@@ -768,12 +907,13 @@ private:
     }
 
     void put_the_output_back() {
+        let_go_of_the_signals();
         std::fflush(stdout);
         std::fflush(stderr);
-        ::dup2(saved_out_, 1);
-        ::dup2(saved_err_, 2);
-        ::close(saved_out_);
-        ::close(saved_err_);
+        detail::duplicate_onto(saved_out_, 1);
+        detail::duplicate_onto(saved_err_, 2);
+        detail::close_descriptor(saved_out_);
+        detail::close_descriptor(saved_err_);
     }
 
     long long copy_what_was_held() {
@@ -788,9 +928,49 @@ private:
         return copied;
     }
 
+    void let_go_of_the_signals() {
+        detail::after_a_log_line() = nullptr;
+        detail::on_a_deadly_signal() = nullptr;
+        detail::restore_the_deadly_signals(before_signals_);
+    }
+
     void let_go_of_what_was_held() {
         std::fclose(held_);
         held_ = nullptr;
+    }
+
+    void catch_deadly_signals() {
+        held_descriptor_ = detail::descriptor_of(held_);
+        detail::on_a_deadly_signal() = &checker::died;
+        detail::after_a_log_line() = &checker::logged;
+        detail::catch_the_deadly_signals(&detail::deadly_signal, before_signals_);
+    }
+
+    static void logged(std::size_t bytes) {
+        checker* const one = detail::live_checker();
+        if (one->logged_ >= detail::stored_log) return;
+        one->logged_ += bytes;
+        std::fflush(stdout);
+    }
+
+    static void died(int caught) {
+        checker* const one = detail::live_checker();
+        one->replay_the_log(caught);
+        one->let_go_of_the_signals();
+    }
+
+    void replay_the_log(int caught) const {
+        char const head[] = "jury error the checker died of ";
+        detail::write_all(saved_out_, head, sizeof(head) - 1);
+        char const* const how = detail::how_it_died(caught);
+        detail::write_all(saved_out_, how, std::strlen(how));
+        detail::write_all(saved_out_, "\n", 1);
+        char buffer[4096];
+        long long at = 0;
+        for (long long got = 0; (got = detail::read_at(held_descriptor_, buffer, sizeof(buffer), at)) > 0; at += got)
+            detail::write_all(saved_out_, buffer, static_cast<std::size_t>(got));
+        char const tail[] = "eolymp.h " EOLYMP_H_VERSION "\n";
+        detail::write_all(saved_out_, tail, sizeof(tail) - 1);
     }
 
     void unwrap(std::string const& verdict) {
@@ -811,10 +991,14 @@ private:
 
     answers_are declared_ = answers_are::unique;
     bool stock_ = false;
+    bool output_only_ = false;
     bool compared_only_ = false;
     int saved_out_ = -1;
     int saved_err_ = -1;
     std::FILE* held_ = nullptr;
+    int held_descriptor_ = -1;
+    std::size_t logged_ = 0;
+    detail::signal_dispositions before_signals_{};
 };
 
 }  // namespace eo

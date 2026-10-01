@@ -44,15 +44,35 @@ struct integer_read {
 
 inline bool is_digit(char c) { return c >= '0' && c <= '9'; }
 
-inline integer_read parse_integer(std::string_view text, bool relaxed = false) {
-    if (text.empty()) return {0, number_problem::empty};
-    std::size_t const start = text[0] == '-' || (relaxed && text[0] == '+') ? 1u : 0u;
-    bool const negative = text[0] == '-';
-    if (start == text.size()) return {0, number_problem::missing_digits};
+inline std::size_t integer_start(std::string_view text, bool relaxed) {
+    return text[0] == '-' || (relaxed && text[0] == '+') ? 1u : 0u;
+}
+
+inline number_problem integer_spelling(std::string_view text, bool relaxed) {
+    if (text.empty()) return number_problem::empty;
+    std::size_t const start = integer_start(text, relaxed);
+    if (start == text.size()) return number_problem::missing_digits;
     for (std::size_t at = start; at < text.size(); at++)
-        if (!is_digit(text[at])) return {0, number_problem::bad_character};
-    if (!relaxed && text[start] == '0' && text.size() - start > 1)
-        return {0, number_problem::leading_zero};
+        if (!is_digit(text[at])) return number_problem::bad_character;
+    if (!relaxed && text[start] == '0' && text.size() - start > 1) return number_problem::leading_zero;
+    if (!relaxed && start == 1 && text[1] == '0') return number_problem::redundant_minus;
+    return number_problem::none;
+}
+
+inline void canonical_integer(std::string& text) {
+    std::size_t const start = integer_start(text, true);
+    std::size_t digits = start;
+    while (digits + 1 < text.size() && text[digits] == '0') digits++;
+    bool const minus = text[0] == '-' && text[digits] != '0';
+    text.erase(0, digits);
+    if (minus) text.insert(0, 1, '-');
+}
+
+inline integer_read parse_integer(std::string_view text, bool relaxed = false) {
+    number_problem const spelled = integer_spelling(text, relaxed);
+    if (spelled != number_problem::none) return {0, spelled};
+    std::size_t const start = integer_start(text, relaxed);
+    bool const negative = text[0] == '-';
     unsigned long long const limit = negative ? 9223372036854775808ull : 9223372036854775807ull;
     unsigned long long magnitude = 0;
     for (std::size_t at = start; at < text.size(); at++) {
@@ -60,7 +80,6 @@ inline integer_read parse_integer(std::string_view text, bool relaxed = false) {
         if (magnitude > (limit - digit) / 10) return {0, number_problem::out_of_range};
         magnitude = magnitude * 10 + digit;
     }
-    if (!relaxed && negative && magnitude == 0) return {0, number_problem::redundant_minus};
     return {negative ? static_cast<long long>(0ull - magnitude) : static_cast<long long>(magnitude),
             number_problem::none};
 }
@@ -80,20 +99,14 @@ struct real_read {
 
 inline double decimal_value(std::string_view text) {
 #if defined(__cpp_lib_to_chars)
-    if (numbers_as_in_c()) {
+    if (rounding_to_nearest()) {
         double quick = 0;
         std::from_chars_result const read = std::from_chars(text.data(), text.data() + text.size(), quick);
         if (read.ec == std::errc() && read.ptr == text.data() + text.size()) return quick;
     }
 #endif
-    char small[64];
-    if (text.size() < sizeof(small)) {
-        std::memcpy(small, text.data(), text.size());
-        small[text.size()] = '\0';
-        return std::strtod(small, nullptr);
-    }
-    std::string const whole(text);
-    return std::strtod(whole.c_str(), nullptr);
+    std::string const spelled = with_the_local_point(std::string(text));
+    return std::strtod(spelled.c_str(), nullptr);
 }
 
 inline real_read parse_real(std::string_view text, bool allow_exponent, bool negative_zero = false) {

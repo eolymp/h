@@ -10,14 +10,12 @@
 #include <string>
 #include <vector>
 
-#include <poll.h>
-#include <unistd.h>
-
 #include "check.h"
 #include "core.h"
 #include "diag.h"
 #include "fmt.h"
 #include "io.h"
+#include "os.h"
 #include "random.h"
 #include "role.h"
 #include "stream.h"
@@ -56,7 +54,7 @@ public:
     [[noreturn]] void pass(double fraction, std::string const& message) final {
         if (std::isnan(fraction)) refuse_a_score(fmt("a score of {}", fraction));
         role().closing_checks(fraction);
-        held_.set_fraction(std::min(fraction, 1.0));
+        held_.set_fraction((std::min)(fraction, 1.0));
         held_.set_message(message);
         write_file(paths_[1], held_.written(), "summary");
         deliver(0, message.empty() ? "ok" : "ok " + message);
@@ -90,7 +88,8 @@ protected:
             if (given[static_cast<std::size_t>(at)] != nullptr) paths_[at] = given[static_cast<std::size_t>(at)];
         if (paths_[0].empty() || paths_[1].empty())
             library_error(fmt("{}: {} needs the test and a file for its summary", where_of(where), named));
-        ::signal(SIGPIPE, SIG_IGN);
+        ignore_broken_pipes();
+        keep_binary(1);
         log_file() = stderr;
         emitter() = &dialogue::say;
         input = stream(source::over_file(paths_[0].c_str(), true), fault::jury_error, "input.txt");
@@ -102,6 +101,7 @@ protected:
         live() = &role();
         live_scorer() = this;
         close_on_exit(&Role::exited_early);
+        end_on_terminate();
     }
 
     void let_go() {
@@ -180,6 +180,8 @@ public:
     }
 
     stream contestant;
+
+    char const* called() const final { return "interactor"; }
 
     template <class... Args>
     void send(Args const&... values) {

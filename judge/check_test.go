@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -155,7 +156,7 @@ func judgeAll(t *testing.T, shop *Workspace) map[string]*Attempt {
 
 	out := map[string]*Attempt{}
 	for _, solution := range shop.Problem.Solutions {
-		attempt, err := shop.Evaluate(ctx, solution.Name, &Program{Source: solution.Source})
+		attempt, err := shop.Evaluate(ctx, solution)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -591,5 +592,87 @@ func TestCheckFindsAnOptionExtremeTheValidatorRefuses(t *testing.T) {
 	}
 	if len(extremes) != 1 || !strings.HasPrefix(extremes[0], "script gen: n=2000 produces an invalid test: ") {
 		t.Errorf("EO813 said %q; only n=2000 is outside the validator's range", extremes)
+	}
+}
+
+func messagesOf(found Findings, code string) map[string]bool {
+	said := map[string]bool{}
+	for _, one := range found {
+		if one.Code == code {
+			said[one.Where+": "+one.Message] = true
+		}
+	}
+	return said
+}
+
+func withPrefix(said map[string]bool, prefix string) bool {
+	for one := range said {
+		if strings.HasPrefix(one, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestHowAValidatorsRefusalAndItsBreakdownAreTold(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+	refusing := relocated(t, "testdata/stress", func(problem *Problem) {
+		problem.Testsets[0].Tests[1].Generator.Arguments = []string{"-n=100", "-max=1000"}
+	})
+	found, err := workshop(t, refusing).Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := messagesOf(found, "EO806")
+	if len(said) != 2 || !withPrefix(said, "test 1:2: the validator rejects it: line 2, a[") ||
+		!withPrefix(said, "test 1:2: the test is invalid with no --group: line 2, a[") {
+		t.Errorf("a test the validator refuses: %v", said)
+	}
+
+	broken := filepath.Join(t.TempDir(), "validator.cpp")
+	body := "#include <eolymp.h>\n\nint main(int argc, char** argv) {\n    eo::validator v(argc, argv);\n" +
+		"    eo::charset const bad(\"A-Za-z()- \");\n    (void)bad;\n}\n"
+	if err := os.WriteFile(broken, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	input := "5\n"
+	dir := relocated(t, "testdata/stress", func(problem *Problem) {
+		problem.Validator.Source = broken
+		problem.ValidatorTests = []*ValidatorTest{{Input: &input, Expect: "INVALID"}}
+	})
+	found, err = workshop(t, dir).Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said = messagesOf(found, "EO806")
+	if !withPrefix(said, "test 1:1: the validator could not run: eolymp.h: the character range \")- \" in charset(\"A-Za-z()- \") runs backwards") {
+		t.Errorf("a broken validator: %v", said)
+	}
+	if said := messagesOf(found, "EO911"); len(said) != 1 || !withPrefix(said, "validator test 1: it is expected INVALID, "+
+		"and the validator could not run: eolymp.h: the character range \")- \" in charset(\"A-Za-z()- \") runs backwards") {
+		t.Errorf("an INVALID validator test on a broken validator: %v", said)
+	}
+
+	code, out, errs := invokeIn(t.TempDir(), "stress", dir, "--args", "-n=[1..8] -max=[1..100]", "--solution", "twin")
+	if code != 1 || !strings.Contains(out, "\niteration 1: BROKEN: the validator could not run: eolymp.h: the character range") {
+		t.Errorf("stress on a broken validator exited %d, printed %q, said %q", code, out, errs)
+	}
+
+	aborting := filepath.Join(t.TempDir(), "validator.cpp")
+	if err := os.WriteFile(aborting, []byte("#include <csignal>\nint main() { std::raise(SIGTERM); }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	killed := relocated(t, "testdata/stress", func(problem *Problem) { problem.Validator.Source = aborting })
+	found, err = workshop(t, killed).Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if said := messagesOf(found, "EO806"); !withPrefix(said, "test 1:1: the validator could not run: it was killed by signal 15, ") {
+		t.Errorf("a validator a signal killed: %v", said)
+	}
+	code, out, errs = invokeIn(t.TempDir(), "stress", killed, "--args", "-n=[1..8] -max=[1..100]", "--solution", "twin")
+	if code != 1 || !regexp.MustCompile(`\niteration 1: BROKEN: the validator could not run: it was killed by signal 15, [a-z]`).MatchString(out) {
+		t.Errorf("stress on a validator a signal killed exited %d, printed %q, said %q", code, out, errs)
 	}
 }

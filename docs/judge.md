@@ -8,21 +8,23 @@ and is written in Go with no dependencies beyond the standard library.
 for Linux and macOS on amd64 and arm64, with a `SHA256SUMS` file to check them against:
 
 ```bash
-curl -LO https://github.com/eolymp/h/releases/download/judge/v2.2.1/eo-judge-linux-amd64
-curl -LO https://github.com/eolymp/h/releases/download/judge/v2.2.1/SHA256SUMS
+curl -LO https://github.com/eolymp/h/releases/download/judge/v2.3.0/eo-judge-linux-amd64
+curl -LO https://github.com/eolymp/h/releases/download/judge/v2.3.0/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 install -m 755 eo-judge-linux-amd64 ~/.local/bin/eo-judge
 ```
 
-With Go 1.23 or later, `go install github.com/eolymp/h/judge/v2@v2.2.1` builds the same
+With Go 1.23 or later, `go install github.com/eolymp/h/judge/v2@v2.3.0` builds the same
 program from the tag; the `/v2` is Go's rule for a module at major version 2, and Go names the
 binary `judge` after its directory. In a checkout, `make build/eo-judge`
 writes `build/eo-judge`, and `make judge` runs gofmt, go vet and the eo-judge tests.
 
 ```bash
 eo-judge run   <problem>   # build, generate, validate, judge every solution, score it
-eo-judge check <problem>   # EO801-EO821 and EO901-EO910
+eo-judge check <problem>   # EO801-EO821 and EO901-EO912
 eo-judge lint  <problem>   # what is only visible in the source
+eo-judge stress <problem> --args '-n=[1..8]'
+                           # generated inputs until a solution breaks its type; see below
 eo-judge init  <dir>       # write a new problem that run and check pass
 eo-judge version           # the version of eo-judge
 ```
@@ -32,8 +34,9 @@ eo-judge version           # the version of eo-judge
 | `--solution name` | judge one solution instead of all of them; a name the problem does not have is a usage error that lists the names it has |
 | `--strict` | exit non-zero if anything raised a warning |
 | `--deep` | use the full 100 MB hostile output rather than 2 MB |
-| `--work dir` | keep the workspace instead of a temporary directory |
+| `--work dir` | keep the workspace instead of a temporary directory; eo-judge clears the directories it makes there, so a directory that is the problem's, holds it or lies inside it is a usage error; one eo-judge uses it at a time, and a second that asks for it while the first runs exits 3 |
 | `-v` | after each testset, list every run: `1:2 WRONG_ANSWER 12ms` and the first line of what the checker or interactor said; for a solution that crashed or ran out of time, its exit code and then the interactor's line |
+| `--transcript` | with `run` on an `INTERACTIVE` problem, `-v` and, under each run, the dialogue: every line the interactor and the solution sent each other, in the order they arrived, with `phase 1`, `phase 2`, … above each phase's when `runCount` is above 1; at most 1,000 lines a phase and 200 characters a line. It is meant for writing a statement's examples, and on any other command or type it is a usage error |
 | `--json` | print one JSON object on stdout instead of the text; see [below](#json) |
 | `--expect` | with `run`, exit 1 when a solution breaks its declared type; see [below](#expected-types) |
 
@@ -53,8 +56,11 @@ not compile, a generator that fails, a missing file.
 | `interactive` | guessing a number in 20 queries: an interactor with a budget, a checker that takes the interactor's verdict, and a solution that always answers 1 |
 | `phases` | Alice and Bob over `runCount` 2: an interactor that hands a code from the first run to the second, and a solution whose longer code scores part of a test |
 
-Each passes `run --expect --strict` and `check --strict` as written, with only note EO821
-left, so everything the report says after an edit is about the edit. The programs include
+Each carries one [test for its validator and one for its
+checker](#tests-for-the-validator-and-the-checker), an input the validator refuses and an
+output with its verdict, to copy for more. Each passes `run --expect --strict` and
+`check --strict` as written, with only note EO821 left, so everything the report says after
+an edit is about the edit. The programs include
 `eolymp.h` and attach nothing, as on the judge.
 
 ## Cache
@@ -163,7 +169,7 @@ loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
 
 | Field | Default | Means |
 | --- | --- | --- |
-| `type` | `PROGRAM` | `PROGRAM` or `INTERACTIVE`; `COMMUNICATION` is refused by `run` and `check` with "eo-judge does not run COMMUNICATION problems yet", and `lint` reads it; and `FUNCTION`, `OUTPUT`, `SQL`, `ML`, `QUIZ` and `WIDGET`, platform types too, with "eo-judge does not run FUNCTION problems" |
+| `type` | `PROGRAM` | `PROGRAM`, `INTERACTIVE`, [`OUTPUT`](#output-only-problems) or [`FUNCTION`](#function-problems); `COMMUNICATION` is refused by `run` and `check` with "eo-judge does not run COMMUNICATION problems yet", and `lint` reads it; and `SQL`, `ML`, `QUIZ` and `WIDGET`, platform types too, with "eo-judge does not run SQL problems" |
 | `runCount` | 1 | how many times a solution runs, chaining the interactor's output into the next run |
 | `timeLimit`, `cpuLimit` | — | milliseconds; a testset may override `timeLimit`; eo-judge enforces `timeLimit` as a wall-clock limit and reads `cpuLimit` without enforcing it |
 | `interactorTimeLimit` | — | read and not used: an interactor gets the solution's limit plus a second, as the agent gives it |
@@ -172,8 +178,11 @@ loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
 | `exactFormat` | false | whitespace is part of the format, which turns EO818 off |
 | `checker`, `validator`, `interactor` | — | one program each |
 | `scripts` | — | named generators, whose names become directory names like a solution's; `answerGenerator` names one of them |
-| `solutions` | — | what `run` judges and `check` compares subtasks against; each has a `name`, which becomes a directory name and so cannot hold `/`, be `..`, be longer than 240 bytes or be another solution's, a `source`, an optional `type`, and an optional expected score in `scores`; `CORRECT` is a reference expected to score full marks unless `scores` says otherwise, `DONT_RUN` is left out of `run` and `check` unless `--solution` names it, and `INCORRECT`, `WRONG_ANSWER`, `TIMEOUT`, `OVERFLOW`, `TIMEOUT_OR_ACCEPTED`, `OVERFLOW_OR_ACCEPTED` and `FAILURE` are judged with no expectation checked unless `run --expect` [checks them](#expected-types) |
+| `solutions` | — | what `run` judges and `check` compares subtasks against; each has a `name`, which becomes a directory name and so cannot hold `/`, be `..`, be longer than 240 bytes or be another solution's, a `source` — on an `OUTPUT` problem `outputs` instead, [its answer files](#output-only-problems) — an optional `runtime`, a C++ one, whose standard it is compiled with and which on a `FUNCTION` problem picks [its template](#function-problems), an optional `type`, and an optional expected score in `scores`; `CORRECT` is a reference expected to score full marks unless `scores` says otherwise, `DONT_RUN` is left out of `run` and `check` unless `--solution` names it, and `INCORRECT`, `WRONG_ANSWER`, `TIMEOUT`, `OVERFLOW`, `TIMEOUT_OR_ACCEPTED`, `OVERFLOW_OR_ACCEPTED` and `FAILURE` are judged with no expectation checked unless `run --expect` [checks them](#expected-types) |
+| `templates` | — | the code templates, one per runtime, each `{"runtime", "header", "source", "footer"}` with files for the last three; a `FUNCTION` problem needs them and [wraps its solutions in them](#function-problems), any other type takes them with a `source` only, the code a contestant starts from, and an `OUTPUT` problem has none |
 | `testsets` | — | the groups |
+| `validatorTests` | — | inputs the validator must accept or refuse, which `check` runs; [see below](#tests-for-the-validator-and-the-checker) |
+| `checkerTests` | — | outputs and the verdict the checker must give them, which `check` runs; [see below](#tests-for-the-validator-and-the-checker) |
 
 ### Program
 
@@ -213,6 +222,138 @@ matches what a judge log would say.
 A test with no `answer` and no `answerGenerator` uses its input as the answer, which is what
 an interactive problem wants.
 
+### Tests for the validator and the checker
+
+`validatorTests` lists inputs and what the validator must say about them, and `checkerTests`
+outputs and what the checker must give them, as Polygon's validator and checker tests do.
+`eo-judge check` runs each one and reports every test the program answers otherwise, as
+warning EO911 for the validator and EO912 for the checker, naming it by its place in its
+list: `validator test 2`, `checker test 1`. `run` does not read them.
+
+```json
+"validatorTests": [
+  {"input": "3\n1 2 3\n", "expect": "VALID"},
+  {"input": "0\n\n", "expect": "INVALID"},
+  {"file": "tests/four.txt", "expect": "INVALID", "group": 2}
+]
+```
+
+| Field | Means |
+| --- | --- |
+| `input` | the input itself; `""` is an empty input |
+| `file` | a file holding it, relative to the problem directory; give `input` or `file`, not both |
+| `expect` | `VALID` or `INVALID` |
+| `group` | a testset's index, passed as `--group`; without it the validator is given no group, as in a stress run |
+
+The validator is given the input with CRLF line endings folded to LF, as the judge folds a
+test's. A validator that breaks, printing a first line that starts with `eolymp.h: `, being
+killed by a signal or not finishing in its 30 s, breaks either expectation.
+
+```json
+"checkerTests": [
+  {"input": "2\n1 2\n", "output": "3\n", "answer": "3\n", "expect": "ACCEPTED"},
+  {"input": "2\n1 2\n", "output": "5\n", "answer": "3\n", "expect": "WRONG_ANSWER"},
+  {"input": "2\n1 2\n", "output": "4\n", "answer": "3\n", "expect": {"points": 20}, "cost": 40}
+]
+```
+
+| Field | Default | Means |
+| --- | --- | --- |
+| `input`, `output`, `answer` | `""` | the three files the checker is given, written out as they are |
+| `expect` | — | `ACCEPTED`, `WRONG_ANSWER`, `PARTIAL`, `FAILURE`, or `{"points": x}` with x from 0 to the test's `cost` |
+| `cost` | 100 | what the test is worth, at least 0, given as `TEST_COST` |
+| `group` | 0 | a testset's index, given as `TEST_GROUP` |
+
+The checker's exit code and log are read as a solution's run is read: exit 0 is `ACCEPTED`,
+1 and 2 `WRONG_ANSWER`, 7 the points its log names, `PARTIALLY_CORRECT` below the cost and
+`ACCEPTED` at it, and anything else, a timeout included, `FAILURE`. `PARTIAL` expects
+`PARTIALLY_CORRECT`; `{"points": x}` expects a run that pays x points and is not a failure, so
+`{"points": 0}` holds for a wrong answer and for `eo::score(0)`. On a test worth 0 every
+points exit is `ACCEPTED`, as on the judge. The checker is also given `TEST_INDEX`, the test's
+place in the list, and an empty `TEST_ID`.
+
+### Output-only problems
+
+On an `OUTPUT` problem the contestant uploads one file per test, and the judge runs the
+checker on the test's input, that file and the jury's answer. A solution is the files it
+would upload, named per test, in place of a `source`:
+
+```json
+"type": "OUTPUT",
+"solutions": [
+  {"name": "full", "type": "CORRECT", "outputs": {"1": "full-1.txt", "2": "full-2.txt", "3": "full-3.txt"}},
+  {"name": "two",  "type": "INCORRECT", "outputs": {"1:1": "full-1.txt", "1:2": "full-2.txt"}}
+]
+```
+
+A key is a test as eo-judge prints it, `"group:index"`, or its index alone when no other
+testset has a test with that index; load refuses a key that is no test, two keys for one test
+and a file that cannot be read. The file is relative to the problem directory and is given
+to the checker as it is, as a program's output is, with no CRLF folding. A test the solution
+gives no file for is judged as an empty file, and its message starts "no file was given for
+this test"; the judge's own handling of a missing upload has not been verified. Nothing is
+built or timed for such a solution, `stress` refuses the problem, and every other part of `run`
+and `check` reads it as a `PROGRAM` problem's. A checker that reads neither the input nor the
+answer on purpose says so with [`c.output_only("why")`](checker.md#output-only-problems).
+
+`check` asks two more things of an `OUTPUT` problem's checker, since a contestant chooses
+which file goes to which test: that it refuses an empty file on every test, not only the
+first, as warning EO802, and that it refuses the jury's answer of the next test, when that
+test's input differs, as this test's output, as warning EO822 — a checker that never looks at
+the input would pass one good file uploaded for every test.
+
+### Function problems
+
+On a `FUNCTION` problem the contestant writes a function rather than a program, and the judge
+compiles the template's header, the submission and the template's footer, in that order, as
+one file: the header declares what the function needs, and the footer reads the input, calls
+it and prints the result. eo-judge builds a solution the same way, from the template whose
+`runtime` is the solution's, concatenating the three files as they are, with nothing added
+between them:
+
+```json
+"type": "FUNCTION",
+"templates": [
+  {"runtime": "cpp:20-gnu14", "header": "templates/cpp-header.cpp",
+   "source": "templates/cpp-source.cpp", "footer": "templates/cpp-footer.cpp"},
+  {"runtime": "python:3.14-python", "header": "templates/python-header.py",
+   "source": "templates/python-source.py", "footer": "templates/python-footer.py"}
+],
+"solutions": [
+  {"name": "main", "source": "main.cpp", "runtime": "cpp:20-gnu14", "type": "CORRECT"},
+  {"name": "first-two", "source": "first-two.cpp", "type": "WRONG_ANSWER"}
+]
+```
+
+A solution without a `runtime` takes the problem's one C++ template; when there are several,
+it names one. Load refuses a `FUNCTION` problem with no templates, a template with no runtime,
+two templates for one runtime, a solution whose runtime has no template, and a solution in a
+runtime other than C++, which eo-judge cannot build. Templates for other runtimes are loaded
+and left to the judge; eo-judge builds the C++ ones. A template's `source` is the code a
+contestant finds in the editor, the stub, and is not part of a solution's build.
+
+A solution that does not compile inside its template stops `run` and `check` with exit 3, as
+any solution that does not compile does, and the message names the template: a solution that
+brings its own `main()` meets the footer's, which is what a contestant who submits a whole
+program gets on the judge, a compilation error, here in GCC's words:
+
+```
+eo-judge: solution.with-main does not compile inside the template for cpp:20-gnu14, which is header, source and footer in one file; a FUNCTION problem's solution is the function alone, and the template gives the rest, main() included:
+grader.cpp:1:5: error: redefinition of 'int main()'
+solution.cpp:8:5: note: 'int main()' previously defined here
+```
+
+The line numbers are the solution's own because the header ends with `#line 1
+"solution.cpp"` and the footer starts with `#line 1 "grader.cpp"`; [templates.md](templates.md)
+has that pattern, and the Python and Java ones.
+
+`check` reads every C++ template: a header whose last line is not a `#line` directive, or which
+does not end with a line break, and a footer that does not start with one, are warning EO913; a stub that does not compile
+inside its template, or that is judged as anything but a wrong answer, is EO823; and a whole
+program, `int main() { return 0; }`, that compiles inside the template, so that a contestant
+who submits one would not get the compilation error the judge gives, is EO824. `stress` builds
+the reference and the solutions it compares inside their templates too.
+
 ## Reading a run
 
 ```
@@ -242,6 +383,27 @@ eo-judge: 2 tests could not be made, so nothing was judged:
 
 A generator or an answer generator that runs out of its 60 s is not run again: the other tests
 that need it are listed as not tried, with the test it hung on.
+
+With `--transcript` every run of an interactive problem is followed by its dialogue, which is
+what a statement's example interaction is copied from:
+
+```
+binary: ACCEPTED, 100
+  testset 1  ACCEPTED                 100 of 100      5 ACCEPTED
+    1:2 ACCEPTED 2ms ok 9 queries
+      interactor: 1000
+      solution:   ? 500
+      interactor: >
+      solution:   ? 250
+```
+
+The two programs then talk through eo-judge, which copies each pipe as it reads it. The copy of
+each direction is closed as soon as the program reading it ends, so a side that writes to a
+peer that has left still gets the broken pipe it gets without the flag. What does change is
+time: every message takes one more hop, so a run of many round trips can take up to about
+twice as long, and one near its limit can exceed it under the flag; the copies also hold more
+bytes than a bare pipe, so a pair that deadlocks on a full pipe without the flag may get further
+with it. Judge with `-v` for verdicts, and with `--transcript` for the dialogue.
 
 ## Reading a check
 
@@ -300,15 +462,97 @@ A solution with `scores` must also score exactly that; for `CORRECT` it takes th
 on your machine is not the judge's, so a `TIMEOUT` solution that is only slightly slow can hold
 here and break there, or the other way round; give such a solution `TIMEOUT_OR_ACCEPTED`.
 
+## Stress
+
+`eo-judge stress` does what the platform's stress run does, on your machine: it runs a
+generator with random arguments, over and over, and compares the solutions with a reference on
+every input it makes, until one of them does something its type does not allow.
+
+```
+$ eo-judge stress problems/sum --args '-n=[1..8] -max=[1..100]' --work /tmp/sum
+stress: gen -n=[1..8] -max=[1..100] against brute, comparing twin, pairs, first; at most 100 iterations in 300 s
+
+iteration 3: COUNTEREXAMPLE
+  twin: ACCEPTED 1ms: ok the sum is 115
+  pairs: WRONG_ANSWER 0ms, which breaks its type CORRECT: wrong answer the sum is 115, not 46
+  first: WRONG_ANSWER 0ms: wrong answer the sum is 115, not 32
+  "generator": {"script": "gen", "arguments": ["-n=3", "-max=73", "c83134a3824b3fe6"]}
+  kept in /tmp/sum/stress/3: input.txt, answer.txt, twin/output.txt, pairs/output.txt, first/output.txt
+
+eo-judge: 0 warning(s), 0 note(s)
+eo-judge: iteration 3 of 100 is a counterexample
+```
+
+The `"generator"` line pastes into a test in `problem.json` as it is, and makes the same input
+again: the arguments are resolved, and the seed is part of them.
+
+| Flag | Default | Means |
+| --- | --- | --- |
+| `--gen name` | the one script the tests generate with | the generator, a name from `scripts` |
+| `--args '…'` | none | its arguments, split at spaces; every `[a..b]` inside one becomes a random integer from `a` to `b`, drawn again on every iteration, and a random seed of 16 hexadecimal digits is appended, which is what [eolymp.h's generator](generator.md) recognises as a stress run |
+| `--arg '…'` | | one argument, spaces and all, with its ranges drawn the same way; give it again for the next, and give either `--arg` or `--args`; eo-judge prints one with a space in it quoted |
+| `--reference name` | the first `CORRECT` solution | the solution whose output is the answer; it must be `CORRECT`, as on the platform |
+| `--solution name` | every solution but the reference and the `DONT_RUN` ones | a solution to compare with the reference; give it again for more |
+| `--iterations n` | 100 | at most this many inputs |
+| `--timeout s` | 300 | at most this many seconds for the whole stress |
+| `--work dir` | a temporary directory | keep the workspace, and in it the iteration the stress stopped at |
+| `--continue` | | go on past an `INVALID` or a `BROKEN` iteration, keeping each, and stop only at a `COUNTEREXAMPLE` |
+| `-v` | | one line for every iteration, with its verdict and the generator's call |
+| `--json` | | the result as one object; see [below](#json) |
+
+The defaults are the platform's. The platform stops at 500 iterations and 600 seconds;
+eo-judge takes more.
+
+Every iteration makes an input with the generator and validates it, with no `--group`, as a
+stress run does on the judge. It runs the reference on the input under the problem's
+`timeLimit`, or 10 s when it has none, and takes its output as the answer, then runs each
+solution under the same limit and checks its output against that answer. The checker is given
+`TEST_COST=0`, `TEST_GROUP=0`, the iteration's number, from 1, as `TEST_INDEX` and an empty
+`TEST_ID`, which is what [checker.md](checker.md#what-the-checker-knows-about-the-test) says a
+stress run gives it; a test worth 0 accepts any points, so a partial score reads as `ACCEPTED`,
+and eolymp.h's checker says so with warning EO208. The iteration's verdict is one of the
+platform's:
+
+| Verdict | Means |
+| --- | --- |
+| `PASSED` | every solution kept its type; the iteration's files are removed and the next one starts |
+| `COUNTEREXAMPLE` | a solution broke its type |
+| `INVALID` | the validator refused the input, so the generator is at fault: its options allow an input the statement does not |
+| `BROKEN` | the generator or the reference did not finish, the validator could not run, its first line starting with `eolymp.h: ` or killed by a signal, or ran out of its 30 s, or the checker failed on a solution's output |
+
+The stress stops at the first iteration that did not pass, prints it, and keeps its files under
+`--work`: at a `COUNTEREXAMPLE`, and at an `INVALID` or a `BROKEN` one too, which the
+platform's run records and goes past; its `continueOnFailure` is about counterexamples, and
+eo-judge has no such switch. With `--continue` eo-judge goes past `INVALID` and `BROKEN` as the
+platform does, printing and keeping each. What breaks a type is what the platform reads: a `CORRECT` solution that is not
+`ACCEPTED`, and a solution declared `WRONG_ANSWER`, `TIMEOUT` or `TIMEOUT_OR_ACCEPTED` that
+gets a verdict its type does not allow, as in the table of [expected
+types](#expected-types): a `WRONG_ANSWER` solution that crashes, not one that answers wrong.
+A solution with no type, `INCORRECT`, `FAILURE`, `OVERFLOW` or `OVERFLOW_OR_ACCEPTED` never
+breaks it, `OVERFLOW` because eo-judge does not measure memory; a stress that compares only
+such solutions is refused, since it could find nothing. To look for an input a solution fails
+on, declare it `CORRECT` and compare it with a brute force as the reference.
+
+It exits 0 when every iteration passed, or when `--timeout` ended the stress after one had, and
+1 when it stopped at an iteration or went past one with `--continue`; an iteration the timeout
+cut short is dropped rather than blamed on the solution it stopped. A timeout before any
+iteration passed has found nothing, so it exits 3 and names the program it cut short: `the 1 s
+timeout ended the stress in iteration 1 while the solution slow ran`. It exits 2 on a usage
+error, and 3 too when a program does not build or the problem is `INTERACTIVE`,
+`COMMUNICATION` or `OUTPUT`, which `stress` does not run. The programs are built once, from [the
+cache](#cache), and the warnings the generator and the checker raise, such as EO501 for a
+generator that never draws and EO208 for a partial score on a test worth nothing, are reported
+once each, as `run` reports them.
+
 ## JSON
 
-With `--json`, `run`, `check` and `lint` print nothing on stdout but one object, and the exit
-code is the same as without it; `version --json` prints `{"version": "2.2.1"}`, and `init`
+With `--json`, `run`, `check`, `lint` and `stress` print nothing on stdout but one object, and
+the exit code is the same as without it; `version --json` prints `{"version": "2.3.0"}`, and `init`
 refuses the flag:
 
 ```json
 {
-  "version": "2.2.1",
+  "version": "2.3.0",
   "problem": "tests/live/degrees",
   "invalid": [{"group": 1, "test": 2, "why": "line 1, n: 1 is below 2"}],
   "attempts": [
@@ -328,8 +572,10 @@ refuses the flag:
 
 | Field | Holds |
 | --- | --- |
-| `attempts` | what `run` judged, in the order of `solutions`; empty for `check` and `lint` |
+| `attempts` | what `run` judged, in the order of `solutions`; empty for `check`, `lint` and `stress` |
+| `stress` | what `stress` did, and left out for the other commands: `generator`, `arguments` as given, `reference`, the compared `solutions`, `iterations` asked for, how many `passed`, whether the `deadline` ended it, the iterations `--continue` went past as `failed`, and the iteration it `stopped` at, left out when it stopped at none, with its `index`, `verdict`, resolved `arguments`, `why` for `INVALID` and `BROKEN`, the directory it was `kept` in under `--work`, and the `results` of the solutions, each with its `solution`, `type`, `verdict`, `ms`, the checker's `message` and whether it was `unexpected`, the platform's word for breaking its type |
 | `breaks` | under `--expect`, why the solution breaks its type; left out when it holds |
+| `transcript` | under `--transcript`, a run's dialogue as the text shows it, one string a line; left out without the flag and for a run in which nothing was said |
 | `type` | the solution's `type` from `problem.json`, empty when it has none |
 | `invalid` | the tests the validator refused; left out when there are none |
 | `findings` | the report, in its order and without its repeats; `where` is empty for the whole problem |
@@ -349,7 +595,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: eolymp/h@v2.2.1
+      - uses: eolymp/h@v2.3.0
         with:
           problem: problems/degrees
           expect: true
@@ -371,6 +617,25 @@ it into annotations: every finding is a warning or a notice on the source line i
 `problem.json` when it names a test or a testset, and a solution that breaks its type or a
 problem that cannot be run is an error. A step fails when eo-judge exits non-zero. It runs on
 Linux and macOS runners.
+
+## On Windows
+
+eo-judge does not run natively on Windows: a Windows build stops at once with a message that
+points here. Run the Linux eo-judge under [WSL2](https://learn.microsoft.com/windows/wsl/install),
+which is the Linux judge's own toolchain and gives the same results:
+
+```bash
+wsl --install                     # once, from an administrator's PowerShell
+git clone <your problems> ~/problems && cd ~/problems
+eo-judge run <problem>
+```
+
+Keep the checkout in WSL's own file system, under `~`, rather than on `/mnt/c`, which is many
+times slower to build and read from. A test written on the Windows side may come with CRLF line
+breaks, from an editor or from Git's `core.autocrlf`; the library reads them as the judge does
+and says so with an EO110 note, and a `.gitattributes` line such as `*.txt text eol=lf` keeps
+them out of the repository. The jury programs themselves build and judge natively on Windows
+with MSVC, clang-cl and mingw-w64; see [Windows](README.md#windows).
 
 ## What it does not do
 

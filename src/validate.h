@@ -14,6 +14,7 @@
 #include "diag.h"
 #include "fmt.h"
 #include "io.h"
+#include "os.h"
 #include "parse.h"
 #include "read.h"
 #include "structure.h"
@@ -79,7 +80,7 @@ public:
 
     sum_limit& operator+=(long long value) {
         long long sum = 0;
-        if (__builtin_add_overflow(total_, value, &sum))
+        if (detail::sum_overflows(total_, value, &sum))
             detail::finish(3, fmt("{} does not fit a long long: {} was added to {}", name_, value, total_));
         total_ = sum;
         return *this;
@@ -124,11 +125,16 @@ public:
         if (detail::live_validator() != nullptr)
             detail::library_error(fmt("{}: this program already has a validator", detail::where_of(where)));
         detail::diagnostics::shared().start_the_clock("EO303", "validator", 30000, where);
-        std::string path;
         for (int at = 1; at < argc; at++) {
             std::string const argument = argv[at];
             if (argument == "--eo-describe") {
                 describing_ = true;
+            } else if (argument == "--eo-case") {
+                if (at + 1 >= argc) detail::library_error("--eo-case needs the number of a case after it");
+                set_case(argv[at + 1]);
+                at++;
+            } else if (argument.rfind("--eo-case=", 0) == 0) {
+                set_case(argument.substr(10));
             } else if (argument == "--group") {
                 if (at + 1 >= argc) detail::library_error("--group needs the testset index after it");
                 set_group(argv[at + 1]);
@@ -136,14 +142,18 @@ public:
             } else if (argument.rfind("--group=", 0) == 0) {
                 set_group(argument.substr(8));
             } else if (argument.rfind("-", 0) != 0) {
-                path = argument;
+                path_ = argument;
             }
         }
-        from_ = detail::reader(path.empty() ? detail::source::over_descriptor(0, false, true)
-                                             : detail::source::over_file(path.c_str(), true),
-                               detail::fault::invalid_test, "", false, "EO102");
+        if (describing_ && wanted_case_.has_value())
+            detail::library_error("--eo-case and --eo-describe both write to stdout; ask for one");
+        detail::source input = path_.empty() ? detail::source::over_descriptor(0, false, true)
+                                             : detail::source::over_file(path_.c_str(), true);
+        input.wait_to_look_ahead();
+        from_ = detail::reader(std::move(input), detail::fault::invalid_test, "", false, "EO102");
         detail::live_validator() = this;
         detail::live_sums();
+        detail::keep_binary(1);
         detail::close_on_exit(&validator::exited_early);
     }
 
@@ -261,6 +271,12 @@ public:
         return from_.word(0, 0, nullptr, detail::stated::deliberate, name, where);
     }
 
+    std::string read_token(pattern const& told, detail::value_name name, detail::site where = detail::site::here()) {
+        return from_.matching(told, name, where);
+    }
+
+    std::string read_line(pattern const& told, detail::value_name name) { return from_.line_matching(told, name); }
+
     std::string read_line(long long least, long long most, charset allowed, detail::value_name name,
                           detail::site where = detail::site::here()) {
         return from_.rest_of_line(least, most, &allowed, detail::stated::yes, name, where);
@@ -319,6 +335,12 @@ public:
         return many<std::string>(count, name, [&](detail::value_name const& each) {
             return from_.word(least, most, &allowed, detail::stated::yes, each, where);
         });
+    }
+
+    std::vector<std::string> read_tokens(long long count, pattern const& told, detail::value_name name,
+                                         detail::site where = detail::site::here()) {
+        return many<std::string>(count, name,
+                                 [&](detail::value_name const& each) { return from_.matching(told, each, where); });
     }
 
     std::vector<std::string> read_grid(long long rows, long long cols, charset allowed, detail::value_name name,
@@ -389,9 +411,14 @@ public:
     template <class Body>
     void cases(long long count, Body&& body) {
         used_cases_ = true;
+        case_runs_++;
+        bool const marking = case_runs_ == 1 && (describing_ || wanted_case_.has_value());
+        if (case_runs_ == 1) cases_counted_ = count;
         for (long long index = 1; index <= count; index++) {
             detail::current_case() = index;
+            long long const began = from_.position();
             body();
+            if (marking) case_marks_.emplace_back(began, from_.position());
         }
         detail::current_case() = 0;
     }
@@ -428,6 +455,7 @@ public:
         for (detail::registered_sum* one : sums) one->verify();
         closing_warnings();
         if (describing_) describe();
+        if (wanted_case_.has_value()) write_the_case(*wanted_case_);
         detail::diagnostics::shared().emit();
     }
 
@@ -439,6 +467,60 @@ private:
     static void exited_early() {
         validator* const one = detail::live_validator();
         if (one != nullptr) one->complete();
+    }
+
+    void set_case(std::string const& text) {
+        detail::integer_read const parsed = detail::parse_integer(text);
+        if (parsed.problem != detail::number_problem::none)
+            detail::library_error(fmt("--eo-case {} is not a case number", text));
+        if (wanted_case_.has_value())
+            detail::library_error(fmt("--eo-case is given twice, as {} and {}; ask for one case", *wanted_case_,
+                                      parsed.value));
+        wanted_case_ = parsed.value;
+    }
+
+    static std::vector<std::pair<std::size_t, std::size_t>> integers_of(std::string const& text, long long value) {
+        std::vector<std::pair<std::size_t, std::size_t>> found;
+        std::size_t start = 0;
+        while (true) {
+            while (start < text.size() && detail::is_blank(text[start])) start++;
+            if (start == text.size()) return found;
+            std::size_t end = start;
+            while (end < text.size() && !detail::is_blank(text[end])) end++;
+            detail::integer_read const read = detail::parse_integer(std::string_view(text).substr(start, end - start));
+            if (read.problem == detail::number_problem::none && read.value == value) found.emplace_back(start, end);
+            start = end;
+        }
+    }
+
+    void write_the_case(long long wanted) {
+        if (case_runs_ == 0) detail::library_error("--eo-case needs a validator that reads the cases with v.cases");
+        if (case_runs_ > 1)
+            detail::library_error(
+                fmt("--eo-case needs one run of v.cases, and this validator ran it {} times", case_runs_));
+        if (wanted < 1 || wanted > cases_counted_)
+            detail::library_error(fmt("--eo-case={}, but the test has {} cases", wanted, cases_counted_));
+        int const descriptor = path_.empty() ? 0 : detail::open_to_read(path_.c_str());
+        std::pair<long long, long long> const chosen = case_marks_[static_cast<std::size_t>(wanted - 1)];
+        std::string out;
+        bool const read = detail::read_range(descriptor, 0, case_marks_.front().first, out) &&
+                          detail::read_range(descriptor, chosen.first, chosen.second, out) &&
+                          detail::read_range(descriptor, case_marks_.back().second, from_.position(), out);
+        if (!path_.empty()) detail::close_descriptor(descriptor);
+        if (!read)
+            detail::library_error("--eo-case needs the test in a file, and standard input is not one; give the "
+                                  "file's path");
+        std::size_t const header = static_cast<std::size_t>(case_marks_.front().first);
+        std::vector<std::pair<std::size_t, std::size_t>> const counts = integers_of(out.substr(0, header), cases_counted_);
+        if (counts.size() != 1)
+            detail::library_error(fmt("--eo-case needs the count given to v.cases, {}, to be the one integer of that "
+                                      "value before the first case, so that it can be written as 1; {}",
+                                      cases_counted_,
+                                      counts.empty() ? std::string("there is none")
+                                                     : fmt("there are {}, and it cannot tell which", counts.size())));
+        out.replace(counts[0].first, counts[0].second - counts[0].first, "1");
+        std::fwrite(out.data(), 1, out.size(), stdout);
+        std::fflush(stdout);
     }
 
     void set_group(std::string const& text) {
@@ -455,6 +537,7 @@ private:
             from_.mark_separated();
             return;
         }
+        if (description != nullptr) from_.refuse_a_number_that_goes_on(here);
         std::string const want = description != nullptr ? std::string(description) : fmt("\"{}\"", wanted);
         std::string const after =
             from_.last_value().empty() ? std::string() : fmt(" after {}", from_.last_value());
@@ -484,7 +567,7 @@ private:
                                  detail::site where) {
         std::vector<Edge> edges;
         edges.reserve(ends == detail::stated::yes ? from_.room_for(count, name)
-                                                  : static_cast<std::size_t>(std::max(count, 0LL)));
+                                                  : static_cast<std::size_t>((std::max)(count, 0LL)));
         detail::value_name const weight = name.field(".w");
         for (long long index = 1; index <= count; index++) {
             int const u = from_.whole_int(1, n, ends, name.lent_at(index), where);
@@ -505,6 +588,7 @@ private:
 
     void check_the_end() {
         if (from_.peek() < 0) return;
+        from_.refuse_a_number_that_goes_on(from_.peek());
         from_.refuse(detail::value_name(unnamed),
                      fmt("expected the end of the input, found \"{}\"",
                          detail::shorten(from_.rest_of_the_input())));
@@ -534,10 +618,17 @@ private:
                        one.second.reached_high ? "yes" : "no");
         for (auto const& one : features_)
             out += fmt("eo-describe feature {} seen={}\n", one.first, one.second ? "yes" : "no");
+        for (std::size_t at = 0; at < case_marks_.size(); at++)
+            out += fmt("eo-describe case {} {} {}\n", at + 1, case_marks_[at].first, case_marks_[at].second);
         detail::report(out.empty() ? std::string() : out.substr(0, out.size() - 1));
     }
 
     detail::reader from_;
+    std::string path_;
+    std::optional<long long> wanted_case_;
+    long long case_runs_ = 0;
+    long long cases_counted_ = 0;
+    std::vector<std::pair<long long, long long>> case_marks_;
     std::optional<int> group_;
     std::map<std::string, bool> features_;
     bool completed_ = false;

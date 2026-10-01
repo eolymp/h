@@ -1,5 +1,279 @@
 # Changelog
 
+## 2.3.0
+
+Two behaviours of the header change, both listed first: a jury program that sets a numeric
+locale whose decimal point is not a dot now reads and writes reals with a dot, as every other
+program always has; and a tolerance allows `1e-15` more for rounding, which turns a wrong
+answer at the boundary of `eo::close_enough`, `c.reals(eps)` and `eo::within(eps)` into an
+accept. One eo-judge verdict changes: a run with a relative `--work`, which was broken, now
+judges as a run without it does. Everything else is new API, which a program meets only when
+it calls it; messages and logs that say more; new warnings, EO113 from the header and EO822,
+EO823, EO824, EO911, EO912 and EO913 from `eo-judge check`; warnings counted per file; and four
+new names in `eo`, `pattern`, `any_order`, `big` and `absolute`, which matter only to a program
+that says `using namespace eo;`. With this release every call a testlib validator, checker,
+interactor or generator makes has its counterpart, mapped in `docs/testlib.md`.
+
+The header also builds on Windows, with MSVC for x64 and x86, clang-cl and mingw-w64, and
+judges there as it does on Linux. That changes nothing on Linux: the Windows work leaves every
+verdict, score, message, exit code, warning and byte as the rest of this release has it, apart
+from the `eo-report` fix below, which touches only a path holding a quote, a backslash or a
+control character. eo-judge gains the stress run and tests for the jury's own validator and
+checker, the two things Polygon had that it did not, and runs the two problem types the UCPC
+practice session needed: output-only problems, where the contestant uploads a file per test,
+and function problems, where the judge wraps the contestant's function in a code template.
+Those two types add one member to the header, `c.output_only`, and change no verdict: a
+program judges every run as it would without them, and eo-judge judges every problem that
+loaded before them as it did. The header's own line numbers in warnings move, since it grew.
+
+### What changes for a program
+
+- **A real is read and written with a dot in every locale.** A jury program that called
+  `setlocale(LC_NUMERIC, …)` with a locale whose decimal point is a comma, `de_DE` or
+  `uk_UA`, read `1.5` as 1, since `strtod` stopped at the dot, and wrote `eo::fixed(1.5, 2)`
+  as `1,50` and a checker's points as `points 20,5`, which the judge cannot read. It now reads
+  1.5 and writes `1.50` and `points 20.5`, whatever the locale. A validator that refused
+  `1.5` under such a locale accepts it now; a program that never sets a numeric locale sees no
+  change.
+- **A tolerance allows 1e-15 more, for rounding.** `eo::close_enough`, and with it
+  `c.reals(eps)`, `eo::compare` and `c.optimum` with `eo::within(eps)`, called `0.500001`
+  against `0.5` at `1e-6` wrong, since the difference is `1.0000000000287557e-06` in doubles,
+  and accepted `0.499999`, whose difference rounds the other way; `1000.1` against `1000` at
+  `1e-4` was wrong for the same reason. A value now also counts as within the tolerance when
+  its difference is up to `eps + 1e-15`, or up to `(eps + 1e-15)` times the expected value,
+  as testlib's does; every comparison 2.2.1 accepted, by `|difference| <= eps` or by
+  `|difference| / |expected| <= eps`, is still accepted. So the change only turns a wrong
+  answer at the boundary into an accept: over 6.9 million pairs built within a few ULPs of
+  the boundary, from `1e-300` to `1e300`, none went the other way.
+
+### New for problem authors
+
+- **Patterns, in testlib's syntax.** `eo::pattern("[a-z]{1,10}")`: characters, a backslash
+  before any symbol, classes of bytes with ranges and `[^…]`, `?`, `*`, `+`, `{n}`, `{n,m}`,
+  `{n,}`, alternatives and groups. `v.read_token(p, name)`, `v.read_tokens(count, p, name)`
+  and `v.read_line(p, name)` read what must match it in a validator, the same three on every
+  stream of a checker, an interactor and a controller, and `r.pattern(p)` draws from it, one
+  construct at a time, each uniformly. A message names the token and the pattern:
+  `line 1, first: "anna" does not match "[A-Z][a-z]{0,9}"`. Matching never backtracks: it
+  costs the token's length times the places in the pattern live at once, a repeat of a class
+  is one place at any count, and a pattern of more than 4,096 places is refused where it is
+  made; the largest in the pages, the tests and testlib's examples has 27. A read against a
+  pattern with a longest match stops one character past it, and memory is bounded by the
+  pattern, not the token. A pattern that does not parse is refused with its column, at
+  compile time for a literal under C++20 with `-DEOLYMP_CHECK_PATTERNS`. The syntax departs
+  from testlib's in five places, all where testlib's matcher is a trap; `docs/validator.md`
+  lists them, with every refusal. A draw is refused, with its line, when the pattern has a
+  class with nothing visible in it or could draw more than 100,000,000 characters.
+- **Warning EO113** fires when a token is read against a pattern whose every match holds a
+  blank, as a ported `readToken("[a-z] {1,5}")` is once its space is kept: no token matches.
+- **Six ready-made comparisons**, so that each of testlib's 21 stock checkers is one call:
+  `c.tokens(eo::any_case)`, `c.tokens(eo::any_order)` (`uncmp`), `c.integers()` (`ncmp`,
+  `icmp`), `c.integers(eo::big)` (`hcmp`), `c.yes_no()` (`yesno`, `nyesno`) and
+  `c.reals(eps, eo::absolute)` (`rcmp`, `acmp`, `rncmp`), whose error allows `1e-15` more.
+- **One case of a multi-test input as a test of its own.** `./validator test.txt --eo-case=k`
+  validates the test and writes case k to stdout with the count written as 1, as testlib's
+  `--testCase` does, and `--eo-describe` gives each case's bytes, as its markup does. The
+  count is the one integer before the first case whose value v.cases was given; when there is
+  none, or more than one, the flag is refused, as it is when given twice.
+- **`c.output_only("why")`** says that a checker of an `OUTPUT` problem reads neither the input
+  nor the answer on purpose — every test is the same task, any valid answer is accepted — so
+  neither EO202 nor EO203 is raised; EO201 stays. See
+  [docs/checker.md](docs/checker.md#output-only-problems).
+
+### What a message or a log says
+
+- **A malformed number is named whole.** `1e5` read as an int, and `1e-3`, `0,5` or `1.5e3`
+  read as a real, said `expected a line break after n, found "e"`; they now say
+  `line 1, n: expected an integer, found "1e5": it has a character that cannot be part of the
+  number`. Only the message changes: the same read refuses the same test. The reason given is
+  the whole token's, so it can stand where a narrower one would have: `-0x` has "a character
+  that cannot be part of the number" rather than "zero written with a minus".
+- **A checker that dies still leaves a log.** An exception nothing caught ends a checker, an
+  interactor or a controller as a jury error that quotes up to 200 bytes of its `what()`,
+  exit 3 where it was SIGABRT; and a checker on the judge that dies of `SIGSEGV`, `SIGABRT`,
+  `SIGFPE`, `SIGBUS` or `SIGILL`, a stack overflow included, writes its verdict line and what
+  it held, and then hands the signal to the handler that was there before, the C library's,
+  which ends the program, or a sanitizer's, which reports. On the judge each `eo::log` line
+  is flushed until 64 KB, all a stored log keeps, so it reaches that log; what `printf` still
+  buffers does not. The checker's log was empty in both
+  cases. Every one of these runs was, and is, a VERIFICATION_FAILURE or an
+  INTERACTION_FAILURE.
+- **A hyphen that reads as a backwards range is told where to go.** `charset("()- ")`, and
+  the same class in a pattern, are refused as before, and now say to write the range's low
+  end first or to put a `-` that stands for itself first or last.
+- **A warning is counted at its file's line.** The same warning on line 12 of two files is two
+  warnings, where it was one counted twice under the first file's name.
+- **A validator's lookahead waits for the pipe.** A message that quotes what follows reads up
+  to 64 bytes of it, or to the end of the input, before quoting, so a test given on a pipe
+  that pauses is refused with the same text as the same test given as a file.
+- **`eo-report` is JSON for every path.** A warning raised in a file whose path holds `"`, `\`
+  or a control character, as every Windows path does, made the line invalid JSON, and
+  eo-judge fell back to the spoken lines, which split at spaces. The path is now escaped.
+
+### eo-judge
+
+- **A relative `--work` works.** The validator, the checker and the interactor were given the
+  test's paths relative to eo-judge's directory while running in their own, so none of them
+  found its files: every test read invalid, and every run of an interactive problem was a
+  `RUNTIME_ERROR`. The workspace is now made absolute first. This is the verdict the release
+  changes in eo-judge, and only under a relative `--work`.
+- **A `--work` that is the problem's directory, holds it or lies inside it is refused**, since
+  eo-judge clears the directories it makes there and removed the problem's own `tests/` or
+  `stress/`; and one eo-judge uses a `--work` at a time, a second exiting 3.
+- **EO806 tells a validator that refused a test from one that broke.** eolymp.h's validator
+  exits 3 for both, and `check` said "the validator could not run" for every test an eolymp.h
+  validator refused. It now says "the validator rejects it" unless the first line starts with
+  `eolymp.h: ` or a signal killed the validator, which is then named. Which tests are valid does
+  not change, but a warning count can: a refused test gave the same line, "the validator could
+  not run", with its group and without one, and the report merged the two into one warning;
+  now "the validator rejects it" and "the test is invalid with no --group" are two.
+- **`eo-judge stress <problem> --args '-n=[1..8] -max=[1..100]'`** runs the platform's stress
+  on your machine: every `[a..b]` becomes a random integer on every iteration, a 16-hex-digit
+  seed is appended, and each input is generated, validated with no `--group`, answered by the
+  reference and judged for every compared solution, the checker given a test worth 0. It stops
+  at the first `COUNTEREXAMPLE`, a solution that breaks its type as the platform reads it, and
+  at an `INVALID` input, the generator's fault, or a `BROKEN` iteration, unless `--continue`
+  says to go past those two. It prints the resolved arguments as a `"generator"` line that
+  pastes into `problem.json` and makes the same input again. `--gen`, `--reference`,
+  `--solution` (repeatable), `--iterations` (100) and `--timeout` (300 s) follow `run_stress`;
+  `--arg` gives one argument with spaces in it, `--work` keeps the iteration it stopped at, `-v`
+  lists every iteration, and `--json` puts a `stress` object into the usual report. The
+  warnings of the generator and the checker, EO208 for a partial score on a test worth
+  nothing among them, are reported once each. It exits 1 when it stopped at an iteration, 0
+  when none was found, and 3 when the timeout came before any iteration passed. See
+  [docs/judge.md](docs/judge.md#stress).
+- **`validatorTests`** in `problem.json`, `[{"input": "…" | "file": "…", "expect": "VALID" |
+  "INVALID", "group": k}]`, and **`checkerTests`**, `[{"input", "output", "answer", "expect":
+  "ACCEPTED" | "WRONG_ANSWER" | "PARTIAL" | "FAILURE" | {"points": x}, "cost", "group"}]`, are
+  the tests Polygon keeps for a validator and a checker. `eo-judge check` runs them and reports
+  every one the program answers otherwise as the new warnings **EO911** and **EO912**; `run`
+  does not read them. Both are read as strictly as the rest of `problem.json`, and a validator
+  test's CRLF is folded as a test's is.
+- `eo-judge init` writes one test of each kind into every template.
+- `init --json`'s refusal names `stress` among the commands that take the flag.
+- **eo-judge runs `OUTPUT` problems.** A solution gives the files it would upload,
+  `"outputs": {"1": "one.txt", "1:2": "two.txt"}`, keyed by `"group:index"` or by an index no
+  other testset shares, and a file that cannot be read is refused at load. `run` and `check`
+  give each file to the checker as the run's output, and a test with no file is judged as an
+  empty one, saying so. `check` tries an empty output on every test, not only the first
+  (EO802), and the jury's answer of the next test as this test's output, which a checker that
+  never looks at the input accepts: new warning **EO822**. `stress` refuses the type. See
+  [docs/judge.md](docs/judge.md#output-only-problems).
+- **eo-judge runs `FUNCTION` problems.** `problem.json` takes `"templates": [{"runtime",
+  "header", "source", "footer"}]`, one per runtime, and a solution takes a `"runtime"`; a
+  solution is built from its runtime's header, its source and the footer, concatenated as the
+  judge does, and a solution without a runtime takes the one C++ template. A solution with its
+  own `main()` stops `run` with the compilation error a contestant gets on the judge, and the
+  message names the template. `check` reads every C++ template: a header that does not end
+  with a `#line` directive and a line break, or a footer that does not start with a line break
+  (new warning **EO913**), a stub that does not compile or is judged as anything but a wrong
+  answer (**EO823**), and a template in which a whole program compiles (**EO824**). `stress`
+  runs the type, and its refusal of the other types now reads "eo-judge stress runs PROGRAM and
+  FUNCTION problems only, and this one is INTERACTIVE". On every type, a solution's `runtime`
+  now sets the C++ standard it is compiled with; one that names a runtime other than C++, or
+  any runtime on an `OUTPUT` problem, is refused. See
+  [docs/judge.md](docs/judge.md#function-problems) and the new
+  [docs/templates.md](docs/templates.md), with the `#line` pattern for C++ and the Python and
+  Java ones.
+- **`eo-judge run --transcript`**, on an interactive problem, prints every run's dialogue
+  under it, phase by phase, for a statement's example interaction; `--json` carries it as a
+  run's `transcript`. The relays it adds keep every broken pipe a run would meet, but cost time:
+  a run of many round trips can take up to twice as long, so judge with `-v` for verdicts.
+
+### Windows
+
+- **The header builds and judges on Windows.** Validators, checkers, generators, interactors,
+  phases and controllers build with `cl` and `clang-cl` under `/W4 /WX` and with mingw-w64
+  under `-Wall -Wextra -Werror`, in C++17 and later, before or after `<windows.h>`, with or
+  without `NOMINMAX`; the header never includes it. Standard input, output and error are binary
+  and every file is opened in binary, and set to binary again when the library takes one over,
+  so a `freopen` of the author's cannot undo it. CRLF and Ctrl-Z mean on Windows what they mean
+  on the judge: the jury's CRLF is folded with an EO110 note, the contestant's output is read
+  as it is, and a generator writes `\n`. An interactor and a controller take in the other
+  side's answers while they write, from one standing writer thread per pipe, so a large send
+  does not deadlock; a controller's instances are named pipes. What is Windows' own, the 1 MB
+  default stack first, is in [docs/README.md](docs/README.md#windows).
+- **eo-judge on Windows** stops at once and says to run it under WSL2, which
+  [docs/judge.md](docs/judge.md#on-windows) describes; it runs on Linux and macOS as before.
+
+### Speed and size
+
+Instructions, from `make bench`, 2.2.1 → 2.3.0: a checker's `reals()` 0.95 → 0.84 G and
+`eo::fixed` 0.51 → 0.45 G, since the fast paths no longer ask `localeconv` about every
+number; a validator's `read_ints` 1.056 → 1.064 G, `read_token` 0.572 → 0.566 G,
+`read_reals` 0.712 → 0.727 G, `read_tree` 0.396 → 0.401 G; `tokens()` 0.694 → 0.703 G. The
+header is larger: `eolymp.h` has 6,669 lines against 5,008 and 263,614 bytes against
+196,293, and the validator `make budget` builds leaves an object of 198 KB against 171 KB,
+most of it the whole-token message and `--eo-case`, which every validator carries.
+**A validator now builds about 15% slower, 16% under musl:** the one `make budget` builds takes
+2.6 s of compiler CPU time with `-O2` against 2.3 s, and 4.0 s against 3.45 s under musl,
+because every validator compiles the whole-token message, `--eo-case` and the pattern engine
+whether it uses them or not; marking their paths cold saved under 1%.
+`make budget` now measures against all the standard headers `eolymp.h` includes, where its
+list had fallen a fifth behind; the list is fixed in `tools/budget.py`, and the gate fails when
+`eolymp.h`'s includes stop matching it. Each program is the fastest of three builds, the
+ceiling is ratcheted from 9 to 8.5 times the baseline, where the validator is under 6, and an
+object over 220 KB fails.
+
+### For maintainers
+
+- `tests/fuzz/pattern_fuzz.cpp` checks `eo::pattern` against `std::regex_match` and against a
+  direct reading of the pattern as the positions each part can end at, draws four strings
+  from every pattern and requires each to match, and feeds raw bytes to the parser.
+- The pattern tests count the steps a match visits, so linearity is checked without a clock,
+  and pin the size of the queues a match holds.
+- Twelve mutants join `tools/mutants.py`: seven on the pattern engine, the pattern read and the
+  new comparisons, three on the checked arithmetic written by hand for `cl`, and two on
+  `c.output_only`; all 38 are killed.
+- `tests/e2e/dies.cpp` is a checker and an interactor that die of an exception, an abort,
+  three signals and a stack overflow, run in judge mode; the e2e runner waits for them in the
+  background, since dash prints "Aborted" into a dying program's own output. The sanitizers
+  take those signals themselves, so a sanitized run skips them.
+- The locale tests run where `de_DE`, `fr_FR`, `ru_RU` or `uk_UA` is installed, as on the
+  macOS runner and, since check.yml generates `de_DE.UTF-8`, the Linux ones; elsewhere they
+  say they were skipped, and the helpers that move the point are tested with `,` and a
+  two-byte point everywhere.
+- Every call to the operating system is in `src/os.h`, with a POSIX branch that is the code the
+  header had before it built on Windows and a Windows branch; the amalgamator leaves an include
+  inside `#if` where it is, and the C++17 check reads `_MSVC_LANG`. GCC's checked-arithmetic
+  builtins and `__builtin_unreachable` go through `core.h`, with portable versions for `cl` that
+  the suite compares with the builtins.
+- `make transcript` runs the file roles, the interactor, the phases and the controller on 138
+  scenarios and writes each run's exit code and output bytes. CI's `windows` job builds the
+  same programs on `windows-latest` with mingw-w64, `cl` for x64 and for x86, and `clang-cl`,
+  fails on any byte that differs from Linux's, runs `tests/all.cpp` there without the 17 tests
+  that need `fork`, `setrlimit`, signals, FIFOs or `O_NONBLOCK`, and runs eo-judge's Windows
+  build. The scenarios include the paths only Windows takes: EO409 while writing, last words
+  to a solution that sleeps or never reads, solutions that stop reading, the checker's
+  scratch file with a missing `TEMP`, and a `freopen` of the standard streams; and this
+  release's new features: patterns read and drawn, every stock comparison, `--eo-case` and
+  `--eo-describe`, and the log a checker held when it aborts.
+- `make judge` also builds eo-judge for Windows. `tests/hostile` builds both headers after the
+  macros `<windows.h>` defines.
+- A run's core, `try`, takes a prepared input, a limit, the metadata and a directory, so a
+  stress iteration is judged by the code a test is; `checked` reads a checker's exit code and
+  log for a solution's run and for a checker test alike; `validatorBroke` is the one place a
+  validator's breakdown is told from its refusal.
+- The workspace lock is the cache's `flock`, through `lockPath`.
+- `Evaluate` takes the `*Solution`, and `Problem.programOf` is the one place a solution's
+  program is made: its source, its runtime and its template.
+- A compilation error is a `*notCompiled`, kept through the build cache, so `check` can tell a
+  program that does not compile from a broken workspace.
+- `judge/testdata/stress` and `judge/testdata/authored` are the fixtures of the stress run and
+  the authored tests; `judge/testdata/output` (n queens) and `judge/testdata/function` (the
+  largest sum of two elements, with the practice session's C++, Python and Java templates)
+  those of the two problem types.
+
+### Left as it was
+
+- A native eo-judge for Windows, which would need a job object per run and its tests ported
+  off `/bin/sh`: WSL2 runs the Linux one.
+- Non-ASCII paths outside the ANSI code page, which `_open` cannot open; a UTF-8 manifest or
+  `_wopen` would, when an author needs it.
+- A real read after `fesetround` under MSVC or clang-cl, where the UCRT's `strtod` rounds an
+  exact decimal such as `1.5` one step away under `FE_UPWARD`; the default rounding reads
+  every real the same on every platform.
+
 ## 2.2.1
 
 No verdict and no score changes: a program built against 2.2.1 judges every run as it did

@@ -11,6 +11,7 @@
 #include "core.h"
 #include "fmt.h"
 #include "io.h"
+#include "pattern.h"
 #include "read.h"
 
 namespace eo {
@@ -97,8 +98,8 @@ public:
             std::vector<unsigned char> taken(mask + 1, 0);
             while (values.size() < wanted) {
                 long long const drawn = uniform(low, high);
-                std::uint64_t const mixed = static_cast<std::uint64_t>(drawn) * 0x9e3779b97f4a7c15ull;
-                std::size_t at = mixed >> (64 - bits);
+                unsigned long long const mixed = static_cast<unsigned long long>(drawn) * 0x9e3779b97f4a7c15ull;
+                std::size_t at = static_cast<std::size_t>(mixed >> (64 - bits));
                 while (taken[at] != 0 && slots[at] != drawn) at = (at + 1) & mask;
                 if (taken[at] != 0) continue;
                 taken[at] = 1;
@@ -130,11 +131,11 @@ public:
     [[nodiscard]] std::vector<long long> partition(long long count, long long sum, long long least = 1) {
         if (count < 1) detail::library_error(fmt("a partition has at least one part, not {}", count));
         long long need = 0;
-        bool const huge = __builtin_mul_overflow(least, count, &need);
+        bool const huge = detail::product_overflows(least, count, &need);
         if ((huge && least > 0) || (!huge && need > sum))
             detail::library_error(fmt("{} parts of at least {} cannot add up to {}", count, least, sum));
         long long high = 0;
-        if (huge || __builtin_sub_overflow(sum, need, &high) || __builtin_add_overflow(high, count - 1, &high))
+        if (huge || detail::difference_overflows(sum, need, &high) || detail::sum_overflows(high, count - 1, &high))
             detail::library_error(fmt("partition({}, {}, {}) spans more values than a long long holds", count, sum,
                                       least));
         std::vector<long long> cuts = distinct(count - 1, 1, high);
@@ -161,7 +162,38 @@ public:
         return out;
     }
 
+    [[nodiscard]] std::string pattern(eo::pattern const& told, detail::site where = detail::site::here()) {
+        if (!detail::drawable(told.tree_, told.root_))
+            detail::library_error(fmt("{}: eo::pattern(\"{}\") has a class written with ^ that leaves nothing to "
+                                      "draw: a draw takes only the visible characters ! to ~ that it does not exclude",
+                                      detail::where_of(where), detail::escaped(told.text())));
+        if (detail::longest_draw(told.tree_, told.root_) > detail::most_drawn)
+            detail::library_error(fmt("{}: eo::pattern(\"{}\") can draw more than {} characters, where * and + draw "
+                                      "at most {} more than their least; bound its repeats",
+                                      detail::where_of(where), detail::escaped(told.text()), detail::most_drawn,
+                                      detail::endless_draw));
+        std::string out;
+        draw(told, told.root_, out);
+        return out;
+    }
+
+    [[nodiscard]] std::string pattern(detail::pattern_text told) { return pattern(eo::pattern(told), told.where()); }
+
 private:
+    void draw(eo::pattern const& told, int index, std::string& out) {
+        detail::pattern_piece const& piece = told.tree_.at(index);
+        if (piece.shape == detail::piece_shape::one) {
+            out.push_back(pick(piece.drawable));
+        } else if (piece.shape == detail::piece_shape::row) {
+            for (int const part : piece.parts) draw(told, part, out);
+        } else if (piece.shape == detail::piece_shape::either) {
+            draw(told, pick(piece.parts), out);
+        } else if (detail::longest_match(told.tree_, piece.parts[0]) != 0) {
+            long long const most = piece.most == detail::unbounded ? piece.least + detail::endless_draw : piece.most;
+            for (long long times = uniform(piece.least, most); times > 0; times--) draw(told, piece.parts[0], out);
+        }
+    }
+
     static std::vector<long long> room_for(long long count) {
         std::vector<long long> values;
         if (static_cast<unsigned long long>(count) > values.max_size())
