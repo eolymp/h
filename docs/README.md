@@ -24,9 +24,10 @@ int main(int argc, char** argv) {
 
 [validator.md](validator.md), [checker.md](checker.md), [interactor.md](interactor.md),
 [generator.md](generator.md) and [controller.md](controller.md) are the guides, one per kind
-of jury program. [shapes.md](shapes.md) is the test shapes, [judge.md](judge.md) is the
-emulator, and [warnings.md](warnings.md) is every warning code, one self-contained row each —
-that is the page to look a code up in. [testlib.md](testlib.md) puts each testlib call beside
+of jury program, and [templates.md](templates.md) is a function problem's code templates.
+[shapes.md](shapes.md) is the test shapes, [judge.md](judge.md) is the emulator, and
+[warnings.md](warnings.md) is every warning code, one self-contained row each — that is the
+page to look a code up in. [testlib.md](testlib.md) puts each testlib call beside
 its eolymp.h counterpart, for a problem moving over.
 
 ## What it gives you
