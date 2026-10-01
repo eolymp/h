@@ -451,6 +451,39 @@ c.jury.skip_rest("only the first line is compared; the rest is the jury's certif
 
 The reason is not optional.
 
+## Output-only problems
+
+On an `OUTPUT` problem the contestant uploads one file per test instead of a program, and the
+judge runs the checker on the test's input, that file and the jury's answer, as it would on a
+program's output. Its checker often reads neither the input nor the answer: every test may be
+the same task, any valid answer is accepted, and the answer file is only one example. Say so
+once, with the reason, and the library raises neither EO202 nor EO203 for it:
+
+```cpp
+#include <eolymp.h>
+
+int main(int argc, char** argv) {
+    eo::checker c(argc, argv);
+    c.output_only("every test is the same 8x8 board, and any placement of 8 queens is accepted");
+    std::vector<int> column(8), up(15), down(15);
+    for (int row = 0; row < 8; row++) {
+        std::string const line = c.output.read_token(8, 8, eo::charset(".Q"), "row");
+        for (int at = 0; at < 8; at++) {
+            if (line[at] != 'Q') continue;
+            if (column[at]++ || up[row + at]++ || down[row - at + 7]++)
+                eo::wrong("the queen in row {}, column {} is attacked", row + 1, at + 1);
+        }
+    }
+    if (std::count(column.begin(), column.end(), 1) != 8) eo::wrong("there are not 8 queens");
+    eo::accept("8 queens");
+}
+```
+
+`c.output_only("why")` leaves the rest of the answer unread on purpose, as
+`c.jury.skip_rest` does, and stops EO202; the checker may still read the input and the answer
+when it needs them. EO201 stays: a checker that passes a file without reading it is wrong on
+every type. [judge.md](judge.md#output-only-problems) says how `eo-judge` runs such a problem.
+
 ## What the checker knows about the test
 
 | Call | Returns | In a stress run | Locally |
@@ -582,7 +615,7 @@ machine-readable `eo-report` line.
 
 `EOLYMP_STRICT=1` turns every warning into a jury error while you prepare a problem. Notes
 stay notes. State the intent where there is a way to — `eo::any`, `eo::unnamed`,
-`trailing(eo::ignore)`, `skip_rest`, `answers` — and otherwise silence one code in a scope,
+`trailing(eo::ignore)`, `skip_rest`, `output_only`, `answers` — and otherwise silence one code in a scope,
 with a reason that the report prints:
 
 ```cpp
@@ -601,6 +634,7 @@ Nothing a checker reads is missing.
 | `c.input`, `c.jury`, `c.output` | the three streams |
 | `c.read_both(reader)` | reads the jury's answer, then the output, with one function |
 | `c.answers(eo::unique)`, `c.answers(eo::many)` | how many answers are correct |
+| `c.output_only("why")` | an output-only checker that reads neither the input nor the answer on purpose |
 | `c.optimum(by_the_jury, found, eo::minimize)`, `eo::maximize` | compare and end |
 | `c.optimum(by_the_jury, found, eo::minimize, eo::within(eps))` | the same for reals, equal within `eps` |
 | `c.tokens()`, `c.tokens(eo::any_case)`, `c.tokens(eo::any_order)`, `c.integers()`, `c.integers(eo::big)`, `c.lines()`, `c.lines(eo::exact)`, `c.reals(eps)`, `c.reals(eps, eo::absolute)`, `c.yes_no()`, `c.yes_no(certificate)` | ready-made comparisons |

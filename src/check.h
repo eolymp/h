@@ -480,6 +480,12 @@ public:
 
     void answers(answers_are how) { declared_ = how; }
 
+    void output_only(std::string const& reason) {
+        if (reason.empty()) detail::library_error("output_only needs a reason");
+        output_only_ = true;
+        jury.skip_rest(reason);
+    }
+
     template <class Body>
     void cases(long long count, Body&& body) {
         for (long long at = 1; at <= count; at++) {
@@ -879,7 +885,7 @@ private:
         if (!output.inside().read_anything())
             detail::warn("EO201", "the checker passed the run without reading any of the output",
                          "read the output, or use a built-in checker", detail::site::here());
-        if (!stock_ && !input.inside().read_anything() && !jury.inside().read_anything())
+        if (!stock_ && !output_only_ && !input.inside().read_anything() && !jury.inside().read_anything())
             detail::warn("EO202", "the checker read neither the input nor the answer",
                          "a verdict that cannot depend on the test", detail::site::here());
         if (declared_ == answers_are::many && compared_only_)
@@ -985,6 +991,7 @@ private:
 
     answers_are declared_ = answers_are::unique;
     bool stock_ = false;
+    bool output_only_ = false;
     bool compared_only_ = false;
     int saved_out_ = -1;
     int saved_err_ = -1;

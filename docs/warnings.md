@@ -51,8 +51,8 @@ Every role reads through the same engine, so these fire anywhere.
 | Code | Severity | Reporter | Fires when | What to do |
 | --- | --- | --- | --- | --- |
 | `EO201` | warning | the program | the checker passed the run without reading any of the output | read the output, or use a built-in checker |
-| `EO202` | warning | the program | the checker read neither the input nor the answer | a verdict that cannot depend on the test is not a checker |
-| `EO203` | warning | the program | the answer file still holds unread content when the checker finished | read it, or say why not: `c.jury.skip_rest("...")` |
+| `EO202` | warning | the program | the checker read neither the input nor the answer | a verdict that cannot depend on the test is not a checker; an output-only checker that means it says so with `c.output_only("...")` |
+| `EO203` | warning | the program | the answer file still holds unread content when the checker finished | read it, or say why not: `c.jury.skip_rest("...")`, or `c.output_only("...")` on an output-only problem |
 | `EO204` | warning | the program | a wrong answer carries no message | say what was wrong with it; the message is what the author sees in the log |
 | `EO205` | warning | the program | a score outside 0..1, or negative `eo::points`, was clamped; a score of 2 or more is called a likely percentage or points | keep the formula inside the test; Eolymp reads a fraction of the test cost, not a percentage: use `eo::ratio(a, b)`, or `eo::points` for points |
 | `EO206` | warning | the program | a score is a hair below full marks, from floating-point division, or its points are below the cost but round up to it in the judge's 32-bit float, so the run counts as ACCEPTED | use `eo::ratio(a, b)`, which is exact, or `eo::accept` for full marks |

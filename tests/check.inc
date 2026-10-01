@@ -941,6 +941,38 @@ EO_TEST(a_checker_that_judges_nothing_is_reported) {
     EO_CHECK_IN(checker_warnings(), "warning EO202: the checker read neither the input nor the answer");
 }
 
+EO_TEST(an_output_only_checker_says_why_it_reads_only_the_output) {
+    eot::outcome const queens = check_run("8\n", "Q\n", "Q\n", [](eo::checker& c) {
+        c.output_only("every test is the same board, and any placement is accepted");
+        c.output.read_token(1, 1, "row");
+        eo::accept();
+    });
+    EO_CHECK_EQ(queens.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO202"));
+    EO_CHECK(!eot::contains(checker_warnings(), "EO203"));
+    eot::outcome const unread = check_run("8\n", "Q\n", "Q\n", [](eo::checker& c) {
+        c.output_only("any placement is accepted");
+        c.output.trailing(eo::ignore);
+        eo::accept();
+    });
+    EO_CHECK_EQ(unread.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO201: the checker passed the run without reading any of the output");
+    eot::outcome const compared = check_run("8\n", "5\n", "5 certificate\n", [](eo::checker& c) {
+        c.output_only("the answer file is one example");
+        c.input.read_int(1, 9, "n");
+        if (c.output.read_int(1, 9, "a") != c.jury.read_int(1, 9, "a")) eo::wrong("differs");
+        eo::accept();
+    });
+    EO_CHECK_EQ(compared.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO203"));
+    eot::outcome const unreasoned = check_run("8\n", "Q\n", "Q\n", [](eo::checker& c) {
+        c.output_only("");
+        eo::accept();
+    });
+    EO_CHECK_EQ(unreasoned.code, 3);
+    EO_CHECK_IN(unreasoned.text, "output_only needs a reason");
+}
+
 EO_TEST(a_verdict_with_nothing_to_say_is_reported) {
     eot::outcome const silent = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
         c.input.read_int(1, 9, "n");

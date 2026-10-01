@@ -100,6 +100,10 @@ MUTANTS = [
     ("reals within an absolute error that also allow a relative one", "src/check.h",
      "                                           : std::fabs(wanted.value - found.value) <= epsilon + 1e-15;",
      "                                           : close_enough(wanted.value, found.value, epsilon);"),
+    ("an output-only checker whose unread answer is still reported", "src/check.h",
+     "        output_only_ = true;\n        jury.skip_rest(reason);", "        output_only_ = true;"),
+    ("an output-only checker still reported for reading neither file", "src/check.h",
+     "!stock_ && !output_only_ &&", "!stock_ &&"),
 ]
 
 
