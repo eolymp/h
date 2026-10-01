@@ -117,7 +117,7 @@ func TestEveryValueThePlatformExportsLoads(t *testing.T) {
 		"TIMEOUT_OR_ACCEPTED", "OVERFLOW_OR_ACCEPTED", "DONT_RUN", "FAILURE"} {
 		loaded(t, `{"solutions": [{"name": "a", "source": "a.cpp", "type": "`+kind+`"}]}`)
 	}
-	for _, kind := range []string{"PROGRAM", "INTERACTIVE"} {
+	for _, kind := range []string{"PROGRAM", "INTERACTIVE", "OUTPUT"} {
 		if got := loaded(t, `{"type": "`+kind+`"}`).Type; got != kind {
 			t.Errorf("%s loaded as %s", kind, got)
 		}
@@ -138,7 +138,7 @@ func TestAnUnknownPlatformValueIsTheFieldLeftOut(t *testing.T) {
 
 func TestAProblemTypeEoJudgeCannotRunIsRefused(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{"FUNCTION", "OUTPUT", "SQL", "ML", "QUIZ", "WIDGET"} {
+	for _, kind := range []string{"FUNCTION", "SQL", "ML", "QUIZ", "WIDGET"} {
 		err := loading(t, `{"type": "`+kind+`"}`)
 		if err == nil || !strings.Contains(err.Error(), "eo-judge does not run "+kind+" problems") {
 			t.Errorf("%s gave %v", kind, err)

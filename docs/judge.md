@@ -168,7 +168,7 @@ loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
 
 | Field | Default | Means |
 | --- | --- | --- |
-| `type` | `PROGRAM` | `PROGRAM` or `INTERACTIVE`; `COMMUNICATION` is refused by `run` and `check` with "eo-judge does not run COMMUNICATION problems yet", and `lint` reads it; and `FUNCTION`, `OUTPUT`, `SQL`, `ML`, `QUIZ` and `WIDGET`, platform types too, with "eo-judge does not run FUNCTION problems" |
+| `type` | `PROGRAM` | `PROGRAM`, `INTERACTIVE` or [`OUTPUT`](#output-only-problems); `COMMUNICATION` is refused by `run` and `check` with "eo-judge does not run COMMUNICATION problems yet", and `lint` reads it; and `FUNCTION`, `SQL`, `ML`, `QUIZ` and `WIDGET`, platform types too, with "eo-judge does not run FUNCTION problems" |
 | `runCount` | 1 | how many times a solution runs, chaining the interactor's output into the next run |
 | `timeLimit`, `cpuLimit` | — | milliseconds; a testset may override `timeLimit`; eo-judge enforces `timeLimit` as a wall-clock limit and reads `cpuLimit` without enforcing it |
 | `interactorTimeLimit` | — | read and not used: an interactor gets the solution's limit plus a second, as the agent gives it |
@@ -177,7 +177,7 @@ loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
 | `exactFormat` | false | whitespace is part of the format, which turns EO818 off |
 | `checker`, `validator`, `interactor` | — | one program each |
 | `scripts` | — | named generators, whose names become directory names like a solution's; `answerGenerator` names one of them |
-| `solutions` | — | what `run` judges and `check` compares subtasks against; each has a `name`, which becomes a directory name and so cannot hold `/`, be `..`, be longer than 240 bytes or be another solution's, a `source`, an optional `type`, and an optional expected score in `scores`; `CORRECT` is a reference expected to score full marks unless `scores` says otherwise, `DONT_RUN` is left out of `run` and `check` unless `--solution` names it, and `INCORRECT`, `WRONG_ANSWER`, `TIMEOUT`, `OVERFLOW`, `TIMEOUT_OR_ACCEPTED`, `OVERFLOW_OR_ACCEPTED` and `FAILURE` are judged with no expectation checked unless `run --expect` [checks them](#expected-types) |
+| `solutions` | — | what `run` judges and `check` compares subtasks against; each has a `name`, which becomes a directory name and so cannot hold `/`, be `..`, be longer than 240 bytes or be another solution's, a `source` — on an `OUTPUT` problem `outputs` instead, [its answer files](#output-only-problems) — an optional `type`, and an optional expected score in `scores`; `CORRECT` is a reference expected to score full marks unless `scores` says otherwise, `DONT_RUN` is left out of `run` and `check` unless `--solution` names it, and `INCORRECT`, `WRONG_ANSWER`, `TIMEOUT`, `OVERFLOW`, `TIMEOUT_OR_ACCEPTED`, `OVERFLOW_OR_ACCEPTED` and `FAILURE` are judged with no expectation checked unless `run --expect` [checks them](#expected-types) |
 | `testsets` | — | the groups |
 | `validatorTests` | — | inputs the validator must accept or refuse, which `check` runs; [see below](#tests-for-the-validator-and-the-checker) |
 | `checkerTests` | — | outputs and the verdict the checker must give them, which `check` runs; [see below](#tests-for-the-validator-and-the-checker) |
@@ -269,6 +269,30 @@ The checker's exit code and log are read as a solution's run is read: exit 0 is 
 `{"points": 0}` holds for a wrong answer and for `eo::score(0)`. On a test worth 0 every
 points exit is `ACCEPTED`, as on the judge. The checker is also given `TEST_INDEX`, the test's
 place in the list, and an empty `TEST_ID`.
+
+### Output-only problems
+
+On an `OUTPUT` problem the contestant uploads one file per test, and the judge runs the
+checker on the test's input, that file and the jury's answer. A solution is the files it
+would upload, named per test, in place of a `source`:
+
+```json
+"type": "OUTPUT",
+"solutions": [
+  {"name": "full", "type": "CORRECT", "outputs": {"1": "full-1.txt", "2": "full-2.txt", "3": "full-3.txt"}},
+  {"name": "two",  "type": "INCORRECT", "outputs": {"1:1": "full-1.txt", "1:2": "full-2.txt"}}
+]
+```
+
+A key is a test as eo-judge prints it, `"group:index"`, or its index alone when no other
+testset has a test with that index; load refuses a key that is no test, two keys for one test
+and a file that cannot be read. The file is relative to the problem directory and is given
+to the checker as it is, as a program's output is, with no CRLF folding. A test the solution
+gives no file for is judged as an empty file, and its message starts "no file was given for
+this test"; the judge's own handling of a missing upload has not been verified. Nothing is
+built or timed for such a solution, `stress` refuses the problem, and every other part of `run`
+and `check` reads it as a `PROGRAM` problem's. A checker that reads neither the input nor the
+answer on purpose says so with [`c.output_only("why")`](checker.md#output-only-problems).
 
 ## Reading a run
 
@@ -433,8 +457,8 @@ It exits 0 when every iteration passed, or when `--timeout` ended the stress aft
 cut short is dropped rather than blamed on the solution it stopped. A timeout before any
 iteration passed has found nothing, so it exits 3 and names the program it cut short: `the 1 s
 timeout ended the stress in iteration 1 while the solution slow ran`. It exits 2 on a usage
-error, and 3 too when a program does not build or the problem is `INTERACTIVE` or
-`COMMUNICATION`, which `stress` does not run. The programs are built once, from [the
+error, and 3 too when a program does not build or the problem is `INTERACTIVE`,
+`COMMUNICATION` or `OUTPUT`, which `stress` does not run. The programs are built once, from [the
 cache](#cache), and the warnings the generator and the checker raise, such as EO501 for a
 generator that never draws and EO208 for a partial score on a test worth nothing, are reported
 once each, as `run` reports them.

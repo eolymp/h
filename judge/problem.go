@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -46,10 +47,13 @@ type Testset struct {
 }
 
 type Solution struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
-	Type   string `json:"type"`
-	Scores string `json:"scores"`
+	Name    string            `json:"name"`
+	Source  string            `json:"source"`
+	Outputs map[string]string `json:"outputs"`
+	Type    string            `json:"type"`
+	Scores  string            `json:"scores"`
+
+	uploaded map[string]string
 }
 
 type ValidatorTest struct {
@@ -133,6 +137,10 @@ func (p *Problem) Path(name string) string {
 
 func (p *Problem) Interactive() bool {
 	return p.Type == "INTERACTIVE"
+}
+
+func (p *Problem) Output() bool {
+	return p.Type == "OUTPUT"
 }
 
 func (p *Problem) Solution(name string) *Solution {
@@ -344,7 +352,7 @@ func (p *Problem) checkNames() error {
 		"INTERACTIVE", "COMMUNICATION", "WIDGET"); err != nil {
 		return err
 	}
-	if p.Type != "PROGRAM" && p.Type != "COMMUNICATION" && !p.Interactive() {
+	if p.Type != "PROGRAM" && p.Type != "COMMUNICATION" && !p.Interactive() && !p.Output() {
 		return fmt.Errorf("eo-judge does not run %s problems", p.Type)
 	}
 	for _, testset := range p.Testsets {
@@ -376,6 +384,9 @@ func (p *Problem) checkNames() error {
 			return fmt.Errorf("two solutions are called %q; each needs a name of its own", solution.Name)
 		}
 		named[solution.Name] = true
+		if err := p.checkOutputs(solution); err != nil {
+			return err
+		}
 		if solution.Type == "" {
 			continue
 		}
@@ -389,6 +400,94 @@ func (p *Problem) checkNames() error {
 		return err
 	}
 	return p.checkCheckerTests()
+}
+
+func (p *Problem) checkOutputs(solution *Solution) error {
+	if !p.Output() {
+		if solution.Outputs != nil {
+			return fmt.Errorf("solution %q has outputs, which only an OUTPUT problem's solutions give; a %s "+
+				"problem's solution is a source", solution.Name, p.Type)
+		}
+		return nil
+	}
+	if solution.Source != "" || solution.Outputs == nil {
+		return fmt.Errorf("solution %q of an OUTPUT problem gives its answer files in outputs, not a source: "+
+			`"outputs": {"1": "one.txt", "2": "two.txt"}`, solution.Name)
+	}
+	keys := make([]string, 0, len(solution.Outputs))
+	for key := range solution.Outputs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	solution.uploaded = map[string]string{}
+	given, named := map[string]string{}, map[string]string{}
+	for _, key := range keys {
+		if solution.Outputs[key] == "" {
+			return fmt.Errorf("solution %q gives an empty file name for test %q", solution.Name, key)
+		}
+		test, err := p.testCalled(solution.Name, key)
+		if err != nil {
+			return err
+		}
+		if earlier, twice := given[test]; twice {
+			return fmt.Errorf("solution %q gives two outputs for test %s, as %q and %q", solution.Name, test,
+				earlier, key)
+		}
+		given[test], named[key] = key, test
+		solution.uploaded[test] = solution.Outputs[key]
+	}
+	for _, key := range keys {
+		test := named[key]
+		if err := readable(p.Path(solution.Outputs[key])); err != nil {
+			return fmt.Errorf("solution %q gives %s for test %s, and it cannot be read: %w", solution.Name,
+				solution.Outputs[key], test, err)
+		}
+	}
+	return nil
+}
+
+func readable(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	switch {
+	case err != nil:
+		return err
+	case info.IsDir():
+		return errors.New("it is a directory, not a file")
+	case !info.Mode().IsRegular():
+		return errors.New("it is not a regular file")
+	}
+	return nil
+}
+
+func (p *Problem) testCalled(solution, key string) (string, error) {
+	var found []string
+	for _, testset := range p.Testsets {
+		for _, test := range testset.Tests {
+			full := reference(&Planned{Group: testset.Index, Test: test})
+			if key == full || key == fmt.Sprint(test.Index) {
+				found = append(found, full)
+			}
+		}
+	}
+	switch {
+	case len(found) == 0:
+		return "", fmt.Errorf("solution %q gives an output for test %q, and the problem has no such test; "+
+			`name a test "group:index", or by its index when no other testset has one`, solution, key)
+	case len(found) > 1:
+		var groups []string
+		for _, one := range found {
+			group, _, _ := strings.Cut(one, ":")
+			groups = append(groups, group)
+		}
+		return "", fmt.Errorf("solution %q gives an output for test %q, which is test %s of testsets %s; write %s",
+			solution, key, key, strings.Join(groups, " and "), `"`+strings.Join(found, `" or "`)+`"`)
+	}
+	return found[0], nil
 }
 
 func (p *Problem) checkValidatorTests() error {

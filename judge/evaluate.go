@@ -20,9 +20,12 @@ type Attempt struct {
 
 func (w *Workspace) Evaluate(ctx context.Context, solution *Solution) (*Attempt, error) {
 	name := solution.Name
-	built, err := w.Build(ctx, solutionName(name), w.Problem.programOf(solution))
-	if err != nil {
-		return nil, err
+	var built *Built
+	var err error
+	if !w.Problem.Output() {
+		if built, err = w.Build(ctx, solutionName(name), w.Problem.programOf(solution)); err != nil {
+			return nil, err
+		}
 	}
 
 	checker, err := w.Build(ctx, "checker", w.Problem.Checker)
@@ -54,7 +57,7 @@ func (w *Workspace) Evaluate(ctx context.Context, solution *Solution) (*Attempt,
 				continue
 			}
 
-			result, err := w.judge(ctx, one, built, checker, interactor)
+			result, err := w.judge(ctx, one, solution, built, checker, interactor)
 			if err != nil {
 				return nil, err
 			}
@@ -103,12 +106,42 @@ type trial struct {
 	work  string
 }
 
-func (w *Workspace) judge(ctx context.Context, one *Planned, solution, checker, interactor *Built) (*RunResult, error) {
+func (w *Workspace) judge(ctx context.Context, one *Planned, solution *Solution, built, checker,
+	interactor *Built) (*RunResult, error) {
 	testset := w.Problem.Testset(one.Group)
 	at := trial{made: w.Tests[reference(one)], limit: testset.Limit(w.Problem), env: w.metadata(one),
-		work: filepath.Join(w.Dir, "runs", solution.Name, fmt.Sprintf("%d-%d", one.Group, one.Test.Index))}
+		work: filepath.Join(w.Dir, "runs", solutionName(solution.Name),
+			fmt.Sprintf("%d-%d", one.Group, one.Test.Index))}
 	result := &RunResult{Group: one.Group, Index: one.Test.Index, Cost: Points(one.Test.Score)}
-	return w.try(ctx, at, solution, checker, interactor, result)
+	if built == nil {
+		return w.upload(ctx, at, solution.uploaded[reference(one)], checker, result)
+	}
+	return w.try(ctx, at, built, checker, interactor, result)
+}
+
+func (w *Workspace) upload(ctx context.Context, at trial, given string, checker *Built,
+	result *RunResult) (*RunResult, error) {
+	if err := os.MkdirAll(at.work, 0o755); err != nil {
+		return nil, err
+	}
+	body := []byte{}
+	if given != "" {
+		var err error
+		if body, err = os.ReadFile(w.Problem.Path(given)); err != nil {
+			return nil, fmt.Errorf("the output for test %d:%d: %w", result.Group, result.Index, err)
+		}
+	}
+	output := filepath.Join(at.work, "output.txt")
+	if err := os.WriteFile(output, body, 0o644); err != nil {
+		return nil, err
+	}
+	if _, err := w.check(ctx, at.env, at.made, checker, at.work, output, result); err != nil {
+		return nil, err
+	}
+	if given == "" {
+		result.Message = "no file was given for this test, so it was judged as an empty one: " + result.Message
+	}
+	return result, nil
 }
 
 func (w *Workspace) try(ctx context.Context, at trial, solution, checker, interactor *Built,

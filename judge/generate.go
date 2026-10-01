@@ -134,6 +134,9 @@ func (w *Workspace) BuildAll(ctx context.Context, solutions []*Solution) error {
 		jobs = append(jobs, wanted{scriptName(name), problem.Scripts[name]})
 	}
 	for _, one := range solutions {
+		if problem.Output() {
+			continue
+		}
 		jobs = append(jobs, wanted{solutionName(one.Name), problem.programOf(one)})
 	}
 

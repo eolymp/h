@@ -89,8 +89,11 @@ func (w *Workspace) solutionChecks(ctx context.Context, found *Findings) error {
 		}
 	}
 	if correct < 2 {
-		found.note("EO821", "", fmt.Sprintf("the problem has %d correct solution(s)", correct),
-			"a second correct solution is what a stress run compares the reference with")
+		why := "a second correct solution is what a stress run compares the reference with"
+		if w.Problem.Output() {
+			why = "a second set of correct answer files shows that the checker accepts more than the jury's answers"
+		}
+		found.note("EO821", "", fmt.Sprintf("the problem has %d correct solution(s)", correct), why)
 	}
 
 	passed := map[int]bool{}

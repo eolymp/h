@@ -1,0 +1,19 @@
+{
+  "title": "queens",
+  "type": "OUTPUT",
+  "checker": {"source": "checker.cpp", "runtime": "cpp:17-gnu10"},
+  "solutions": [
+    {"name": "full", "type": "CORRECT",
+     "outputs": {"1:1": "full-1.txt", "2": "full-2.txt", "3": "03.ans"}},
+    {"name": "partial", "type": "INCORRECT", "outputs": {"1": "full-1.txt", "2": "02.ans"}},
+    {"name": "attacked", "type": "WRONG_ANSWER", "outputs": {"1": "attacked-1.txt", "2": "02.ans", "3": "03.ans"}}
+  ],
+  "testsets": [
+    {"index": 1, "scoringMode": "EACH", "feedbackPolicy": "COMPLETE",
+     "tests": [
+       {"index": 1, "score": 30, "input": "01.in", "answer": "01.ans"},
+       {"index": 2, "score": 30, "input": "02.in", "answer": "02.ans"},
+       {"index": 3, "score": 40, "input": "03.in", "answer": "03.ans"}
+     ]}
+  ]
+}
