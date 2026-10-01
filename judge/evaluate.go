@@ -18,8 +18,9 @@ type Attempt struct {
 	Groups  []*GroupResult
 }
 
-func (w *Workspace) Evaluate(ctx context.Context, name string, source *Program) (*Attempt, error) {
-	built, err := w.Build(ctx, solutionName(name), source)
+func (w *Workspace) Evaluate(ctx context.Context, solution *Solution) (*Attempt, error) {
+	name := solution.Name
+	built, err := w.Build(ctx, solutionName(name), w.Problem.programOf(solution))
 	if err != nil {
 		return nil, err
 	}

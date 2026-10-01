@@ -154,6 +154,10 @@ func (p *Problem) Judged(only string) []*Solution {
 	return judged
 }
 
+func (p *Problem) programOf(solution *Solution) *Program {
+	return &Program{Source: solution.Source}
+}
+
 func (p *Problem) Testset(index int) *Testset {
 	for _, one := range p.Testsets {
 		if one.Index == index {

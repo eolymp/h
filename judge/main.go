@@ -290,7 +290,7 @@ func (s *session) judge(ctx context.Context, shop *Workspace) int {
 
 	broken := 0
 	for _, solution := range judged {
-		attempt, err := shop.Evaluate(ctx, solution.Name, &Program{Source: solution.Source})
+		attempt, err := shop.Evaluate(ctx, solution)
 		if err != nil {
 			return s.fail(err)
 		}

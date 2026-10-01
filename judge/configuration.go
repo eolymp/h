@@ -98,7 +98,7 @@ func namedPrograms(problem *Problem) map[string]*Program {
 		out[scriptName(name)] = script
 	}
 	for _, solution := range problem.Solutions {
-		out[solutionName(solution.Name)] = &Program{Source: solution.Source}
+		out[solutionName(solution.Name)] = problem.programOf(solution)
 	}
 	return out
 }

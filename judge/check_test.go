@@ -156,7 +156,7 @@ func judgeAll(t *testing.T, shop *Workspace) map[string]*Attempt {
 
 	out := map[string]*Attempt{}
 	for _, solution := range shop.Problem.Solutions {
-		attempt, err := shop.Evaluate(ctx, solution.Name, &Program{Source: solution.Source})
+		attempt, err := shop.Evaluate(ctx, solution)
 		if err != nil {
 			t.Fatal(err)
 		}

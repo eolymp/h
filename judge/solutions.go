@@ -97,7 +97,7 @@ func (w *Workspace) solutionChecks(ctx context.Context, found *Findings) error {
 	failed := map[int]bool{}
 
 	for _, one := range w.Problem.Judged("") {
-		attempt, err := w.Evaluate(ctx, one.Name, &Program{Source: one.Source})
+		attempt, err := w.Evaluate(ctx, one)
 		if err != nil {
 			return err
 		}
@@ -122,7 +122,7 @@ func (w *Workspace) solutionChecks(ctx context.Context, found *Findings) error {
 			w.headroom(found, one, attempt)
 		}
 
-		twice, err := w.Evaluate(ctx, one.Name, &Program{Source: one.Source})
+		twice, err := w.Evaluate(ctx, one)
 		if err != nil {
 			return err
 		}
