@@ -18,7 +18,20 @@ type Program struct {
 	Source  string   `json:"source"`
 	Runtime string   `json:"runtime"`
 	Files   []string `json:"files"`
+
+	wrapped *Template
 }
+
+type Template struct {
+	Runtime string `json:"runtime"`
+	Header  string `json:"header"`
+	Source  string `json:"source"`
+	Footer  string `json:"footer"`
+}
+
+func (t *Template) cpp() bool { return cppRuntime(t.Runtime) }
+
+func cppRuntime(runtime string) bool { return strings.HasPrefix(runtime, "cpp:") }
 
 type Generator struct {
 	Script    string   `json:"script"`
@@ -49,11 +62,13 @@ type Testset struct {
 type Solution struct {
 	Name    string            `json:"name"`
 	Source  string            `json:"source"`
+	Runtime string            `json:"runtime"`
 	Outputs map[string]string `json:"outputs"`
 	Type    string            `json:"type"`
 	Scores  string            `json:"scores"`
 
 	uploaded map[string]string
+	template *Template
 }
 
 type ValidatorTest struct {
@@ -118,6 +133,7 @@ type Problem struct {
 	Validator           *Program            `json:"validator"`
 	Interactor          *Program            `json:"interactor"`
 	Scripts             map[string]*Program `json:"scripts"`
+	Templates           []*Template         `json:"templates"`
 	Solutions           []*Solution         `json:"solutions"`
 	Testsets            []*Testset          `json:"testsets"`
 	ValidatorTests      []*ValidatorTest    `json:"validatorTests"`
@@ -143,6 +159,10 @@ func (p *Problem) Output() bool {
 	return p.Type == "OUTPUT"
 }
 
+func (p *Problem) Function() bool {
+	return p.Type == "FUNCTION"
+}
+
 func (p *Problem) Solution(name string) *Solution {
 	for _, one := range p.Solutions {
 		if one.Name == name {
@@ -163,7 +183,11 @@ func (p *Problem) Judged(only string) []*Solution {
 }
 
 func (p *Problem) programOf(solution *Solution) *Program {
-	return &Program{Source: solution.Source}
+	program := &Program{Source: solution.Source, Runtime: solution.Runtime, wrapped: solution.template}
+	if program.wrapped != nil {
+		program.Runtime = program.wrapped.Runtime
+	}
+	return program
 }
 
 func (p *Problem) Testset(index int) *Testset {
@@ -352,7 +376,7 @@ func (p *Problem) checkNames() error {
 		"INTERACTIVE", "COMMUNICATION", "WIDGET"); err != nil {
 		return err
 	}
-	if p.Type != "PROGRAM" && p.Type != "COMMUNICATION" && !p.Interactive() && !p.Output() {
+	if p.Type != "PROGRAM" && p.Type != "COMMUNICATION" && !p.Interactive() && !p.Output() && !p.Function() {
 		return fmt.Errorf("eo-judge does not run %s problems", p.Type)
 	}
 	for _, testset := range p.Testsets {
@@ -375,6 +399,9 @@ func (p *Problem) checkNames() error {
 			return err
 		}
 	}
+	if err := p.checkTemplates(); err != nil {
+		return err
+	}
 	named := map[string]bool{}
 	for _, solution := range p.Solutions {
 		if err := plainName("the solution", solution.Name); err != nil {
@@ -385,6 +412,9 @@ func (p *Problem) checkNames() error {
 		}
 		named[solution.Name] = true
 		if err := p.checkOutputs(solution); err != nil {
+			return err
+		}
+		if err := p.checkRuntime(solution); err != nil {
 			return err
 		}
 		if solution.Type == "" {
@@ -400,6 +430,74 @@ func (p *Problem) checkNames() error {
 		return err
 	}
 	return p.checkCheckerTests()
+}
+
+func (p *Problem) checkTemplates() error {
+	if p.Output() && len(p.Templates) > 0 {
+		return errors.New("an OUTPUT problem has no templates: its contestants upload files, not code")
+	}
+	if p.Function() && len(p.Templates) == 0 {
+		return errors.New(`a FUNCTION problem needs templates, one per runtime: {"runtime": "cpp:20-gnu14", ` +
+			`"header": …, "source": …, "footer": …}; the judge compiles header, solution and footer as one file`)
+	}
+	first := map[string]int{}
+	for at, template := range p.Templates {
+		if template.Runtime == "" {
+			return fmt.Errorf("template %d has no runtime", at+1)
+		}
+		if earlier, twice := first[template.Runtime]; twice {
+			return fmt.Errorf("templates %d and %d are both for %q; the judge keeps one template per runtime",
+				earlier, at+1, template.Runtime)
+		}
+		first[template.Runtime] = at + 1
+		if !p.Function() && (template.Header != "" || template.Footer != "") {
+			return fmt.Errorf("template %d has a header or a footer, which the judge wraps around a submission "+
+				"on a FUNCTION problem only; on a %s problem a template is the source a contestant starts from",
+				at+1, p.Type)
+		}
+	}
+	return nil
+}
+
+func (p *Problem) checkRuntime(solution *Solution) error {
+	if p.Output() && solution.Runtime != "" {
+		return fmt.Errorf("solution %q of an OUTPUT problem has a runtime; its outputs are files, not code",
+			solution.Name)
+	}
+	if solution.Runtime != "" && !cppRuntime(solution.Runtime) {
+		return fmt.Errorf("solution %q is written for %q, and eo-judge builds C++ solutions only", solution.Name,
+			solution.Runtime)
+	}
+	if !p.Function() {
+		return nil
+	}
+	if solution.Runtime != "" {
+		for _, template := range p.Templates {
+			if template.Runtime == solution.Runtime {
+				solution.template = template
+				return nil
+			}
+		}
+		return fmt.Errorf("solution %q is written for %q, and the problem has no template for it; the judge "+
+			"wraps a FUNCTION problem's solution in its runtime's template", solution.Name, solution.Runtime)
+	}
+	var cpp []string
+	for _, template := range p.Templates {
+		if template.cpp() {
+			cpp = append(cpp, template.Runtime)
+			solution.template = template
+		}
+	}
+	switch len(cpp) {
+	case 0:
+		return fmt.Errorf("solution %q gives no runtime, and the problem has no template for a C++ runtime; "+
+			"eo-judge builds C++ solutions only", solution.Name)
+	case 1:
+		return nil
+	}
+	solution.template = nil
+	return fmt.Errorf("solution %q gives no runtime, and the problem has templates for %d C++ runtimes, %s and %s; "+
+		"give it a runtime", solution.Name, len(cpp), strings.Join(cpp[:len(cpp)-1], ", "), cpp[len(cpp)-1])
 }
 
 func (p *Problem) checkOutputs(solution *Solution) error {

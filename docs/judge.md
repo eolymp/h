@@ -168,7 +168,7 @@ loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
 
 | Field | Default | Means |
 | --- | --- | --- |
-| `type` | `PROGRAM` | `PROGRAM`, `INTERACTIVE` or [`OUTPUT`](#output-only-problems); `COMMUNICATION` is refused by `run` and `check` with "eo-judge does not run COMMUNICATION problems yet", and `lint` reads it; and `FUNCTION`, `SQL`, `ML`, `QUIZ` and `WIDGET`, platform types too, with "eo-judge does not run FUNCTION problems" |
+| `type` | `PROGRAM` | `PROGRAM`, `INTERACTIVE`, [`OUTPUT`](#output-only-problems) or [`FUNCTION`](#function-problems); `COMMUNICATION` is refused by `run` and `check` with "eo-judge does not run COMMUNICATION problems yet", and `lint` reads it; and `SQL`, `ML`, `QUIZ` and `WIDGET`, platform types too, with "eo-judge does not run SQL problems" |
 | `runCount` | 1 | how many times a solution runs, chaining the interactor's output into the next run |
 | `timeLimit`, `cpuLimit` | — | milliseconds; a testset may override `timeLimit`; eo-judge enforces `timeLimit` as a wall-clock limit and reads `cpuLimit` without enforcing it |
 | `interactorTimeLimit` | — | read and not used: an interactor gets the solution's limit plus a second, as the agent gives it |
@@ -177,7 +177,8 @@ loads as it is; an explicit `UNKNOWN_TYPE`, `UNKNOWN_FEEDBACK_POLICY`,
 | `exactFormat` | false | whitespace is part of the format, which turns EO818 off |
 | `checker`, `validator`, `interactor` | — | one program each |
 | `scripts` | — | named generators, whose names become directory names like a solution's; `answerGenerator` names one of them |
-| `solutions` | — | what `run` judges and `check` compares subtasks against; each has a `name`, which becomes a directory name and so cannot hold `/`, be `..`, be longer than 240 bytes or be another solution's, a `source` — on an `OUTPUT` problem `outputs` instead, [its answer files](#output-only-problems) — an optional `type`, and an optional expected score in `scores`; `CORRECT` is a reference expected to score full marks unless `scores` says otherwise, `DONT_RUN` is left out of `run` and `check` unless `--solution` names it, and `INCORRECT`, `WRONG_ANSWER`, `TIMEOUT`, `OVERFLOW`, `TIMEOUT_OR_ACCEPTED`, `OVERFLOW_OR_ACCEPTED` and `FAILURE` are judged with no expectation checked unless `run --expect` [checks them](#expected-types) |
+| `solutions` | — | what `run` judges and `check` compares subtasks against; each has a `name`, which becomes a directory name and so cannot hold `/`, be `..`, be longer than 240 bytes or be another solution's, a `source` — on an `OUTPUT` problem `outputs` instead, [its answer files](#output-only-problems) — an optional `runtime`, a C++ one, whose standard it is compiled with and which on a `FUNCTION` problem picks [its template](#function-problems), an optional `type`, and an optional expected score in `scores`; `CORRECT` is a reference expected to score full marks unless `scores` says otherwise, `DONT_RUN` is left out of `run` and `check` unless `--solution` names it, and `INCORRECT`, `WRONG_ANSWER`, `TIMEOUT`, `OVERFLOW`, `TIMEOUT_OR_ACCEPTED`, `OVERFLOW_OR_ACCEPTED` and `FAILURE` are judged with no expectation checked unless `run --expect` [checks them](#expected-types) |
+| `templates` | — | the code templates, one per runtime, each `{"runtime", "header", "source", "footer"}` with files for the last three; a `FUNCTION` problem needs them and [wraps its solutions in them](#function-problems), any other type takes them with a `source` only, the code a contestant starts from, and an `OUTPUT` problem has none |
 | `testsets` | — | the groups |
 | `validatorTests` | — | inputs the validator must accept or refuse, which `check` runs; [see below](#tests-for-the-validator-and-the-checker) |
 | `checkerTests` | — | outputs and the verdict the checker must give them, which `check` runs; [see below](#tests-for-the-validator-and-the-checker) |
@@ -299,6 +300,50 @@ which file goes to which test: that it refuses an empty file on every test, not 
 first, as warning EO802, and that it refuses the jury's answer of the next test, when that
 test's input differs, as this test's output, as warning EO822 — a checker that never looks at
 the input would pass one good file uploaded for every test.
+
+### Function problems
+
+On a `FUNCTION` problem the contestant writes a function rather than a program, and the judge
+compiles the template's header, the submission and the template's footer, in that order, as
+one file: the header declares what the function needs, and the footer reads the input, calls
+it and prints the result. eo-judge builds a solution the same way, from the template whose
+`runtime` is the solution's, concatenating the three files as they are, with nothing added
+between them:
+
+```json
+"type": "FUNCTION",
+"templates": [
+  {"runtime": "cpp:20-gnu14", "header": "templates/cpp-header.cpp",
+   "source": "templates/cpp-source.cpp", "footer": "templates/cpp-footer.cpp"},
+  {"runtime": "python:3.14-python", "header": "templates/python-header.py",
+   "source": "templates/python-source.py", "footer": "templates/python-footer.py"}
+],
+"solutions": [
+  {"name": "main", "source": "main.cpp", "runtime": "cpp:20-gnu14", "type": "CORRECT"},
+  {"name": "first-two", "source": "first-two.cpp", "type": "WRONG_ANSWER"}
+]
+```
+
+A solution without a `runtime` takes the problem's one C++ template; when there are several,
+it names one. Load refuses a `FUNCTION` problem with no templates, a template with no runtime,
+two templates for one runtime, a solution whose runtime has no template, and a solution in a
+runtime other than C++, which eo-judge cannot build. Templates for other runtimes are loaded
+and left to the judge; eo-judge builds the C++ ones. A template's `source` is the code a
+contestant finds in the editor, the stub, and is not part of a solution's build.
+
+A solution that does not compile inside its template stops `run` and `check` with exit 3, as
+any solution that does not compile does, and the message names the template: a solution that
+brings its own `main()` meets the footer's, which is what a contestant who submits a whole
+program gets on the judge, a compilation error, here in GCC's words:
+
+```
+eo-judge: solution.with-main does not compile inside the template for cpp:20-gnu14, which is header, source and footer in one file; a FUNCTION problem's solution is the function alone, and the template gives the rest, main() included:
+grader.cpp:1:5: error: redefinition of 'int main()'
+solution.cpp:8:5: note: 'int main()' previously defined here
+```
+
+The line numbers are the solution's own because the header ends with `#line 1
+"solution.cpp"` and the footer starts with `#line 1 "grader.cpp"`.
 
 ## Reading a run
 

@@ -138,7 +138,7 @@ func TestAnUnknownPlatformValueIsTheFieldLeftOut(t *testing.T) {
 
 func TestAProblemTypeEoJudgeCannotRunIsRefused(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{"FUNCTION", "SQL", "ML", "QUIZ", "WIDGET"} {
+	for _, kind := range []string{"SQL", "ML", "QUIZ", "WIDGET"} {
 		err := loading(t, `{"type": "`+kind+`"}`)
 		if err == nil || !strings.Contains(err.Error(), "eo-judge does not run "+kind+" problems") {
 			t.Errorf("%s gave %v", kind, err)

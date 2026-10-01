@@ -107,6 +107,10 @@ type wanted struct {
 
 func (w *Workspace) recipe(program *Program) string {
 	parts := []string{w.Problem.Path(program.Source), standard(program.Runtime)}
+	if template := program.wrapped; template != nil {
+		parts = append(parts, "template", template.Runtime, w.Problem.Path(template.Header),
+			w.Problem.Path(template.Footer))
+	}
 	for _, one := range program.Files {
 		parts = append(parts, w.Problem.Path(one))
 	}
