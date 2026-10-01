@@ -84,6 +84,52 @@ func TestAFunctionSolutionWithItsOwnMainNamesTheTemplate(t *testing.T) {
 		t.Errorf("a solution with its own main gave %v", err)
 	}
 }
+
+func checkedTemplate(t *testing.T, change func(problem *Problem)) Findings {
+	t.Helper()
+	shop := workshop(t, "testdata/function")
+	change(shop.Problem)
+	found, err := shop.Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+func TestCheckReadsAFunctionProblemsTemplates(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+
+	for name, want := range map[string]struct {
+		change func(problem *Problem)
+		code   string
+		said   string
+	}{
+		"a stub that solves the problem": {func(problem *Problem) {
+			problem.Templates[0].Source = "templates/cpp-source-solved.cpp"
+		}, "EO823", "template cpp:20-gnu14: the stub gets ACCEPTED at 100, not a wrong answer"},
+		"a footer without main, for the stub": {func(problem *Problem) {
+			problem.Templates[0].Footer = "templates/cpp-footer-no-main.cpp"
+			problem.Solutions = nil
+		}, "EO823", "template cpp:20-gnu14: the stub does not compile inside the template: "},
+		"a footer without main, for a whole program": {func(problem *Problem) {
+			problem.Templates[0].Footer = "templates/cpp-footer-no-main.cpp"
+			problem.Solutions = nil
+		}, "EO824", "template cpp:20-gnu14: a whole program, with its own main(), compiles inside the template"},
+	} {
+		said := messagesOf(checkedTemplate(t, want.change), want.code)
+		if !withPrefix(said, want.said) {
+			t.Errorf("%s: %s said %v, not %q", name, want.code, said, want.said)
+		}
+	}
+	found := checkedTemplate(t, func(*Problem) {})
+	for _, code := range []string{"EO913", "EO823", "EO824"} {
+		if said := messagesOf(found, code); len(said) > 0 {
+			t.Errorf("the practice templates raised %s: %v", code, said)
+		}
+	}
+}
+
 func TestTwoTemplatesAroundOneSourceAreTwoBuilds(t *testing.T) {
 	t.Parallel()
 	needsACompiler(t)
@@ -112,6 +158,43 @@ func TestTwoTemplatesAroundOneSourceAreTwoBuilds(t *testing.T) {
 		status, err := run(context.Background(), shop.Programs[solutionName(name)].Exe, Invocation{Dir: dir})
 		if err != nil || status.ExitCode != want {
 			t.Errorf("solution %s exited %v (%v), not %d", name, status, err, want)
+		}
+	}
+}
+
+func TestCheckReadsTheShapeOfAFunctionProblemsCppTemplates(t *testing.T) {
+	t.Parallel()
+	ends := "#include <vector>\n#line 1 \"solution.cpp\"\n"
+	starts := "\n#line 1 \"grader.cpp\"\nint main() {}\n"
+	for name, want := range map[string]struct {
+		header, footer, said string
+	}{
+		"the practice template":       {ends, starts, ""},
+		"CRLF line breaks":            {strings.ReplaceAll(ends, "\n", "\r\n"), strings.ReplaceAll(starts, "\n", "\r\n"), ""},
+		"an empty header":             {"", starts, ""},
+		"a header without #line":      {"#include <vector>\n", starts, "the header's last line is not a #line directive"},
+		"blank lines after the #line": {ends + "\n\n", starts, "the header's last line is not a #line directive"},
+		"no line break after the #line": {strings.TrimSuffix(ends, "\n"), starts,
+			"the header does not end with a line break, so a submission's first line joins its last"},
+		"a footer glued to the solution": {ends, strings.TrimPrefix(starts, "\n"), "the footer does not start with a line break"},
+	} {
+		dir := t.TempDir()
+		for file, body := range map[string]string{"h.cpp": want.header, "f.cpp": want.footer} {
+			if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		problem := &Problem{Type: "FUNCTION", dir: dir, Templates: []*Template{
+			{Runtime: "cpp:20-gnu14", Header: "h.cpp", Footer: "f.cpp"},
+			{Runtime: "python:3.14-python", Header: "f.cpp", Footer: "h.cpp"}}}
+		var found Findings
+		templateShapeChecks(problem, &found)
+		said := messagesOf(found, "EO913")
+		switch {
+		case want.said == "" && len(said) > 0:
+			t.Errorf("%s: EO913 said %v", name, said)
+		case want.said != "" && (len(said) != 1 || !said["template cpp:20-gnu14: "+want.said]):
+			t.Errorf("%s: EO913 said %v, not %q", name, said, want.said)
 		}
 	}
 }

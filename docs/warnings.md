@@ -24,7 +24,7 @@ line on the judge, and the channel each role can afford to write to — is in
 | `eo-judge check` | the emulator, reading the whole problem; **never appears in a judge log** |
 | `eo-judge lint` | a textual scan of the source, for what no run can see |
 
-All 82 designed codes are built.
+All 85 designed codes are built.
 
 ## EO1xx — reading a value
 
@@ -133,6 +133,8 @@ the author writes no test code for any of them.
 | `EO820` | warning | `eo-judge check` | a subtask no attached solution passes | check the tests and the limits; nobody can score it |
 | `EO821` | note | `eo-judge check` | the problem has fewer than two correct solutions | a reference no stress run can cross-check |
 | `EO822` | warning | `eo-judge check` | on an `OUTPUT` problem, the checker accepts the jury's answer of the next test, whose input differs, as this test's output; each test is tried with the next one's, and the last with the first's | a contestant may upload any file for any test, so one good file could pass them all; check the output against this test's input, unless that answer really is right for both |
+| `EO823` | warning | `eo-judge check` | on a `FUNCTION` problem, a C++ template's stub, its `source` wrapped in its header and footer, does not compile, or is judged as anything but a wrong answer | a contestant starts from the stub: make the three compile together and return something the checker refuses |
+| `EO824` | warning | `eo-judge check` | on a `FUNCTION` problem, a whole program, `int main() { return 0; }`, compiles inside a C++ template | the template should hold `main()`, in its footer or its header, so a submission that brings its own gets a compilation error, as on the judge |
 
 ## EO9xx — configuration
 
@@ -154,3 +156,4 @@ the platform should eventually make when a problem is saved.
 | `EO910` | note | `eo-judge check` | the programs of one problem carry different copies of a header, counting the copy eo-judge carries for a program that attaches none | attach the same release to every program, or none to use the one the judge carries |
 | `EO911` | warning | `eo-judge check` | a test in `validatorTests` gets the other answer from the validator than its `expect`: a `VALID` input refused, an `INVALID` one accepted, or the validator broken on either, its first line starting with `eolymp.h: ` or killed by a signal, or out of its 30 s. `run` does not read them | the validator and the test disagree; fix the validator, or the test's `expect` if the validator is right |
 | `EO912` | warning | `eo-judge check` | a test in `checkerTests` gets another verdict or score from the checker than its `expect`: `ACCEPTED`, `WRONG_ANSWER`, `PARTIAL`, `FAILURE`, or `{"points": x}`, the points the run pays. `run` does not read them | the checker and the test disagree; fix the checker, or the test's `expect` if the checker is right |
+| `EO913` | warning | `eo-judge check` | on a `FUNCTION` problem, a C++ template's header does not end with a `#line` directive followed by a line break and nothing else, or its footer does not start with a line break | end the header with `#line 1 "solution.cpp"`, so a compilation error counts the contestant's own lines, and start the footer with an empty line, so a submission without a final newline does not run into it |

@@ -219,6 +219,9 @@ func (w *Workspace) Check(ctx context.Context, deep bool) (Findings, error) {
 	if err := w.generatorChecks(ctx, &found); err != nil {
 		return found, err
 	}
+	if err := w.templateChecks(ctx, &found); err != nil {
+		return found, err
+	}
 	if err := w.interactiveChecks(ctx, &found); err != nil {
 		return found, err
 	}

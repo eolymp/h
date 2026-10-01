@@ -345,6 +345,12 @@ solution.cpp:8:5: note: 'int main()' previously defined here
 The line numbers are the solution's own because the header ends with `#line 1
 "solution.cpp"` and the footer starts with `#line 1 "grader.cpp"`.
 
+`check` reads every C++ template: a header whose last line is not a `#line` directive, or which
+does not end with a line break, and a footer that does not start with one, are warning EO913; a stub that does not compile
+inside its template, or that is judged as anything but a wrong answer, is EO823; and a whole
+program, `int main() { return 0; }`, that compiles inside the template, so that a contestant
+who submits one would not get the compilation error the judge gives, is EO824.
+
 ## Reading a run
 
 ```

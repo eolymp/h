@@ -279,6 +279,11 @@ func (tools toolchain) buildInto(ctx context.Context, made compilation, dir, ent
 	defer os.Remove(filepath.Join(entry, fresh))
 	if err := tools.compile(ctx, made, entry, fresh, []string{"-MD", "-MF", deps}); err != nil {
 		inside := entry + string(os.PathSeparator)
+		var refused *notCompiled
+		if errors.As(err, &refused) {
+			refused.said = strings.ReplaceAll(refused.said, inside, dir+string(os.PathSeparator))
+			return false, refused
+		}
 		return false, errors.New(strings.ReplaceAll(err.Error(), inside, dir+string(os.PathSeparator)))
 	}
 	if err := os.Rename(filepath.Join(entry, fresh), filepath.Join(entry, "program")); err != nil {
