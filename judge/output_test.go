@@ -98,7 +98,7 @@ func TestRunAndCheckTakeAnOutputProblemAndStressRefusesIt(t *testing.T) {
 		t.Errorf("check exited %d, printed %q, said %q", code, out, errs)
 	}
 	code, out, errs = invoke("stress", "testdata/output", "--args", "4")
-	if code != 3 || out != "" || !strings.Contains(errs, "eo-judge stress runs PROGRAM problems only, and this one is OUTPUT") {
+	if code != 3 || out != "" || !strings.Contains(errs, "eo-judge stress runs PROGRAM and FUNCTION problems only, and this one is OUTPUT") {
 		t.Errorf("stress exited %d, printed %q, said %q", code, out, errs)
 	}
 }

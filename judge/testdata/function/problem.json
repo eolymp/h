@@ -18,6 +18,7 @@
   ],
   "solutions": [
     {"name": "main", "source": "main.cpp", "runtime": "cpp:20-gnu14", "type": "CORRECT"},
+    {"name": "sorted", "source": "sorted.cpp", "type": "CORRECT"},
     {"name": "first-two", "source": "first-two.cpp", "type": "WRONG_ANSWER"},
     {"name": "with-main", "source": "with-main.cpp", "type": "DONT_RUN"}
   ],

@@ -284,7 +284,7 @@ func TestStressRefusesWhatItCannotRun(t *testing.T) {
 	}
 
 	code, out, errs := invoke("stress", "../tests/live/guess")
-	if code != 3 || out != "" || !strings.Contains(errs, "eo-judge stress runs PROGRAM problems") {
+	if code != 3 || out != "" || !strings.Contains(errs, "eo-judge stress runs PROGRAM and FUNCTION problems only, and this one is INTERACTIVE") {
 		t.Errorf("an interactive problem: exit %d, printed %q, said %q", code, out, errs)
 	}
 	dir := t.TempDir()

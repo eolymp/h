@@ -203,8 +203,9 @@ func (s *session) run() int {
 			"and lint reads its sources"))
 	}
 	if s.command == "stress" {
-		if problem.Type != "PROGRAM" {
-			return s.fail(fmt.Errorf("eo-judge stress runs PROGRAM problems only, and this one is %s", problem.Type))
+		if problem.Type != "PROGRAM" && !problem.Function() {
+			return s.fail(fmt.Errorf("eo-judge stress runs PROGRAM and FUNCTION problems only, and this one is %s",
+				problem.Type))
 		}
 		planned, why := s.stress.plan(problem)
 		if why != "" {

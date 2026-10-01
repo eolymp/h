@@ -130,6 +130,18 @@ func TestCheckReadsAFunctionProblemsTemplates(t *testing.T) {
 	}
 }
 
+func TestStressRunsAFunctionProblemsSolutionsInTheirTemplate(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+
+	code, out, errs := invoke("stress", "testdata/function", "--gen", "gen", "--args", "-n=[2..8]", "--reference", "main",
+		"--solution", "sorted", "--iterations", "20")
+	if code != 0 || !strings.Contains(out, "stress: gen -n=[2..8] against main, comparing sorted") ||
+		!strings.Contains(out, "20 iteration") {
+		t.Errorf("stress exited %d, printed %q, said %q", code, out, errs)
+	}
+}
+
 func TestTwoTemplatesAroundOneSourceAreTwoBuilds(t *testing.T) {
 	t.Parallel()
 	needsACompiler(t)
