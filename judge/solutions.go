@@ -57,7 +57,7 @@ func (w *Workspace) interactiveChecks(ctx context.Context, found *Findings) erro
 			return err
 		}
 		_, jury, err := w.onePhase(ctx, first.Input, filepath.Join(work, "summary.txt"),
-			client, interactor, work, limit, w.metadata(nil), "")
+			client, interactor, work, limit, w.metadata(nil), "", nil)
 		if err != nil {
 			return err
 		}

@@ -155,7 +155,7 @@ func (w *Workspace) try(ctx context.Context, at trial, solution, checker, intera
 	var status, jury *Status
 	var err error
 	if interactor != nil {
-		status, jury, err = w.interact(ctx, at.env, made, solution, interactor, work, output, limit)
+		status, jury, result.Transcript, err = w.interact(ctx, at.env, made, solution, interactor, work, output, limit)
 	} else {
 		status, err = w.batch(ctx, made, solution, work, output, limit)
 	}
@@ -288,9 +288,10 @@ func runChecker(ctx context.Context, checker *Built, made *Prepared, output, wor
 }
 
 func (w *Workspace) interact(ctx context.Context, env map[string]string, made *Prepared, solution,
-	interactor *Built, work, output string, limit int) (*Status, *Status, error) {
+	interactor *Built, work, output string, limit int) (*Status, *Status, []string, error) {
 	input := made.Input
 	var last, lastJury *Status
+	var transcript []string
 
 	for phase := 1; phase <= w.Problem.RunCount; phase++ {
 		summary := output
@@ -298,18 +299,28 @@ func (w *Workspace) interact(ctx context.Context, env map[string]string, made *P
 			summary = filepath.Join(work, fmt.Sprintf("handoff-%d.txt", phase))
 		}
 
+		var record *dialogue
+		if w.transcript {
+			record = &dialogue{}
+		}
 		status, jury, err := w.onePhase(ctx, input, summary, solution, interactor, work, limit,
-			env, w.answerFor(made))
+			env, w.answerFor(made), record)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
+		}
+		if record != nil {
+			if w.Problem.RunCount > 1 {
+				transcript = append(transcript, fmt.Sprintf("phase %d", phase))
+			}
+			transcript = append(transcript, record.finished()...)
 		}
 		last, lastJury = status, jury
 		if status.TimedOut || status.Signal || status.ExitCode != 0 || jury.ExitCode != 0 {
-			return status, jury, nil
+			return status, jury, transcript, nil
 		}
 		input = summary
 	}
-	return last, lastJury, nil
+	return last, lastJury, transcript, nil
 }
 
 func (w *Workspace) metadata(one *Planned) map[string]string {
@@ -330,7 +341,7 @@ func (w *Workspace) answerFor(made *Prepared) string {
 }
 
 func (w *Workspace) onePhase(ctx context.Context, input, summary string, solution, interactor *Built,
-	work string, limit int, env map[string]string, answer string) (*Status, *Status, error) {
+	work string, limit int, env map[string]string, answer string, record *dialogue) (*Status, *Status, error) {
 	toJury, fromPlayer, err := os.Pipe()
 	if err != nil {
 		return nil, nil, err
@@ -357,24 +368,50 @@ func (w *Workspace) onePhase(ctx context.Context, input, summary string, solutio
 	}
 	defer os.RemoveAll(alone)
 
+	playerOut, juryOut := fromPlayer, fromJury
+	var heard, answered *os.File
+	if record != nil {
+		var said, told *os.File
+		if heard, said, err = os.Pipe(); err != nil {
+			return nil, nil, err
+		}
+		if answered, told, err = os.Pipe(); err != nil {
+			heard.Close()
+			said.Close()
+			return nil, nil, err
+		}
+		record.relay("solution:   ", heard, fromPlayer)
+		record.relay("interactor: ", answered, fromJury)
+		playerOut, juryOut = said, told
+	}
+
 	done := make(chan *Status, 1)
 	go func() {
 		status, _ := run(ctx, interactor.Exe, Invocation{
-			Args: arguments, Dir: work, Stdin: toJury, Stdout: fromJury, Stderr: juryLog,
+			Args: arguments, Dir: work, Stdin: toJury, Stdout: juryOut, Stderr: juryLog,
 			LimitMS: limit + 1000,
 			Env:     env,
 		})
 		toJury.Close()
-		fromJury.Close()
+		juryOut.Close()
+		if heard != nil {
+			heard.Close()
+		}
 		done <- status
 	}()
 
 	status, err := run(ctx, solution.Exe, Invocation{
-		Dir: alone, Stdin: toPlayer, Stdout: fromPlayer, Stderr: io.Discard, LimitMS: limit,
+		Dir: alone, Stdin: toPlayer, Stdout: playerOut, Stderr: io.Discard, LimitMS: limit,
 	})
 	toPlayer.Close()
-	fromPlayer.Close()
+	playerOut.Close()
+	if answered != nil {
+		answered.Close()
+	}
 	jury := <-done
+	if record != nil {
+		record.finished()
+	}
 
 	if err != nil {
 		return nil, nil, err

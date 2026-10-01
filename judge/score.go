@@ -13,15 +13,16 @@ const (
 )
 
 type RunResult struct {
-	Group    int
-	Index    int
-	Cost     Points
-	Verdict  Verdict
-	Fraction Points
-	Score    Points
-	Wall     int
-	Message  string
-	Warnings []Warning
+	Group      int
+	Index      int
+	Cost       Points
+	Verdict    Verdict
+	Fraction   Points
+	Score      Points
+	Wall       int
+	Message    string
+	Warnings   []Warning
+	Transcript []string
 }
 
 type Points = float32

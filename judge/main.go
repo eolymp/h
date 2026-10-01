@@ -33,6 +33,8 @@ const usage = `eo-judge runs an Eolymp problem the way the judge does.
   -v         print every run of every test after its testset
   --json     print the result as one JSON object instead of text
   --expect   with run, exit 1 when a solution breaks its declared type
+  --transcript
+             with run on an interactive problem, -v and every run's dialogue
 
   stress also takes --gen script, --arg one-argument (again for the next), --reference name,
   --solution name (again for more), --iterations n (100), --timeout seconds (300) and
@@ -99,9 +101,9 @@ func realMain(args []string, temp string, out, errs io.Writer) int {
 }
 
 type options struct {
-	command, dir, only, work            string
-	strict, deep, verbose, json, expect bool
-	stress                              stressOptions
+	command, dir, only, work                        string
+	strict, deep, verbose, json, expect, transcript bool
+	stress                                          stressOptions
 }
 
 func parse(args []string, out, errs io.Writer) (options, int, bool) {
@@ -114,6 +116,7 @@ func parse(args []string, out, errs io.Writer) (options, int, bool) {
 		flags.BoolVar(&opts.deep, "deep", false, "run the slow hostile outputs")
 		flags.StringVar(&opts.only, "solution", "", "judge one solution by name")
 		flags.BoolVar(&opts.expect, "expect", false, "fail when a solution breaks its declared type")
+		flags.BoolVar(&opts.transcript, "transcript", false, "print the dialogue of every interactive run")
 	}
 	flags.StringVar(&opts.work, "work", "", "keep the workspace here")
 	flags.BoolVar(&opts.verbose, "v", false, "print every run")
@@ -195,6 +198,12 @@ func (s *session) run() int {
 		return 2
 	}
 
+	if s.transcript && (s.command != "run" || !problem.Interactive()) {
+		return s.refuse(fmt.Sprintf("--transcript prints the dialogue of an interactive problem's runs, so it "+
+			"applies to run on an INTERACTIVE problem; this is %s on a %s problem", s.command, problem.Type))
+	}
+	s.verbose = s.verbose || s.transcript
+
 	if s.command == "lint" {
 		return s.report(Lint(problem))
 	}
@@ -247,6 +256,7 @@ func (s *session) run() int {
 	}()
 	shop := NewWorkspace(problem, space)
 	shop.Temp = s.temp
+	shop.transcript = s.transcript
 
 	switch s.command {
 	case "check":
@@ -324,6 +334,9 @@ func (s *session) print(attempt *Attempt) {
 		if s.verbose {
 			for _, one := range group.Runs {
 				fmt.Fprintf(s.out, "    %d:%d %s %dms %s\n", one.Group, one.Index, one.Verdict, one.Wall, one.Message)
+				for _, line := range one.Transcript {
+					fmt.Fprintf(s.out, "      %s\n", line)
+				}
 			}
 		}
 	}

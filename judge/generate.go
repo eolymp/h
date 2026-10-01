@@ -65,6 +65,7 @@ type Workspace struct {
 	Temp     string
 
 	tools          toolchain
+	transcript     bool
 	generatorLimit int
 	validatorLimit int
 }
