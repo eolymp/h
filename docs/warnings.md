@@ -24,7 +24,7 @@ line on the judge, and the channel each role can afford to write to — is in
 | `eo-judge check` | the emulator, reading the whole problem; **never appears in a judge log** |
 | `eo-judge lint` | a textual scan of the source, for what no run can see |
 
-All 81 designed codes are built.
+All 82 designed codes are built.
 
 ## EO1xx — reading a value
 
@@ -112,7 +112,7 @@ the author writes no test code for any of them.
 | Code | Severity | Reporter | Fires when | What to do |
 | --- | --- | --- | --- | --- |
 | `EO801` | warning | `eo-judge check` | the checker does not accept a jury answer, run as `checker(input, answer, answer)` | the checker and the answer files disagree; fix it before a contestant meets it |
-| `EO802` | warning | `eo-judge check` | the checker accepts an empty output | it is not reading the contestant's answer |
+| `EO802` | warning | `eo-judge check` | the checker accepts an empty output; tried on the first test, and on every test of an `OUTPUT` problem, where a contestant may upload an empty file for any test | it is not reading the contestant's answer |
 | `EO803` | warning | `eo-judge check` | the checker accepts the input echoed back as the output | it is not comparing enough |
 | `EO804` | warning | `eo-judge check` | the checker accepts the jury answer with one token changed, on a problem declaring `eo::unique` | the answer is declared unique, so this must be wrong |
 | `EO805` | warning | `eo-judge check` | a hostile output makes the checker crash, hang or report a jury error | a contestant's output must give a wrong answer and nothing else; bound every read |
@@ -132,6 +132,7 @@ the author writes no test code for any of them.
 | `EO819` | warning | `eo-judge check` | a subtask no attached solution fails, or a correct solution that does not score full marks | a subtask every solution passes tests nothing; add one that should lose it |
 | `EO820` | warning | `eo-judge check` | a subtask no attached solution passes | check the tests and the limits; nobody can score it |
 | `EO821` | note | `eo-judge check` | the problem has fewer than two correct solutions | a reference no stress run can cross-check |
+| `EO822` | warning | `eo-judge check` | on an `OUTPUT` problem, the checker accepts the jury's answer of the next test, whose input differs, as this test's output; each test is tried with the next one's, and the last with the first's | a contestant may upload any file for any test, so one good file could pass them all; check the output against this test's input, unless that answer really is right for both |
 
 ## EO9xx — configuration
 

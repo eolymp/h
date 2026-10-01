@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,5 +100,84 @@ func TestRunAndCheckTakeAnOutputProblemAndStressRefusesIt(t *testing.T) {
 	code, out, errs = invoke("stress", "testdata/output", "--args", "4")
 	if code != 3 || out != "" || !strings.Contains(errs, "eo-judge stress runs PROGRAM problems only, and this one is OUTPUT") {
 		t.Errorf("stress exited %d, printed %q, said %q", code, out, errs)
+	}
+}
+
+func checkedWith(t *testing.T, checker string) Findings {
+	t.Helper()
+	shop := workshop(t, "testdata/output")
+	shop.Problem.Checker = &Program{Source: checker}
+	found, err := shop.Check(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+func TestCheckFindsAnOutputCheckerThatTakesAnotherTestsAnswer(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+
+	if said := messagesOf(checkedWith(t, "checker.cpp"), "EO822"); len(said) > 0 {
+		t.Errorf("a checker that reads n warned EO822: %v", said)
+	}
+	said := messagesOf(checkedWith(t, "blind.cpp"), "EO822")
+	for _, want := range []string{
+		"test 1:1: the checker accepts the answer of test 1:2 as this test's output",
+		"test 1:2: the checker accepts the answer of test 1:3 as this test's output",
+		"test 1:3: the checker accepts the answer of test 1:1 as this test's output",
+	} {
+		if !said[want] {
+			t.Errorf("EO822 did not say %q: %v", want, said)
+		}
+	}
+}
+
+func TestCheckLooksForAnEmptyOutputOnEveryTestOfAnOutputProblem(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+
+	said := messagesOf(checkedWith(t, "lazy.cpp"), "EO802")
+	if len(said) != 1 || !said["test 1:3: the checker accepts an empty output"] {
+		t.Errorf("EO802 said %v", said)
+	}
+}
+
+func writeProblem(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestCheckTriesAnotherTestsAnswerOnlyWhereTheInputsDiffer(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+
+	blind, err := filepath.Abs("testdata/output/blind.cpp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	board := ".Q..\n...Q\nQ...\n..Q.\n"
+	for name, tests := range map[string]string{
+		"two tests with the same input": `{"index": 1, "score": 50, "input": "in.txt", "answer": "ans.txt"},
+			{"index": 2, "score": 50, "input": "same.txt", "answer": "ans.txt"}`,
+		"one test": `{"index": 1, "score": 100, "input": "in.txt", "answer": "ans.txt"}`,
+		"no test":  ``,
+	} {
+		dir := writeProblem(t, map[string]string{
+			"problem.json": `{"type": "OUTPUT", "checker": {"source": "` + blind + `"},
+				"solutions": [{"name": "full", "type": "CORRECT", "outputs": {}}],
+				"testsets": [{"index": 1, "tests": [` + tests + `]}]}`,
+			"in.txt": "4\n", "same.txt": "4\n", "ans.txt": board,
+		})
+		code, out, errs := invoke("check", dir)
+		if code != 0 || strings.Contains(out, "EO822") {
+			t.Errorf("%s: check exited %d, printed %q, said %q", name, code, out, errs)
+		}
 	}
 }

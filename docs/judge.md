@@ -294,6 +294,12 @@ built or timed for such a solution, `stress` refuses the problem, and every othe
 and `check` reads it as a `PROGRAM` problem's. A checker that reads neither the input nor the
 answer on purpose says so with [`c.output_only("why")`](checker.md#output-only-problems).
 
+`check` asks two more things of an `OUTPUT` problem's checker, since a contestant chooses
+which file goes to which test: that it refuses an empty file on every test, not only the
+first, as warning EO802, and that it refuses the jury's answer of the next test, when that
+test's input differs, as this test's output, as warning EO822 — a checker that never looks at
+the input would pass one good file uploaded for every test.
+
 ## Reading a run
 
 ```
