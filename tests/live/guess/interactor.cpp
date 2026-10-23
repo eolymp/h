@@ -2,8 +2,8 @@
 
 int main(int argc, char** argv) {
     eo::interactor it(argc, argv);
-    int n = it.input.read_int(1, 1000000, "n");
-    int secret = it.input.read_int(1, n, "secret");
+    int n = it.input.read_int("n");
+    int secret = it.input.read_int("secret");
     eo::budget queries(it, 20, "queries");
 
     it.send(n);

@@ -4,7 +4,7 @@ int main(int argc, char** argv) {
     eo::checker c(argc, argv);
     c.answers(eo::unique);
 
-    int const n = c.input.read_int(2, 2000, "n");
+    int const n = c.input.read_int("n");
     int matched = 0;
     for (int at = 1; at <= n; at++) {
         int const wanted = c.jury.read_int(1, n - 1, eo::unnamed);

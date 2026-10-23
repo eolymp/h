@@ -1,4 +1,4 @@
-// eolymp.h 2.3.0 — a judging library for the Eolymp platform.
+// eolymp.h 2.4.0 — a judging library for the Eolymp platform.
 // https://github.com/eolymp/h
 //
 // SPDX-License-Identifier: MIT
@@ -58,9 +58,9 @@
 #include <utility>
 #include <vector>
 
-#define EOLYMP_H_VERSION "2.3.0"
+#define EOLYMP_H_VERSION "2.4.0"
 #define EOLYMP_H_VERSION_MAJOR 2
-#define EOLYMP_H_VERSION_MINOR 3
+#define EOLYMP_H_VERSION_MINOR 4
 #define EOLYMP_H_VERSION_PATCH 0
 
 namespace eo {
@@ -2666,6 +2666,16 @@ public:
     }
 
     void blame(fault whose) { whose_ = whose; }
+    void trust() { trusted_ = true; }
+
+    void checking(char const* what, site where) const {
+        if (trusted_) checked(what, where);
+    }
+
+    template <class Bound>
+    void checking(char const* kind, Bound low, Bound high, site where) const {
+        if (trusted_) checked(fmt("{} in {}..{}", kind, low, high), where);
+    }
     void relaxed(bool loose) { relaxed_ = loose; }
     bool relaxed() const { return relaxed_; }
 
@@ -2721,6 +2731,7 @@ public:
         else parsed = spelled_integer(name);
         study(name, low, high, bounds, type_low, type_high, type_word, where);
         if (bounds == stated::yes) {
+            checking("an integer", low, high, where);
             if (parsed.value < low) refuse(name, fmt("{} is below {}", parsed.value, low));
             if (parsed.value > high) refuse(name, fmt("{} is above {}", parsed.value, high));
         }
@@ -2756,6 +2767,7 @@ public:
         if (bounds == stated::absent && fresh(loose_code_, where))
             warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
         if (bounds == stated::yes) {
+            checking("a number", low, high, where);
             if (parsed.value < low) refuse(name, fmt("{} is below {}", parsed.value, low));
             if (parsed.value > high) refuse(name, fmt("{} is above {}", parsed.value, high));
         }
@@ -2798,6 +2810,8 @@ public:
                  "say which characters it may hold, or say eo::any", where);
         note_a_large_token(token, where);
         if (bounds == stated::yes) {
+            checking(allowed != nullptr ? "a token of a given length over a charset" : "a token of a given length",
+                     where);
             long long const length = static_cast<long long>(token.size());
             if (length > most)
                 refuse(name, fmt("\"{}\" is longer than {} characters", shorten(token), most));
@@ -2815,6 +2829,7 @@ public:
     }
 
     std::string matching(eo::pattern const& told, value_name const& name, site where) {
+        checking("a token against a pattern", where);
         if (!told.in_a_token_ && fresh("EO113", where))
             warn("EO113",
                  fmt("\"{}\" matches only text with a blank in it, and a token holds none", escaped(told.text())),
@@ -2833,7 +2848,8 @@ public:
         return token;
     }
 
-    std::string line_matching(eo::pattern const& told, value_name const& name) {
+    std::string line_matching(eo::pattern const& told, value_name const& name, site where) {
+        checking("a line against a pattern", where);
         std::string text;
         long long const cap = told.longest_ == unbounded ? 0 : told.longest_ + 1;
         long long const seen = line_into(text, cap, name);
@@ -2851,6 +2867,9 @@ public:
         std::string text;
         long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
         long long const seen = line_into(text, cap, name);
+        if (bounds == stated::yes || allowed != nullptr)
+            checking(allowed != nullptr ? "a line of a given length over a charset" : "a line of a given length",
+                     where);
         if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this line is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
@@ -3070,6 +3089,7 @@ public:
     }
 
     std::string choice(std::initializer_list<char const*> choices, bool fold, value_name const& name, site where) {
+        checking("a token against a list of choices", where);
         std::string found = take_word(name, where, "a token", longest_of(choices));
         for (char const* one : choices) {
             if (found == one) return found;
@@ -3111,6 +3131,12 @@ public:
 
 private:
     static bool fresh(char const* code, site where) { return !diagnostics::shared().again(code, where); }
+
+    static void checked(std::string const& what, site where) {
+        if (fresh("EO115", where))
+            warn("EO115", fmt("this read checks the input: {}", what),
+                 "the validator owns the input; read it without bounds and check it there", where);
+    }
 
     bool token_goes_on() {
         if (lenient_) return false;
@@ -3242,6 +3268,7 @@ private:
     fault whose_ = fault::invalid_test;
     std::string label_;
     bool lenient_ = false;
+    bool trusted_ = false;
     char const* loose_code_ = "EO102";
     std::string last_value_;
     bool last_indexed_ = false;
@@ -3282,9 +3309,12 @@ struct weighted_edge {
 struct weight_bounds {
     long long low;
     long long high;
+    bool any = false;
 };
 
 inline weight_bounds weighted(long long low, long long high) { return weight_bounds{low, high}; }
+
+inline weight_bounds weighted(any_t) { return weight_bounds{0, 0, true}; }
 
 enum graph_shape {
     any_graph = 0,
@@ -3917,6 +3947,7 @@ public:
     virtual void fail_run(std::string const& message) = 0;
     virtual void fail_jury(std::string const& message) = 0;
     virtual char const* called() const = 0;
+    virtual void blames_the_jury() {}
 
     static void ended_by_terminate() {
         scorer* const one = live_scorer();
@@ -4009,6 +4040,7 @@ template <class... Args>
 
 template <class... Args>
 [[noreturn]] inline void jury_error(detail::pattern_for<Args...> pattern = "", Args const&... args) {
+    detail::judging().blames_the_jury();
     detail::judging().fail_jury(fmt(pattern, args...));
     detail::unreachable();  // LCOV_EXCL: the verdict above ends the program
 }
@@ -4309,7 +4341,9 @@ public:
         return from_.matching(told, name, where);
     }
 
-    std::string read_line(pattern const& told, detail::value_name name) { return from_.line_matching(told, name); }
+    std::string read_line(pattern const& told, detail::value_name name, detail::site where = detail::site::here()) {
+        return from_.line_matching(told, name, where);
+    }
 
     std::string read_line(long long least, long long most, charset allowed, detail::value_name name,
                           detail::site where = detail::site::here()) {
@@ -4609,8 +4643,8 @@ private:
             int const v = from_.whole_int(1, n, ends, name.lent_at(index), where);
             if constexpr (std::is_same_v<Edge, weighted_edge>) {
                 read_space();
-                long long const w =
-                    from_.whole_long(weights.low, weights.high, detail::stated::yes, weight.lent_at(index), where);
+                detail::stated const bounded = weights.any ? detail::stated::deliberate : detail::stated::yes;
+                long long const w = from_.whole_long(weights.low, weights.high, bounded, weight.lent_at(index), where);
                 edges.push_back(Edge{u, v, w});
             } else {
                 edges.push_back(Edge{u, v});
@@ -4888,7 +4922,9 @@ public:
         return reader_.matching(told, name, where);
     }
 
-    std::string read_line(pattern const& told, detail::value_name name) { return reader_.line_matching(told, name); }
+    std::string read_line(pattern const& told, detail::value_name name, detail::site where = detail::site::here()) {
+        return reader_.line_matching(told, name, where);
+    }
 
     std::string read_line(long long least, long long most, detail::value_name name,
                           detail::site where = detail::site::here()) {
@@ -4977,6 +5013,7 @@ public:
     std::vector<edge> read_tree(int n, detail::value_name name, detail::site where = detail::site::here()) {
         a_tree_has_a_vertex(n, where);
         std::vector<edge> edges = edges_between<edge>(n - 1, detail::stated::deliberate, n, {0, 0}, name, where);
+        reader_.checking("that the edges form a tree", where);
         holds(is_tree(n, edges), name);
         return edges;
     }
@@ -4986,6 +5023,7 @@ public:
         a_tree_has_a_vertex(n, where);
         std::vector<weighted_edge> edges =
             edges_between<weighted_edge>(n - 1, detail::stated::deliberate, n, weights, name, where);
+        reader_.checking("that the edges form a tree", where);
         holds(is_tree(n, detail::endpoints(edges)), name);
         return edges;
     }
@@ -4993,6 +5031,7 @@ public:
     std::vector<edge> read_graph(int n, int m, graph_shape shape, detail::value_name name,
                                  detail::site where = detail::site::here()) {
         std::vector<edge> edges = edges_between<edge>(m, detail::stated::deliberate, n, {0, 0}, name, where);
+        reader_.checking("the shape of a graph", where);
         holds(detail::shaped(n, edges, shape), name);
         return edges;
     }
@@ -5001,6 +5040,7 @@ public:
                                           detail::value_name name, detail::site where = detail::site::here()) {
         std::vector<weighted_edge> edges =
             edges_between<weighted_edge>(m, detail::stated::deliberate, n, weights, name, where);
+        reader_.checking("the shape of a graph", where);
         holds(detail::shaped(n, detail::endpoints(edges), shape), name);
         return edges;
     }
@@ -5027,6 +5067,7 @@ public:
     }
 
 private:
+    friend class input_stream;
     friend class checker;
     friend class interactor;
     friend class controller;
@@ -5049,7 +5090,8 @@ private:
             int const v = reader_.whole_int(1, n, ends, name.lent_at(at), where);
             if constexpr (std::is_same_v<Edge, weighted_edge>)
                 edges.push_back(Edge{u, v,
-                                     reader_.whole_long(weights.low, weights.high, detail::stated::yes,
+                                     reader_.whole_long(weights.low, weights.high,
+                                                        weights.any ? detail::stated::deliberate : detail::stated::yes,
                                                         weight.lent_at(at), where)});
             else
                 edges.push_back(Edge{u, v});
@@ -5074,7 +5116,247 @@ private:
     bool skipped_ = false;
 };
 
-using input_stream = stream;
+class input_stream final : public stream {
+public:
+    input_stream() = default;
+
+    input_stream(detail::source from, std::string label)
+        : stream(std::move(from), detail::fault::jury_error, std::move(label)) {
+        reader_.trust();
+    }
+
+    int read_int(detail::value_name name, detail::site where = detail::site::here()) {
+        return reader_.whole_int(0, 0, detail::stated::deliberate, name, where);
+    }
+
+    int read_int(any_t, detail::value_name name, detail::site where = detail::site::here()) {
+        return read_int(std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_int(name)")]] int read_int(long long low, long long high, detail::value_name name,
+                         detail::site where = detail::site::here()) {
+        return stream::read_int(low, high, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115 and EO101: the validator owns the input; read it as read_int(name)")]] int
+    read_int(long long low, long long high, detail::site where = detail::site::here()) {
+        return reader_.whole_int(low, high, detail::stated::yes, detail::value_name::nothing(), where);
+    }
+
+    long long read_long(detail::value_name name, detail::site where = detail::site::here()) {
+        return reader_.whole_long(0, 0, detail::stated::deliberate, name, where);
+    }
+
+    long long read_long(any_t, detail::value_name name, detail::site where = detail::site::here()) {
+        return read_long(std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_long(name)")]] long long read_long(long long low, long long high, detail::value_name name,
+                                 detail::site where = detail::site::here()) {
+        return stream::read_long(low, high, std::move(name), where);
+    }
+
+    double read_real(detail::value_name name, detail::site where = detail::site::here()) {
+        return stream::read_real(any, std::move(name), where);
+    }
+
+    double read_real(any_t, detail::value_name name, detail::site where = detail::site::here()) {
+        return read_real(std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_real(name)")]] double read_real(double low, double high, detail::value_name name,
+                              detail::site where = detail::site::here()) {
+        return stream::read_real(low, high, std::move(name), where);
+    }
+
+    std::string read_token(detail::value_name name, detail::site where = detail::site::here()) {
+        return stream::read_token(any, std::move(name), where);
+    }
+
+    std::string read_token(any_t, detail::value_name name, detail::site where = detail::site::here()) {
+        return read_token(std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_token(name)")]] std::string read_token(long long least, long long most, charset allowed, detail::value_name name,
+                                     detail::site where = detail::site::here()) {
+        return stream::read_token(least, most, std::move(allowed), std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_token(name)")]] std::string read_token(long long least, long long most, detail::value_name name,
+                                     detail::site where = detail::site::here()) {
+        return stream::read_token(least, most, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_token(name)")]] std::string read_token(pattern const& told, detail::value_name name,
+                                     detail::site where = detail::site::here()) {
+        return stream::read_token(told, std::move(name), where);
+    }
+
+    std::string read_line(detail::value_name name, detail::site where = detail::site::here()) {
+        return stream::read_line(any, std::move(name), where);
+    }
+
+    std::string read_line(any_t, detail::value_name name, detail::site where = detail::site::here()) {
+        return read_line(std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_line(name)")]] std::string read_line(pattern const& told, detail::value_name name,
+                                   detail::site where = detail::site::here()) {
+        return stream::read_line(told, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_line(name)")]] std::string read_line(long long least, long long most, detail::value_name name,
+                                   detail::site where = detail::site::here()) {
+        return stream::read_line(least, most, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_line(name)")]] std::string read_line(long long least, long long most, charset allowed, detail::value_name name,
+                                   detail::site where = detail::site::here()) {
+        return stream::read_line(least, most, std::move(allowed), std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_token(name)")]] std::string read_choice(std::initializer_list<char const*> choices, detail::value_name name,
+                                      detail::site where = detail::site::here()) {
+        return stream::read_choice(choices, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_token(name)")]] std::string read_choice(std::initializer_list<char const*> choices, any_case_t,
+                                      detail::value_name name, detail::site where = detail::site::here()) {
+        return stream::read_choice(choices, any_case, std::move(name), where);
+    }
+
+    std::vector<int> read_ints(long long count, detail::value_name name, detail::site where = detail::site::here()) {
+        return reader_.many<int>(count, name, [&](detail::value_name const& each) {
+            return reader_.whole_int(0, 0, detail::stated::deliberate, each, where);
+        });
+    }
+
+    std::vector<int> read_ints(long long count, any_t, detail::value_name name,
+                               detail::site where = detail::site::here()) {
+        return read_ints(count, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_ints(count, name)")]] std::vector<int> read_ints(long long count, long long low, long long high, detail::value_name name,
+                                        detail::site where = detail::site::here()) {
+        return stream::read_ints(count, low, high, std::move(name), where);
+    }
+
+    std::vector<long long> read_longs(long long count, detail::value_name name,
+                                      detail::site where = detail::site::here()) {
+        return stream::read_longs(count, any, std::move(name), where);
+    }
+
+    std::vector<long long> read_longs(long long count, any_t, detail::value_name name,
+                                      detail::site where = detail::site::here()) {
+        return read_longs(count, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_longs(count, name)")]] std::vector<long long> read_longs(long long count, long long low, long long high,
+                                                detail::value_name name, detail::site where = detail::site::here()) {
+        return stream::read_longs(count, low, high, std::move(name), where);
+    }
+
+    std::vector<double> read_reals(long long count, detail::value_name name,
+                                   detail::site where = detail::site::here()) {
+        return reader_.many<double>(count, name, [&](detail::value_name const& each) {
+            return reader_.fractional(0, 0, detail::stated::deliberate, 0, 0, false, each, where);
+        });
+    }
+
+    std::vector<double> read_reals(long long count, any_t, detail::value_name name,
+                                   detail::site where = detail::site::here()) {
+        return read_reals(count, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_reals(count, name)")]] std::vector<double> read_reals(long long count, double low, double high, detail::value_name name,
+                                             detail::site where = detail::site::here()) {
+        return stream::read_reals(count, low, high, std::move(name), where);
+    }
+
+    std::vector<std::string> read_tokens(long long count, detail::value_name name,
+                                         detail::site where = detail::site::here()) {
+        return reader_.many<std::string>(count, name, [&](detail::value_name const& each) {
+            return reader_.word(0, 0, nullptr, detail::stated::deliberate, each, where);
+        });
+    }
+
+    std::vector<std::string> read_tokens(long long count, any_t, detail::value_name name,
+                                         detail::site where = detail::site::here()) {
+        return read_tokens(count, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_tokens(count, name)")]] std::vector<std::string> read_tokens(long long count, long long least, long long most,
+                                                    charset allowed, detail::value_name name,
+                                                    detail::site where = detail::site::here()) {
+        return stream::read_tokens(count, least, most, std::move(allowed), std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_tokens(count, name)")]] std::vector<std::string> read_tokens(long long count, pattern const& told, detail::value_name name,
+                                                    detail::site where = detail::site::here()) {
+        return stream::read_tokens(count, told, std::move(name), where);
+    }
+
+    std::vector<std::string> read_grid(long long rows, detail::value_name name,
+                                       detail::site where = detail::site::here()) {
+        return read_tokens(rows, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_grid(rows, name)")]] std::vector<std::string> read_grid(long long rows, long long cols, charset allowed,
+                                                detail::value_name name, detail::site where = detail::site::here()) {
+        return stream::read_grid(rows, cols, std::move(allowed), std::move(name), where);
+    }
+
+    std::vector<edge> read_edges(long long m, detail::value_name name, detail::site where = detail::site::here()) {
+        return edges_between<edge>(m, detail::stated::deliberate, 0, {0, 0}, name, where);
+    }
+
+    std::vector<weighted_edge> read_edges(long long m, weight_bounds weights, detail::value_name name,
+                                          detail::site where = detail::site::here()) {
+        return edges_between<weighted_edge>(m, detail::stated::deliberate, 0, weights, name, where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_edges(m, name)")]] std::vector<edge> read_edges(long long m, int n, detail::value_name name,
+                                           detail::site where = detail::site::here()) {
+        return stream::read_edges(m, n, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_edges(m, name)")]] std::vector<weighted_edge> read_edges(long long m, int n, weight_bounds weights,
+                                                    detail::value_name name,
+                                                    detail::site where = detail::site::here()) {
+        return stream::read_edges(m, n, weights, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_edges(m, name)")]] std::vector<edge> read_tree(int n, detail::value_name name, detail::site where = detail::site::here()) {
+        return stream::read_tree(n, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_edges(m, name)")]] std::vector<weighted_edge> read_tree(int n, weight_bounds weights, detail::value_name name,
+                                                   detail::site where = detail::site::here()) {
+        return stream::read_tree(n, weights, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_edges(m, name)")]] std::vector<edge> read_graph(int n, int m, graph_shape shape, detail::value_name name,
+                                           detail::site where = detail::site::here()) {
+        return stream::read_graph(n, m, shape, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it as read_edges(m, name)")]] std::vector<weighted_edge> read_graph(int n, int m, graph_shape shape, weight_bounds weights,
+                                                    detail::value_name name,
+                                                    detail::site where = detail::site::here()) {
+        return stream::read_graph(n, m, shape, weights, std::move(name), where);
+    }
+
+    [[deprecated("eolymp EO115: the validator owns the input; read it and check it in the validator, not here")]] [[noreturn]] void wrong(std::string const& message) const {
+        reader_.checking("a jury error raised on the input", detail::site::here());
+        stream::wrong(message);
+    }
+
+    template <class... Args>
+    [[deprecated("eolymp EO115: the validator owns the input; read it and check it in the validator, not here")]] [[noreturn]] void wrong(detail::pattern_for<Args...> pattern, Args const&... args) const {
+        reader_.checking("a jury error raised on the input", detail::site::here());
+        stream::wrong(fmt(pattern, args...));
+    }
+};
 using answer_stream = stream;
 
 }  // namespace eo
@@ -5100,8 +5382,7 @@ public:
         if (argc >= 4 && detail::environment("OUTPUT_FILE") != nullptr && paths[1] != argv[2])
             detail::note("EO211", "this checker runs as the legacy type, which swaps its last two arguments",
                          "the ordinary PROGRAM type is the norm", where);
-        input = stream(detail::source::over_file(paths[0].c_str(), true), detail::fault::jury_error,
-                       "input.txt");
+        input = input_stream(detail::source::over_file(paths[0].c_str(), true), "input.txt");
         output = stream(detail::source::over_file(paths[1].c_str(), false), detail::fault::wrong_answer,
                         "output.txt");
         jury = stream(detail::source::over_file(paths[2].c_str(), true), detail::fault::jury_error,
@@ -5142,7 +5423,7 @@ public:
         fail_closed("checker");
     }
 
-    stream input;
+    input_stream input;
     stream output;
     stream jury;
 
@@ -5423,6 +5704,14 @@ public:
 
     char const* called() const final { return "checker"; }
 
+    void blames_the_jury() final {
+        if (!jury.inside().read_anything() && !output.inside().read_anything())
+            detail::note("EO216",
+                         "this jury error came before the checker read the answer or the output, so it is about the "
+                         "input",
+                         "the validator owns the input; check it there", detail::site::here());
+    }
+
 private:
     static bool trailing_blank(char one) { return one == ' ' || one == '\t' || one == '\r'; }
 
@@ -5689,7 +5978,7 @@ public:
     dialogue(dialogue const&) = delete;
     dialogue& operator=(dialogue const&) = delete;
 
-    stream input;
+    input_stream input;
     stream jury;
 
     bool has_jury() const { return !paths_[2].empty(); }
@@ -5750,7 +6039,7 @@ protected:
         keep_binary(1);
         log_file() = stderr;
         emitter() = &dialogue::say;
-        input = stream(source::over_file(paths_[0].c_str(), true), fault::jury_error, "input.txt");
+        input = input_stream(source::over_file(paths_[0].c_str(), true), "input.txt");
     }
 
     ~dialogue() = default;
@@ -5841,6 +6130,14 @@ public:
 
     char const* called() const final { return "interactor"; }
 
+    void blames_the_jury() final {
+        if (!contestant.inside().read_anything() && !jury.inside().read_anything())
+            detail::note("EO410",
+                         "this jury error came before the interactor read the solution or the answer, so it is "
+                         "about the input",
+                         "the validator owns the input; check it there", detail::site::here());
+    }
+
     template <class... Args>
     void send(Args const&... values) {
         std::string line;
@@ -5874,7 +6171,7 @@ private:
 
     void read_the_test_again(std::string const& bytes) {
         kept_test_ = bytes;
-        input = stream(detail::source::over_text(kept_test_, true), detail::fault::jury_error, "input.txt");
+        input = input_stream(detail::source::over_text(kept_test_, true), "input.txt");
     }
 
     [[noreturn]] void hand_the_file_on(std::string const& bytes) {

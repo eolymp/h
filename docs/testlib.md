@@ -59,6 +59,7 @@ input itself. See [validator.md](validator.md).
 | --- | --- |
 | `registerTestlibCmd(argc, argv);` | `eo::checker c(argc, argv);` |
 | `inf`, `ouf`, `ans` | `c.input`, `c.output`, `c.jury` |
+| `inf.readInt(1, n, "n")`, `inf.readInts(n, 1, 1000000000, "a")` in a checker | `c.input.read_int("n")`, `c.input.read_ints(n, "a")`: the validator has checked the input, so the checker reads it without bounds, and bounds raise EO115 |
 | `ouf.readInt(1, n, "k")` | `c.output.read_int(1, n, "k")` |
 | `ans.readLong()` | `c.jury.read_long(eo::any, "sum")`: bounds, or `eo::any` to say there are none |
 | `ouf.readToken("[a-z]{1,5}", "w")`, `ouf.readLine(...)`, `ouf.readTokens(k, ...)` with a pattern | `c.output.read_token(eo::pattern("[a-z]{1,5}"), "w")`, `read_line` and `read_tokens` with an `eo::pattern`, on any of the three streams |
@@ -80,7 +81,7 @@ input itself. See [validator.md](validator.md).
 
 int main(int argc, char** argv) {
     eo::checker c(argc, argv);
-    int n = c.input.read_int(1, 100000, "n");
+    int n = c.input.read_int("n");
     auto chosen = [n](eo::answer_stream& a) {
         int k = a.read_int(0, n, "k");
         std::vector<int> items = a.read_ints(k, 1, n, "item");
@@ -196,7 +197,9 @@ See [generator.md](generator.md).
   `eo::` in front of the library's names instead.
 - **A read has bounds and a name, or says it has none.** `readInt()` with neither is legal in
   testlib; in eolymp.h it compiles, with warnings EO101 and EO102 (EO103 in a checker), and
-  `eo::any` or `eo::unnamed` says that is deliberate.
+  `eo::any` or `eo::unnamed` says that is deliberate. The checker's and the interactor's input
+  is the exception: the validator owns it, so it is read with a name and no bounds, and a
+  testlib checker's `inf.readInt(1, n, "n")` drops its bounds when it is ported (EO115).
 - **A score is a fraction of the test.** `eo::score(0.5)` on a test worth 10 pays 5 points;
   `eo::points(5)` says the same in points. A score of 2 or more is clamped to full marks and
   called a likely percentage (EO205).

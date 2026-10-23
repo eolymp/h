@@ -171,6 +171,7 @@ public:
     virtual void fail_run(std::string const& message) = 0;
     virtual void fail_jury(std::string const& message) = 0;
     virtual char const* called() const = 0;
+    virtual void blames_the_jury() {}
 
     static void ended_by_terminate() {
         scorer* const one = live_scorer();
@@ -263,6 +264,7 @@ template <class... Args>
 
 template <class... Args>
 [[noreturn]] inline void jury_error(detail::pattern_for<Args...> pattern = "", Args const&... args) {
+    detail::judging().blames_the_jury();
     detail::judging().fail_jury(fmt(pattern, args...));
     detail::unreachable();  // LCOV_EXCL: the verdict above ends the program
 }

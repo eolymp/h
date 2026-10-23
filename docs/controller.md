@@ -30,7 +30,7 @@ instance sees another's memory or files, so the messages are the only way the se
 
 int main(int argc, char** argv) {
     eo::controller ctl(argc, argv);
-    int k = ctl.input.read_int(2, 100, "instances");
+    int k = ctl.input.read_int("instances");
     long long secret = ctl.input.read_long(eo::any, "secret");
 
     eo::channel& first = ctl.spawn();
@@ -182,6 +182,7 @@ The rules are those of every eolymp.h program, and the codes are the interactor'
 | EO204 | `eo::wrong` carries no message |
 | EO205 | a fraction outside [0, 1], or negative points, was clamped |
 | EO213 | on the judge, `TEST_COST` is missing or not a number, so the cost of `eo::points` is a guess |
+| EO115 | a read of the input checks it; the validator owns the input, as in [checker.md](checker.md#the-input-is-the-validators) |
 | EO401 | more than 100,000 round trips (a note), or more than 500,000 (a warning) |
 | EO402 | more than 10,000 round trips with no `eo::budget` declared |
 | EO403 | a budget was declared and never spent |

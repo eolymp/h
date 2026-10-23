@@ -29,8 +29,8 @@ and learns whether the number is smaller (`<`), larger (`>`) or equal (`=`); it 
 
 int main(int argc, char** argv) {
     eo::interactor it(argc, argv);
-    int n = it.input.read_int(1, 1000000, "n");
-    int secret = it.input.read_int(1, n, "secret");
+    int n = it.input.read_int("n");
+    int secret = it.input.read_int("secret");
     eo::budget queries(it, 20, "queries");
 
     it.send(n);
@@ -111,7 +111,7 @@ round trips a second.
 
 | Stream | Holds | A failed read is | A number with no bounds |
 | --- | --- | --- | --- |
-| `it.input` | the test | a jury error | fine: the validator has checked it |
+| `it.input` | the test | a jury error | the norm: the validator has checked it, and bounds raise EO115 |
 | `it.jury` | the answer file, when there is one | a jury error | warning EO103 |
 | `it.contestant` | what the solution prints | a wrong answer | warning EO103 |
 
@@ -299,7 +299,7 @@ only channel between the runs, and only the jury writes to it.
 int main(int argc, char** argv) {
     eo::interactor it(argc, argv);
     eo::phases ph(it, 2);
-    long long x = it.input.read_long(0, 1000000000, "x");
+    long long x = it.input.read_long("x");
     if (ph.number() == 1) {
         it.send("alice", x);
         std::string code = it.contestant.read_token(1, 60, eo::charset("01"), "code");
@@ -362,6 +362,7 @@ in a scope, with a reason the report prints. They appear on stderr, which on the
 | EO204 | `eo::wrong` carries no message |
 | EO205 | a fraction outside [0, 1], or negative points, was clamped |
 | EO213 | on the judge, `TEST_COST` is missing or not a number, so the cost of `eo::points` is a guess |
+| EO115 | a read of the input checks it; the validator owns the input, as in [checker.md](checker.md#the-input-is-the-validators) |
 | EO401 | more than 100,000 round trips (a note), or more than 500,000 (a warning) |
 | EO402 | more than 10,000 round trips with no `eo::budget` declared |
 | EO403 | a budget was declared and never spent |
@@ -370,6 +371,7 @@ in a scope, with a reason the report prints. They appear on stderr, which on the
 | EO406 | an answer file was passed and never read (a note) |
 | EO407 | a phase handoff exceeded 64 MB |
 | EO409 | the solution sent more than 16 MB while the interactor was still writing to it |
+| EO410 | `eo::jury_error` came before the interactor read the solution or the answer, so it is about the input (a note) |
 
 ## Testing an interactor locally
 

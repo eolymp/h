@@ -292,6 +292,10 @@ func (w *Workspace) structureChecks(ctx context.Context, found *Findings) error 
 	}
 
 	if w.Problem.Validator == nil {
+		if trusting := w.Problem.trustsTheInput(); trusting != "" {
+			found.warn("EO825", trusting, "no validator checks the tests, and the "+trusting+" trusts the input",
+				"add a validator; the checker and the interactor read the input without checking it")
+		}
 		return nil
 	}
 

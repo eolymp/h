@@ -31,7 +31,7 @@ public:
     dialogue(dialogue const&) = delete;
     dialogue& operator=(dialogue const&) = delete;
 
-    stream input;
+    input_stream input;
     stream jury;
 
     bool has_jury() const { return !paths_[2].empty(); }
@@ -92,7 +92,7 @@ protected:
         keep_binary(1);
         log_file() = stderr;
         emitter() = &dialogue::say;
-        input = stream(source::over_file(paths_[0].c_str(), true), fault::jury_error, "input.txt");
+        input = input_stream(source::over_file(paths_[0].c_str(), true), "input.txt");
     }
 
     ~dialogue() = default;
@@ -183,6 +183,14 @@ public:
 
     char const* called() const final { return "interactor"; }
 
+    void blames_the_jury() final {
+        if (!contestant.inside().read_anything() && !jury.inside().read_anything())
+            detail::note("EO410",
+                         "this jury error came before the interactor read the solution or the answer, so it is "
+                         "about the input",
+                         "the validator owns the input; check it there", detail::site::here());
+    }
+
     template <class... Args>
     void send(Args const&... values) {
         std::string line;
@@ -216,7 +224,7 @@ private:
 
     void read_the_test_again(std::string const& bytes) {
         kept_test_ = bytes;
-        input = stream(detail::source::over_text(kept_test_, true), detail::fault::jury_error, "input.txt");
+        input = input_stream(detail::source::over_text(kept_test_, true), "input.txt");
     }
 
     [[noreturn]] void hand_the_file_on(std::string const& bytes) {

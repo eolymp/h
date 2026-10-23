@@ -2,7 +2,7 @@
 
 int main(int argc, char** argv) {
     eo::controller ctl(argc, argv);
-    int const n = ctl.input.read_int(1, 1000000, "n");
+    int const n = ctl.input.read_int("n");
     eo::channel& only = ctl.spawn();
     only.send(n);
     for (int at = 1; at <= n; at++) only.send(at);

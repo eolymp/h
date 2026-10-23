@@ -395,6 +395,10 @@ EO_TEST(an_edge_list_is_read_line_by_line_with_its_vertices_bounded) {
     });
     EO_CHECK(!quiet.stopped);
     EO_CHECK(!eot::contains(warnings_of_last_run(), "EO101"));
+    eot::outcome const heavy = validate("1 2 123456789012\n", [](eo::validator& v) {
+        EO_CHECK_EQ(v.read_edges(1, 3, eo::weighted(eo::any), "edge")[0].w, 123456789012LL);
+    });
+    EO_CHECK(!heavy.stopped);
     eot::outcome const none = validate("", [](eo::validator& v) { EO_CHECK(v.read_edges(0, 3, "edge").empty()); });
     EO_CHECK(!none.stopped);
 }
