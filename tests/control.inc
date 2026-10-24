@@ -102,7 +102,7 @@ staged run_control(std::string const& test, std::vector<std::string> const& repl
 EO_TEST(a_controller_starts_instances_and_relays_between_them) {
     staged const result = run_control("3 12345\n", {"ok", "ok", "ok"}, {"abc\n", "abc\n", "12345\n"}, 10,
                                       [](eo::controller& ctl) {
-        int const k = ctl.input.read_int(2, 100, "instances");
+        int const k = ctl.input.read_int("instances");
         long long const secret = ctl.input.read_long(eo::any, "secret");
         EO_CHECK_EQ(ctl.instance_limit(), 10LL);
         eo::channel& first = ctl.spawn();
@@ -132,7 +132,7 @@ EO_TEST(a_controller_starts_instances_and_relays_between_them) {
 
 EO_TEST(an_instance_beyond_the_limit_is_the_problem_not_the_solution) {
     staged const result = run_control("3 1\n", {"LIMIT"}, {}, 2, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::channel& one = ctl.spawn();
         one.send("hello");
         eo::accept();
@@ -144,7 +144,7 @@ EO_TEST(an_instance_beyond_the_limit_is_the_problem_not_the_solution) {
 
 EO_TEST(a_controller_blames_the_instance_it_was_reading) {
     staged const nonsense = run_control("3 1\n", {"ok"}, {"maybe\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::channel& one = ctl.spawn();
         one.send("go");
         one.read_int(1, 9, "x");
@@ -153,7 +153,7 @@ EO_TEST(a_controller_blames_the_instance_it_was_reading) {
     EO_CHECK_EQ(nonsense.code, 1);
     EO_CHECK_IN(nonsense.text, "wrong answer: instance 1, line 1, x: expected an integer, found \"maybe\"");
     staged const silent = run_control("3 1\n", {"ok"}, {""}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::channel& one = ctl.spawn();
         one.send("go");
         one.read_int(1, 9, "x");
@@ -165,7 +165,7 @@ EO_TEST(a_controller_blames_the_instance_it_was_reading) {
 
 EO_TEST(every_channel_is_flushed_before_the_controller_waits_on_any) {
     staged const result = run_control("3 1\n", {"ok", "ok"}, {"5\n", "6\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::channel& one = ctl.spawn();
         eo::channel& two = ctl.spawn();
         one.send("to one");
@@ -181,7 +181,7 @@ EO_TEST(every_channel_is_flushed_before_the_controller_waits_on_any) {
 
 EO_TEST(a_controller_refuses_a_score_that_is_not_a_number) {
     staged const result = run_control("1\n", {}, {}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         ctl.pass(-std::nan(""), "degenerate");
     });
     EO_CHECK_EQ(result.code, 3);
@@ -192,7 +192,7 @@ EO_TEST(a_controller_refuses_a_score_that_is_not_a_number) {
 EO_TEST(a_controller_summary_that_cannot_be_written_whole_is_a_jury_error) {
     file_size_limit disk;
     staged const result = run_control("1\n", {}, {}, 10, [&](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         disk.cap(27);
         eo::score(0.00001, "almost nothing");
     });
@@ -204,7 +204,7 @@ EO_TEST(a_controller_summary_that_cannot_be_written_whole_is_a_jury_error) {
 
 EO_TEST(a_controller_writes_points_above_the_cost_as_full_marks) {
     staged const result = run_control("1\n", {}, {}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         eo::points(50, "more than the test");
     });
     EO_CHECK_EQ(result.code, 0);
@@ -214,7 +214,7 @@ EO_TEST(a_controller_writes_points_above_the_cost_as_full_marks) {
 #if !defined(_WIN32)
 EO_TEST(an_instance_that_stopped_reading_is_judged_by_what_it_said) {
     staged const closed = run_control("1\n", {"DEAF"}, {"7\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         eo::channel& one = ctl.spawn();
         stop_listening();
         one.send("go");
@@ -226,7 +226,7 @@ EO_TEST(an_instance_that_stopped_reading_is_judged_by_what_it_said) {
     EO_CHECK_EQ(closed.code, 0);
     EO_CHECK_EQ(closed.text, std::string("ok heard 7"));
     staged const early = run_control("1\n", {"DEAF"}, {"7\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         eo::channel& one = ctl.spawn();
         stop_listening();
         one.send("go");
@@ -238,7 +238,7 @@ EO_TEST(an_instance_that_stopped_reading_is_judged_by_what_it_said) {
     EO_CHECK_EQ(early.code, 1);
     EO_CHECK_IN(early.text, "instance 1 ended the dialogue early");
     staged const left = run_control("1\n", {"DEAF"}, {"7\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         eo::channel& one = ctl.spawn();
         stop_listening();
         one.send("go");
@@ -252,7 +252,7 @@ EO_TEST(an_instance_that_stopped_reading_is_judged_by_what_it_said) {
 
 EO_TEST(a_controller_can_award_part_of_the_test) {
     staged const result = run_control("3 1\n", {"ok"}, {"5\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::channel& one = ctl.spawn();
         one.send("go");
         EO_CHECK_EQ(one.read_long(eo::any, "x"), 5LL);
@@ -266,7 +266,7 @@ EO_TEST(a_controller_can_award_part_of_the_test) {
 
 EO_TEST(a_controller_reports_what_it_never_used) {
     staged const idle = run_control("3 1\n", {"ok", "ok"}, {"5\n", "5\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::channel& one = ctl.spawn();
         (void)ctl.spawn();
         one.send("go");
@@ -276,7 +276,7 @@ EO_TEST(a_controller_reports_what_it_never_used) {
     EO_CHECK_EQ(idle.code, 0);
     EO_CHECK_IN(checker_warnings(), "warning EO408: instance 2 was started and never talked to");
     staged const deaf = run_control("3 1\n", {"ok"}, {"5\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::channel& one = ctl.spawn();
         one.send("go");
         eo::accept("never listened");
@@ -284,7 +284,7 @@ EO_TEST(a_controller_reports_what_it_never_used) {
     EO_CHECK_EQ(deaf.code, 0);
     EO_CHECK_IN(checker_warnings(), "warning EO405: the controller accepted without reading anything");
     staged const unspent = run_control("3 1\n", {"ok"}, {"5\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::budget queries(ctl, 10, "queries");
         eo::channel& one = ctl.spawn();
         one.send("go");
@@ -307,7 +307,7 @@ EO_TEST(a_controller_that_exits_before_its_verdict_is_a_jury_error) {
 
 EO_TEST(a_budget_limits_one_instance) {
     staged const result = run_control("3 1\n", {"ok"}, {"1\n2\n3\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::channel& one = ctl.spawn();
         eo::budget queries(ctl, 2, "queries");
         for (;;) {
@@ -351,18 +351,18 @@ EO_TEST(a_controller_needs_a_control_channel_and_only_one_role) {
 
 EO_TEST(a_controller_ends_the_test_itself) {
     staged const nothing = run_control("3 1\n", {}, {}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
     });
     EO_CHECK_EQ(nothing.code, 3);
     EO_CHECK_IN(nothing.text, "the controller ended without a verdict");
     staged const broken = run_control("3 1\n", {}, {}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         EO_CHECK(!ctl.has_jury());
         eo::jury_error("the test makes no sense");
     });
     EO_CHECK_EQ(broken.code, 3);
     staged const quiet = run_control("3 1\n", {}, {}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         eo::wrong();
     });
     EO_CHECK_EQ(quiet.code, 1);
@@ -370,7 +370,7 @@ EO_TEST(a_controller_ends_the_test_itself) {
     staged const answered = run_control("3 1\n", {}, {}, 10, [](eo::controller& ctl) {
         EO_CHECK(ctl.has_jury());
         EO_CHECK_EQ(ctl.jury.read_int(1, 9, "a"), 7);
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         EO_CHECK(ctl.rng().uniform(1, 1000000) == ctl.rng().uniform(1, 1000000) ||
                  ctl.round_trips() == 0);
         eo::accept("nothing to do");
@@ -382,7 +382,7 @@ EO_TEST(a_dialogue_the_pipes_cannot_carry_is_reported) {
     std::string many;
     for (long long at = 0; at < 100002; at++) many += "1\n";
     staged const result = run_control("3 1\n", {"ok"}, {many}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         EO_CHECK(ctl.cost() == 40);
         eo::channel& one = ctl.spawn();
         for (long long at = 0; at < 100002; at++) {
@@ -399,7 +399,7 @@ EO_TEST(a_dialogue_the_pipes_cannot_carry_is_reported) {
 
 EO_TEST(a_channel_reads_what_an_instance_says_as_a_stream_does) {
     staged const result = run_control("1\n", {"ok"}, {"5 2.5 YES 1 2 3 tail\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         eo::channel& only = ctl.spawn();
         only.send("go");
         EO_CHECK_EQ(only.read_long(1, 9, "a"), 5LL);
@@ -414,7 +414,7 @@ EO_TEST(a_channel_reads_what_an_instance_says_as_a_stream_does) {
     EO_CHECK_EQ(result.code, 0);
     EO_CHECK_EQ(result.text, std::string("ok heard it all"));
     staged const outside = run_control("1\n", {"ok"}, {"10\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         eo::channel& only = ctl.spawn();
         only.send("go");
         only.read_long(1, 9, "a");
@@ -428,7 +428,7 @@ EO_TEST(a_controller_stops_taking_in_an_instance_at_16_mb) {
     std::string flood;
     while (flood.size() <= (std::size_t{1} << 24)) flood += "7\n";
     staged const result = run_control("1\n", {"ok", "ok"}, {"1\n", flood}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         eo::channel& first = ctl.spawn();
         eo::channel& second = ctl.spawn();
         first.send("quiet");
@@ -450,7 +450,7 @@ EO_TEST(a_controller_stops_taking_in_an_instance_at_16_mb) {
 
 EO_TEST(a_judge_that_answers_nonsense_is_a_jury_error) {
     staged const odd = run_control("3 1\n", {"ok"}, {"5\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         (void)ctl.spawn();
         (void)ctl.spawn();
         eo::accept();
@@ -458,7 +458,7 @@ EO_TEST(a_judge_that_answers_nonsense_is_a_jury_error) {
     EO_CHECK_EQ(odd.code, 3);
     EO_CHECK_IN(odd.text, "the judge closed the control channel");
     staged const garbled = run_control("3 1\n", {"NONSENSE"}, {}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(2, 100, "instances");
+        ctl.input.read_int("instances");
         (void)ctl.spawn();
         eo::accept();
     });
@@ -469,7 +469,7 @@ EO_TEST(a_judge_that_answers_nonsense_is_a_jury_error) {
 
 EO_TEST(a_last_word_to_an_instance_is_delivered_with_the_verdict) {
     staged const result = run_control("1\n", {"ok"}, {"7\n"}, 10, [](eo::controller& ctl) {
-        ctl.input.read_int(1, 9, "n");
+        ctl.input.read_int("n");
         eo::channel& only = ctl.spawn();
         only.send("guess");
         only.read_int(1, 9, "x");

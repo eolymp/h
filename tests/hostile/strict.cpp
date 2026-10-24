@@ -49,13 +49,13 @@ void validate(int argc, char** argv) {
 
 void check(int argc, char** argv) {
     eo::checker c(argc, argv);
-    int const mode = c.input.read_int(0, 4, "mode");
+    int const mode = c.input.read_int("mode");
     if (mode == 0) c.tokens();
     if (mode == 1) c.reals(1e-6);
     if (mode == 2) c.lines();
     if (mode == 4) c.lines(eo::exact);
     if (mode == 3) {
-        long long const n = c.input.read_long(1, 100, "n");
+        long long const n = c.input.read_long("n");
         c.yes_no([&](eo::stream& s) {
             std::vector<long long> const values = s.read_longs(n, eo::any, "x");
             std::vector<eo::weighted_edge> const tree = s.read_tree(static_cast<int>(n), eo::weighted(1, 9), "tree");
@@ -73,7 +73,7 @@ void check(int argc, char** argv) {
 
 void interact(int argc, char** argv) {
     eo::interactor it(argc, argv);
-    int const n = it.input.read_int(1, 1000000000, "n");
+    int const n = it.input.read_int("n");
     eo::budget queries(it, 60, "queries");
     it.send(n, eo::fixed(0.5, 3), std::vector<int>{1, 2});
     for (;;) {
@@ -87,7 +87,7 @@ void interact(int argc, char** argv) {
 
 void control(int argc, char** argv) {
     eo::controller ctl(argc, argv);
-    int const n = ctl.input.read_int(1, 10, "n");
+    int const n = ctl.input.read_int("n");
     eo::channel& first = ctl.spawn();
     first.send(n);
     long long const said = first.read_long(1, 100, "said");

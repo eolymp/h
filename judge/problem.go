@@ -144,6 +144,16 @@ type Problem struct {
 
 func (p *Problem) Dir() string { return p.dir }
 
+func (p *Problem) trustsTheInput() string {
+	switch {
+	case p.Interactor != nil:
+		return "interactor"
+	case p.Checker != nil:
+		return "checker"
+	}
+	return ""
+}
+
 func (p *Problem) Path(name string) string {
 	if filepath.IsAbs(name) {
 		return name

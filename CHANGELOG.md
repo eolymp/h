@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.4.0
+
+The validator owns the input. A checker, an interactor or a controller now reads its input
+without bounds, and one that checks the input again gets a warning for it. **No verdict
+changes**: a bounded read of the input still checks, and a value it refuses is still a jury
+error with the same message. What changes is what the library says about it: new warnings
+EO115 and EO825, new notes EO216 and EO410, and a compiler warning at every bounded read of
+the input.
+
+### What changes for a program
+
+- **A read of the input that checks it raises EO115.** `c.input`, `it.input` and `ctl.input`
+  are now an `eo::input_stream`, where bounds, a length, a charset, a pattern, `read_choice`,
+  `read_tree`, `read_graph` and `wrong` are `[[deprecated]]`, so the compiler names the line,
+  and the run reports EO115 for it once. The read itself is unchanged. A program built with
+  `-Werror` stops at such a read; `EOLYMP_STRICT=1` and `eo-judge --strict` stop at the
+  warning, so a checker that bounds its input fails a strict run until it drops the bounds or
+  says `eo::allow quiet("EO115", "why")`.
+- **The input reads without bounds and without a warning.** `read_int("n")`, `read_long`,
+  `read_real`, `read_token` and `read_line` with a name alone, `read_ints(n, "a")`,
+  `read_longs`, `read_reals` and `read_tokens` with a count, `read_grid(rows, "g")` and
+  `read_edges(m, "edge")` are new on the input, and the bare `read_int("n")` there no longer
+  raises EO103.
+- **`eo::weighted(eo::any)`** reads a weight of any value on an edge, in a validator and on
+  any stream.
+- **A jury error before anything else is read is noted.** `eo::jury_error` before a checker
+  has read the answer or the output raises note EO216, and before an interactor has read the
+  solution or the answer, note EO410: such an error can only be about the input.
+
+### eo-judge
+
+- **EO825**: a problem with a checker or an interactor and no validator, since nothing then
+  checks the input they trust.
+- `eo-judge init`'s interactive templates read the input without bounds.
+
 ## 2.3.0
 
 Two behaviours of the header change, both listed first: a jury program that sets a numeric

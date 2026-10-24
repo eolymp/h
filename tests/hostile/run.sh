@@ -52,6 +52,7 @@ refused_with() {
 }
 
 refused_with unprintable "eolymp.h cannot print this type"
+refused_with bounded_input "eolymp EO115: the validator owns the input; read it as read_int(name)" -Werror
 
 refused_with both_namespaces "ambiguous"
 build_and_run qualified_names -Wall -Wextra -Wshadow -Werror

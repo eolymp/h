@@ -112,7 +112,7 @@ partially scored subtask its value on **every** test and score the testset `WORS
 
 | Stream | Holds | A failed read is | A number with no bounds |
 | --- | --- | --- | --- |
-| `c.input` | the test | a jury error | fine: the validator has checked it |
+| `c.input` | the test | a jury error | the norm: the validator has checked it, and bounds raise EO115 |
 | `c.jury` | the answer file | a jury error | warning EO103 |
 | `c.output` | what the contestant printed | a wrong answer | warning EO103 |
 
@@ -122,6 +122,37 @@ So the same call on two streams means two different things, and you never decide
 wrong answer: output.txt, line 1, sum: expected an integer, found "abc"
 jury error: answer.txt, line 1, sum: expected an integer, found "abc"
 ```
+
+### The input is the validator's
+
+The validator has already checked every test, so the checker trusts the input and reads it
+**without bounds**:
+
+```cpp
+int n = c.input.read_int("n");
+std::vector<int> a = c.input.read_ints(n, "a");
+std::vector<eo::edge> roads = c.input.read_edges(m, "road");
+```
+
+Checking the input again in the checker repeats the validator, and the two drift apart: when a
+subtask's limit grows and only the validator is updated, the checker turns a valid test into a
+jury error on every submission. So a read of `c.input` that checks something — bounds, a
+length, a charset, a pattern, `read_choice`, `read_tree`, `read_graph`, or `c.input.wrong(…)`
+— raises warning EO115, at compile time and when it runs. It still checks, and a value it
+refuses is still a jury error, so no verdict changes; the fix is to drop the check here and keep
+it in the validator. `eo::jury_error` called before the checker has read anything from the
+answer or the output can only be about the input too, and gets note EO216.
+
+The input's reads with no bounds are `read_int`, `read_long`, `read_real`, `read_token` and
+`read_line` with a name alone, `read_ints`, `read_longs`, `read_reals` and `read_tokens` with a
+count and a name, `read_grid(rows, name)`, `read_edges(m, name)`, and
+`read_edges(m, eo::weighted(eo::any), name)` for weighted edges. The forms with `eo::any`
+work as well.
+
+The values the input gives are still what bounds the contestant's output:
+`c.output.read_int(1, n, "k")` is the right read, because the output is not validated by
+anyone but the checker. `eo-judge check` raises EO825 when a problem has a checker and no
+validator, since then nothing checks the input the checker trusts.
 
 All three are **lenient about whitespace**: any amount of spaces, tabs, line breaks and `\r`
 may separate two values, and a token read does not care which line it is on. `read_line` is
@@ -311,7 +342,7 @@ as a jury error instead of silently failing everyone.
 
 int main(int argc, char** argv) {
     eo::checker c(argc, argv);
-    int n = c.input.read_int(1, 100000, "n");
+    int n = c.input.read_int("n");
     auto chosen = [n](eo::answer_stream& a) {
         int k = a.read_int(0, n, "k");
         std::vector<int> items = a.read_ints(k, 1, n, "item");
@@ -520,10 +551,10 @@ real route earn everything.
 
 int main(int argc, char** argv) {
     eo::checker c(argc, argv);
-    int n = c.input.read_int(2, 100000, "n");
-    int m = c.input.read_int(1, 200000, "m");
+    int n = c.input.read_int("n");
+    int m = c.input.read_int("m");
     std::set<std::pair<int, int>> joined;
-    for (eo::edge const& road : c.input.read_edges(m, n, "road")) {
+    for (eo::edge const& road : c.input.read_edges(m, "road")) {
         joined.insert({road.u, road.v});
         joined.insert({road.v, road.u});
     }
@@ -599,6 +630,7 @@ machine-readable `eo-report` line.
 | EO106 | a bound is one away from a round number (a note) |
 | EO107 | one name is read with different bounds, or as two different kinds, at two places |
 | EO111 | a token over 1 MB from the contestant was held in memory (a note) |
+| EO115 | a read of the input checks it: bounds, a length, a charset, a pattern, a choice, a tree or a graph shape |
 | EO201 | the checker passed the run without reading any of the output |
 | EO202 | the checker read neither the input nor the answer |
 | EO203 | the answer file still holds something when the checker finished |
@@ -612,6 +644,7 @@ machine-readable `eo-report` line.
 | EO212 | the problem declares `eo::many`, but the checker only compares with the jury |
 | EO213 | on the judge, `TEST_COST` is missing or not a number, so the cost is a guess |
 | EO214 | `c.optimum` or `eo::compare` compared two reals with `==`; give it `eo::within(eps)` |
+| EO216 | `eo::jury_error` came before the checker read the answer or the output, so it is about the input (a note) |
 
 `EOLYMP_STRICT=1` turns every warning into a jury error while you prepare a problem. Notes
 stay notes. State the intent where there is a way to — `eo::any`, `eo::unnamed`,
@@ -631,7 +664,7 @@ Nothing a checker reads is missing.
 | Member | Does |
 | --- | --- |
 | `eo::checker c(argc, argv)` | makes the program a checker |
-| `c.input`, `c.jury`, `c.output` | the three streams |
+| `c.input`, `c.jury`, `c.output` | the three streams; the input is read without bounds |
 | `c.read_both(reader)` | reads the jury's answer, then the output, with one function |
 | `c.answers(eo::unique)`, `c.answers(eo::many)` | how many answers are correct |
 | `c.output_only("why")` | an output-only checker that reads neither the input nor the answer on purpose |

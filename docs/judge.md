@@ -21,7 +21,7 @@ writes `build/eo-judge`, and `make judge` runs gofmt, go vet and the eo-judge te
 
 ```bash
 eo-judge run   <problem>   # build, generate, validate, judge every solution, score it
-eo-judge check <problem>   # EO801-EO821 and EO901-EO912
+eo-judge check <problem>   # EO801-EO825 and EO901-EO912
 eo-judge lint  <problem>   # what is only visible in the source
 eo-judge stress <problem> --args '-n=[1..8]'
                            # generated inputs until a solution breaks its type; see below
@@ -419,6 +419,11 @@ note EO821: the problem has 1 correct solution(s)
 
 `check` also replays the warnings the programs themselves raised while generating and
 validating, so one command covers both halves.
+
+**A checker or an interactor needs a validator.** They read the input without checking it,
+because the validator owns it ([checker.md](checker.md#the-input-is-the-validators)), so a
+problem that has either and no validator gets warning EO825: nothing checks the input they
+trust.
 
 **Each solution runs in a directory of its own**, a fresh temporary directory outside the
 workspace that is removed when the run ends, so no name or relative path from it reaches the

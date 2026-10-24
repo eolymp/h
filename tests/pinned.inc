@@ -308,7 +308,7 @@ EO_TEST(pin_what_an_exact_comparison_of_lines_says) {
 
 EO_TEST(pin_the_round_trips_an_interactor_counts_after_each_kind_of_read) {
     chat const number = talk("1\n", "5\n6\n", [](eo::interactor& it) {
-        it.input.read_int(1, 1, "n");
+        it.input.read_int("n");
         it.send(1);
         it.contestant.read_int(1, 9, "x");
         it.send(2);
@@ -318,7 +318,7 @@ EO_TEST(pin_the_round_trips_an_interactor_counts_after_each_kind_of_read) {
     });
     EO_CHECK_EQ(number.text, std::string("ok 2 round trips"));
     chat const real = talk("1\n", "5\n6\n", [](eo::interactor& it) {
-        it.input.read_int(1, 1, "n");
+        it.input.read_int("n");
         it.send(1);
         it.contestant.read_real(0, 9, "x");
         it.send(2);
@@ -328,7 +328,7 @@ EO_TEST(pin_the_round_trips_an_interactor_counts_after_each_kind_of_read) {
     });
     EO_CHECK_EQ(real.text, std::string("ok 2 round trips"));
     chat const token = talk("1\n", "5\n6\n", [](eo::interactor& it) {
-        it.input.read_int(1, 1, "n");
+        it.input.read_int("n");
         it.send(1);
         it.contestant.read_token(eo::any, "x");
         it.send(2);
@@ -338,7 +338,7 @@ EO_TEST(pin_the_round_trips_an_interactor_counts_after_each_kind_of_read) {
     });
     EO_CHECK_EQ(token.text, std::string("ok 1 round trips"));
     chat const lenient = talk("1\n", "007\n6\n", [](eo::interactor& it) {
-        it.input.read_int(1, 1, "n");
+        it.input.read_int("n");
         it.contestant.numbers(eo::lenient);
         it.send(1);
         it.contestant.read_int(1, 9, "x");
@@ -744,7 +744,7 @@ EO_TEST(reals_are_read_and_written_with_a_dot_in_a_locale_with_a_decimal_comma) 
     std::string const written_upward = eo::fmt("{}", eo::fixed(1.5, 2));
     std::fesetround(before);
     eot::outcome const nearly = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 1, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 1, "x");
         c.jury.read_int(1, 1, "x");
         eo::points(39.99999999);
@@ -870,7 +870,9 @@ EO_TEST(pin_the_traffic_and_the_warnings_a_dialogue_ends_with) {
     EO_CHECK_EQ(without_header_lines(checker_warnings()), unspent);
     chat const empty = talk("1\n", "", [](eo::interactor&) { eo::jury_error(""); });
     EO_CHECK_EQ(empty.text, std::string("jury error"));
-    EO_CHECK_EQ(checker_warnings(), std::string(""));
+    EO_CHECK_EQ(without_header_lines(checker_warnings()),
+                std::string("eolymp.h:L: note EO410: this jury error came before the interactor read the solution or "
+                            "the answer, so it is about the input\n  the validator owns the input; check it there\n"));
     staged const controlled = run_control("1\n", {"ok", "ok"}, {"5\n", ""}, 2, [](eo::controller& ctl) {
         eo::budget queries(ctl, 5, "queries");
         eo::channel& first = ctl.spawn();

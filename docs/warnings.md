@@ -24,7 +24,7 @@ line on the judge, and the channel each role can afford to write to — is in
 | `eo-judge check` | the emulator, reading the whole problem; **never appears in a judge log** |
 | `eo-judge lint` | a textual scan of the source, for what no run can see |
 
-All 85 designed codes are built.
+All 89 designed codes are built.
 
 ## EO1xx — reading a value
 
@@ -45,6 +45,7 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO111` | note | the program | a token over 1 MB was held in memory | bound its length if the format allows |
 | `EO112` | warning | the program | a message has more or fewer `{}` than values, or a lone `{` or `}`, such as a printf-style `"%d"` | write one `{}` for each value and `{{` or `}}` for a brace; the message keeps every value, the extra ones appended, and the verdict stands; under C++20, `-DEOLYMP_CHECK_PATTERNS` makes a literal message like that a compile error instead |
 | `EO113` | warning | the program | a token is read against a pattern whose every match holds a space, a tab or a line break, as testlib's `readToken("[a-z] {1,5}")` does when ported: testlib drops the space, this library keeps it, and no token can match | read a line with `read_line(pattern, name)`, or drop the space the way testlib did |
+| `EO115` | warning | compiler, the program | a checker, an interactor or a controller checks the input: it reads `c.input` with bounds, a length, a charset, a pattern or a list of choices, reads a tree or a shaped graph from it, or calls `c.input.wrong(…)`; the read still checks, and a value out of range is still a jury error | the validator owns the input, so read it without bounds — `c.input.read_int("n")`, `read_ints(n, "a")`, `read_edges(m, "edge")` — and check it in the validator. The runtime warning also catches a bounded read made through an `eo::stream&` that was handed the input |
 
 ## EO2xx — the checker
 
@@ -64,6 +65,7 @@ Every role reads through the same engine, so these fire anywhere.
 | `EO212` | warning | the program | the problem declares many answers and the checker only compares with the jury's | compare properties, not the jury's text, or declare `eo::unique` |
 | `EO213` | warning | the program, on the judge | `TEST_COST` is missing, and the test is taken to be worth 100 points, or is not a number, and it is taken to be worth 0; points and partial scores then follow from the wrong cost | the judge sets `TEST_COST` for every checker, interactor and controller; report its configuration |
 | `EO214` | warning | the program | `c.optimum(by_the_jury, found, direction)` or `eo::compare(found, by_the_jury, direction)` compared two reals with `==`, so a correct answer that rounding moved is a wrong answer or a jury error; the verdict is the one `==` gives, as before | say how close is equal: `c.optimum(by_the_jury, found, direction, eo::within(1e-6))`, which is the rule of `eo::close_enough` |
+| `EO216` | note | the program | `eo::jury_error` was called before the checker read anything from the answer or the output, so it can only be about the input | the validator owns the input; move the check there |
 
 ## EO3xx — the validator
 
@@ -90,6 +92,7 @@ Raised by `eo::interactor`, `eo::controller` and `eo::phases`.
 | `EO407` | warning | the program | a `run_count` handoff is large | the judge copies it between runs, so keep it small |
 | `EO408` | warning | the program | an instance was started and never talked to | spawn it where it is needed, or drop it |
 | `EO409` | warning | the program | while an interactor was still writing to the solution, or a controller to one of its instances, the solution or that instance sent more than 16 MB of answers, which the library stops taking in, so the two can wait for each other until the time limit; the 16 MB are counted for each instance, and only the instance being written to is taken in from; it is written to stderr the moment it is raised, because a run killed at the limit never reaches the report | read the solution's or the instance's answers between sends instead of sending everything first |
+| `EO410` | note | the program | `eo::jury_error` was called before the interactor read anything from the solution or the answer, so it can only be about the input | the validator owns the input; move the check there |
 
 ## EO5xx — the generator
 
@@ -135,6 +138,7 @@ the author writes no test code for any of them.
 | `EO822` | warning | `eo-judge check` | on an `OUTPUT` problem, the checker accepts the jury's answer of the next test, whose input differs, as this test's output; each test is tried with the next one's, and the last with the first's | a contestant may upload any file for any test, so one good file could pass them all; check the output against this test's input, unless that answer really is right for both |
 | `EO823` | warning | `eo-judge check` | on a `FUNCTION` problem, a C++ template's stub, its `source` wrapped in its header and footer, does not compile, or is judged as anything but a wrong answer | a contestant starts from the stub: make the three compile together and return something the checker refuses |
 | `EO824` | warning | `eo-judge check` | on a `FUNCTION` problem, a whole program, `int main() { return 0; }`, compiles inside a C++ template | the template should hold `main()`, in its footer or its header, so a submission that brings its own gets a compilation error, as on the judge |
+| `EO825` | warning | `eo-judge check` | the problem has a checker or an interactor and no validator, so nothing checks the input they trust | add a validator |
 
 ## EO9xx — configuration
 

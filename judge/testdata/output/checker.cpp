@@ -6,7 +6,7 @@
 int main(int argc, char** argv) {
     eo::checker c(argc, argv);
     c.output_only("the answer file is one placement among many");
-    int const n = c.input.read_int(4, 8, "n");
+    int const n = c.input.read_int("n");
     std::vector<int> column(n), up(2 * n), down(2 * n);
     int queens = 0;
     for (int row = 0; row < n; row++) {

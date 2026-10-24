@@ -124,6 +124,16 @@ public:
     }
 
     void blame(fault whose) { whose_ = whose; }
+    void trust() { trusted_ = true; }
+
+    void checking(char const* what, site where) const {
+        if (trusted_) checked(what, where);
+    }
+
+    template <class Bound>
+    void checking(char const* kind, Bound low, Bound high, site where) const {
+        if (trusted_) checked(fmt("{} in {}..{}", kind, low, high), where);
+    }
     void relaxed(bool loose) { relaxed_ = loose; }
     bool relaxed() const { return relaxed_; }
 
@@ -179,6 +189,7 @@ public:
         else parsed = spelled_integer(name);
         study(name, low, high, bounds, type_low, type_high, type_word, where);
         if (bounds == stated::yes) {
+            checking("an integer", low, high, where);
             if (parsed.value < low) refuse(name, fmt("{} is below {}", parsed.value, low));
             if (parsed.value > high) refuse(name, fmt("{} is above {}", parsed.value, high));
         }
@@ -214,6 +225,7 @@ public:
         if (bounds == stated::absent && fresh(loose_code_, where))
             warn(loose_code_, "this value is read without bounds", "give the bounds, or say eo::any", where);
         if (bounds == stated::yes) {
+            checking("a number", low, high, where);
             if (parsed.value < low) refuse(name, fmt("{} is below {}", parsed.value, low));
             if (parsed.value > high) refuse(name, fmt("{} is above {}", parsed.value, high));
         }
@@ -256,6 +268,8 @@ public:
                  "say which characters it may hold, or say eo::any", where);
         note_a_large_token(token, where);
         if (bounds == stated::yes) {
+            checking(allowed != nullptr ? "a token of a given length over a charset" : "a token of a given length",
+                     where);
             long long const length = static_cast<long long>(token.size());
             if (length > most)
                 refuse(name, fmt("\"{}\" is longer than {} characters", shorten(token), most));
@@ -273,6 +287,7 @@ public:
     }
 
     std::string matching(eo::pattern const& told, value_name const& name, site where) {
+        checking("a token against a pattern", where);
         if (!told.in_a_token_ && fresh("EO113", where))
             warn("EO113",
                  fmt("\"{}\" matches only text with a blank in it, and a token holds none", escaped(told.text())),
@@ -291,7 +306,8 @@ public:
         return token;
     }
 
-    std::string line_matching(eo::pattern const& told, value_name const& name) {
+    std::string line_matching(eo::pattern const& told, value_name const& name, site where) {
+        checking("a line against a pattern", where);
         std::string text;
         long long const cap = told.longest_ == unbounded ? 0 : told.longest_ + 1;
         long long const seen = line_into(text, cap, name);
@@ -309,6 +325,9 @@ public:
         std::string text;
         long long const cap = bounds == stated::yes && most < long_high ? most + 1 : 0;
         long long const seen = line_into(text, cap, name);
+        if (bounds == stated::yes || allowed != nullptr)
+            checking(allowed != nullptr ? "a line of a given length over a charset" : "a line of a given length",
+                     where);
         if (allowed == nullptr && bounds == stated::yes && !lenient_ && fresh("EO108", where))
             warn("EO108", "this line is read with no charset",
                  "say which characters it may hold, or say eo::any", where);
@@ -528,6 +547,7 @@ public:
     }
 
     std::string choice(std::initializer_list<char const*> choices, bool fold, value_name const& name, site where) {
+        checking("a token against a list of choices", where);
         std::string found = take_word(name, where, "a token", longest_of(choices));
         for (char const* one : choices) {
             if (found == one) return found;
@@ -569,6 +589,12 @@ public:
 
 private:
     static bool fresh(char const* code, site where) { return !diagnostics::shared().again(code, where); }
+
+    static void checked(std::string const& what, site where) {
+        if (fresh("EO115", where))
+            warn("EO115", fmt("this read checks the input: {}", what),
+                 "the validator owns the input; read it without bounds and check it there", where);
+    }
 
     bool token_goes_on() {
         if (lenient_) return false;
@@ -700,6 +726,7 @@ private:
     fault whose_ = fault::invalid_test;
     std::string label_;
     bool lenient_ = false;
+    bool trusted_ = false;
     char const* loose_code_ = "EO102";
     std::string last_value_;
     bool last_indexed_ = false;

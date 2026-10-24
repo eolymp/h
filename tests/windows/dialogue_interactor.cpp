@@ -4,8 +4,8 @@
 
 int main(int argc, char** argv) {
     eo::interactor it(argc, argv);
-    int const mode = it.input.read_int(1, 9, "mode");
-    long long const param = it.input.read_long(0, 100000000, "param");
+    int const mode = it.input.read_int("mode");
+    long long const param = it.input.read_long("param");
     if (mode == 1) {
         it.send(std::string(std::size_t{1} << 20, 'a'));
         long long count = 0;

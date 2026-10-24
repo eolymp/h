@@ -74,13 +74,13 @@ EO_TEST(a_line_that_ends_in_crlf_measures_the_same_as_one_that_does_not) {
     for (auto const& one : std::vector<std::pair<std::string, bool>>{
              {"ab", false}, {"abc", true}, {"abcde", true}, {"abcdef", false}}) {
         eot::outcome const plain = check_run("1\n", one.first + "\n", "x\n", [](eo::checker& c) {
-            c.input.read_int(1, 9, "n");
+            c.input.read_int("n");
             c.output.read_line(3, 5, eo::charset("a-z"), "s");
             c.jury.skip_rest("nothing to compare");
             eo::accept();
         });
         eot::outcome const windows = check_run("1\n", one.first + "\r\n", "x\n", [](eo::checker& c) {
-            c.input.read_int(1, 9, "n");
+            c.input.read_int("n");
             c.output.read_line(3, 5, eo::charset("a-z"), "s");
             c.jury.skip_rest("nothing to compare");
             eo::accept();
@@ -129,19 +129,19 @@ EO_TEST(rounding_a_score_rounds_and_does_not_floor) {
 
 EO_TEST(comparing_lines_trims_both_sides) {
     eot::outcome const jury_padded = check_run("1\n", "hello\n", "hello   \n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.lines();
     });
     EO_CHECK_EQ(jury_padded.code, 0);
 
     eot::outcome const output_padded = check_run("1\n", "hello   \n", "hello\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.lines();
     });
     EO_CHECK_EQ(output_padded.code, 0);
 
     eot::outcome const different = check_run("1\n", "hello x\n", "hello\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.lines();
     });
     EO_CHECK_EQ(different.code, 1);

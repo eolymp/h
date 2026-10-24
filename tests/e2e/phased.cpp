@@ -3,7 +3,7 @@
 int main(int argc, char** argv) {
     eo::interactor it(argc, argv);
     eo::phases ph(it, 2);
-    long long x = it.input.read_long(0, 1000000000, "x");
+    long long x = it.input.read_long("x");
     if (ph.number() == 1) {
         it.send("alice", x);
         std::string code = it.contestant.read_token(1, 60, eo::charset("01"), "code");

@@ -72,6 +72,31 @@ func TestCheckReadsEveryAnswerNotOnlyTheFirst(t *testing.T) {
 	}
 }
 
+func TestCheckWarnsWhenNothingValidatesTheInputTheJuryTrusts(t *testing.T) {
+	t.Parallel()
+	needsACompiler(t)
+
+	for dir, want := range map[string]string{
+		"testdata/answers": "checker",
+		"testdata/forged":  "interactor",
+		"testdata/broken":  "",
+	} {
+		found, err := workshop(t, dir).Check(context.Background(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		where := ""
+		for _, one := range found {
+			if one.Code == "EO825" {
+				where = one.Where
+			}
+		}
+		if where != want {
+			t.Errorf("%s: EO825 fired at %q, want %q", dir, where, want)
+		}
+	}
+}
+
 func TestRunReproducesTheJudgeOnABatchProblem(t *testing.T) {
 	t.Parallel()
 	needsACompiler(t)

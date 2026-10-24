@@ -275,7 +275,9 @@ public:
         return from_.matching(told, name, where);
     }
 
-    std::string read_line(pattern const& told, detail::value_name name) { return from_.line_matching(told, name); }
+    std::string read_line(pattern const& told, detail::value_name name, detail::site where = detail::site::here()) {
+        return from_.line_matching(told, name, where);
+    }
 
     std::string read_line(long long least, long long most, charset allowed, detail::value_name name,
                           detail::site where = detail::site::here()) {
@@ -575,8 +577,8 @@ private:
             int const v = from_.whole_int(1, n, ends, name.lent_at(index), where);
             if constexpr (std::is_same_v<Edge, weighted_edge>) {
                 read_space();
-                long long const w =
-                    from_.whole_long(weights.low, weights.high, detail::stated::yes, weight.lent_at(index), where);
+                detail::stated const bounded = weights.any ? detail::stated::deliberate : detail::stated::yes;
+                long long const w = from_.whole_long(weights.low, weights.high, bounded, weight.lent_at(index), where);
                 edges.push_back(Edge{u, v, w});
             } else {
                 edges.push_back(Edge{u, v});

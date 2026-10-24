@@ -25,9 +25,12 @@ struct weighted_edge {
 struct weight_bounds {
     long long low;
     long long high;
+    bool any = false;
 };
 
 inline weight_bounds weighted(long long low, long long high) { return weight_bounds{low, high}; }
+
+inline weight_bounds weighted(any_t) { return weight_bounds{0, 0, true}; }
 
 enum graph_shape {
     any_graph = 0,

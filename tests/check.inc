@@ -58,7 +58,7 @@ std::string checker_warnings() { return eo::detail::diagnostics::shared().local_
 
 EO_TEST(a_checker_reads_three_files_and_accepts) {
     eot::outcome const result = check_run("3\n", "60\n", "60\n", [](eo::checker& c) {
-        int const n = c.input.read_int(1, 100, "n");
+        int const n = c.input.read_int("n");
         EO_CHECK_EQ(n, 3);
         long long const want = c.jury.read_long(eo::any, "sum");
         long long const got = c.output.read_long(eo::any, "sum");
@@ -71,7 +71,7 @@ EO_TEST(a_checker_reads_three_files_and_accepts) {
 
 EO_TEST(a_stream_decides_whose_fault_a_bad_read_is) {
     eot::outcome const contestant = check_run("3\n", "abc\n", "60\n", [](eo::checker& c) {
-        c.input.read_int(1, 100, "n");
+        c.input.read_int("n");
         c.jury.read_long(eo::any, "sum");
         c.output.read_long(eo::any, "sum");
         eo::accept();
@@ -80,14 +80,14 @@ EO_TEST(a_stream_decides_whose_fault_a_bad_read_is) {
     EO_CHECK_IN(contestant.text,
                 "wrong answer: output.txt, line 1, sum: expected an integer, found \"abc\"");
     eot::outcome const paper = check_run("3\n", "60\n", "abc\n", [](eo::checker& c) {
-        c.input.read_int(1, 100, "n");
+        c.input.read_int("n");
         c.jury.read_long(eo::any, "sum");
         eo::accept();
     });
     EO_CHECK_EQ(paper.code, 3);
     EO_CHECK_IN(paper.text, "jury error: answer.txt, line 1, sum: expected an integer");
     eot::outcome const test = check_run("x\n", "60\n", "60\n", [](eo::checker& c) {
-        c.input.read_int(1, 100, "n");
+        c.input.read_int("n");
         eo::accept();
     });
     EO_CHECK_EQ(test.code, 3);
@@ -96,7 +96,7 @@ EO_TEST(a_stream_decides_whose_fault_a_bad_read_is) {
 
 EO_TEST(a_checker_stream_does_not_care_where_the_line_breaks_are) {
     eot::outcome const result = check_run("2\n", "  7\n\n  8  \n", "7 8\n", [](eo::checker& c) {
-        int const n = c.input.read_int(1, 100, "n");
+        int const n = c.input.read_int("n");
         std::vector<long long> const want = c.jury.read_longs(n, eo::any, "a");
         std::vector<long long> const got = c.output.read_longs(n, 1, 100, "a");
         EO_CHECK(want == got);
@@ -108,7 +108,7 @@ EO_TEST(a_checker_stream_does_not_care_where_the_line_breaks_are) {
 
 EO_TEST(a_partial_score_is_a_fraction_of_the_test) {
     eot::outcome const half = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         c.jury.read_int(1, 9, "a");
         eo::score(0.5, "half of it");
@@ -116,7 +116,7 @@ EO_TEST(a_partial_score_is_a_fraction_of_the_test) {
     EO_CHECK_EQ(half.code, 7);
     EO_CHECK_EQ(half.text, std::string("points 20 half of it"));
     eot::outcome const exact = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         c.jury.read_int(1, 9, "a");
         eo::score(eo::ratio(3, 3), "all of it");
@@ -124,14 +124,14 @@ EO_TEST(a_partial_score_is_a_fraction_of_the_test) {
     EO_CHECK_EQ(exact.code, 0);
     EO_CHECK_EQ(exact.text, std::string("ok all of it"));
     eot::outcome const none = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(eo::ratio(0, 3), "none of it");
     });
     EO_CHECK_EQ(none.code, 7);
     EO_CHECK_EQ(none.text, std::string("points 0 none of it"));
     eot::outcome const third = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(eo::ratio(1, 3), "a third");
     });
@@ -140,26 +140,26 @@ EO_TEST(a_partial_score_is_a_fraction_of_the_test) {
 
 EO_TEST(points_and_rounding_go_through_the_cost) {
     eot::outcome const absolute = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::points(7.5, "a bonus");
     });
     EO_CHECK_EQ(absolute.text, std::string("points 7.5 a bonus"));
     eot::outcome const rounded = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(1.0 / 3, eo::round_to(0), "rounded down");
     });
     EO_CHECK_EQ(rounded.text, std::string("points 13 rounded down"));
     eot::outcome const over = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::points(99, "too many");
     });
     EO_CHECK_EQ(over.code, 0);
     EO_CHECK_IN(checker_warnings(), "warning EO207: 99 points is more than the test's 40");
     eot::outcome const negative = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::points(-5, "a penalty");
     });
@@ -167,13 +167,13 @@ EO_TEST(points_and_rounding_go_through_the_cost) {
     EO_CHECK_EQ(negative.text, std::string("points 0 a penalty"));
     EO_CHECK_IN(checker_warnings(), "warning EO205: -5 points was clamped to 0");
     eot::outcome const slight = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::points(-0.5, "half a penalty");
     });
     EO_CHECK_EQ(slight.text, std::string("points 0 half a penalty"));
     eot::outcome const endless = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::points(-std::numeric_limits<double>::infinity(), "an endless penalty");
     });
@@ -184,7 +184,7 @@ EO_TEST(points_and_rounding_go_through_the_cost) {
 EO_TEST(a_message_that_does_not_match_its_values_keeps_the_verdict) {
     int line = 0;
     eot::outcome const refused = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         long long const a = c.output.read_long(eo::any, "a");
         line = __LINE__ + 1;
         eo::wrong("expected %lld, found %lld", 2LL, a);
@@ -194,7 +194,7 @@ EO_TEST(a_message_that_does_not_match_its_values_keeps_the_verdict) {
     EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO112: the message \"expected %lld, found %lld\" "
                                             "has 0 {{}} for 2 values", line).c_str());
     eot::outcome const accepted = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_long(eo::any, "a");
         c.jury.read_long(eo::any, "a");
         eo::accept("{} of {}", 1);
@@ -205,7 +205,7 @@ EO_TEST(a_message_that_does_not_match_its_values_keeps_the_verdict) {
 
 EO_TEST(a_scored_zero_is_not_the_same_run_as_a_wrong_answer) {
     eot::outcome const scored = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(0.0, "nothing matched");
     });
@@ -213,7 +213,7 @@ EO_TEST(a_scored_zero_is_not_the_same_run_as_a_wrong_answer) {
     EO_CHECK_EQ(scored.text, std::string("points 0 nothing matched"));
 
     eot::outcome const refused = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::wrong("not an answer at all");
     });
@@ -224,7 +224,7 @@ EO_TEST(a_scored_zero_is_not_the_same_run_as_a_wrong_answer) {
 EO_TEST(a_score_that_is_not_a_number_is_a_jury_error) {
     for (double const value : {std::nan(""), -std::nan("")}) {
         eot::outcome const scored = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-            c.input.read_int(1, 9, "n");
+            c.input.read_int("n");
             c.output.read_int(1, 9, "a");
             eo::score(value, "degenerate");
         });
@@ -232,14 +232,14 @@ EO_TEST(a_score_that_is_not_a_number_is_a_jury_error) {
         EO_CHECK_IN(scored.text, "eolymp.h: a score of ");
         EO_CHECK_IN(scored.text, "is not a number the judge can pay");
         eot::outcome const paid = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-            c.input.read_int(1, 9, "n");
+            c.input.read_int("n");
             c.output.read_int(1, 9, "a");
             eo::points(value, "degenerate");
         });
         EO_CHECK_EQ(paid.code, 3);
         EO_CHECK_IN(paid.text, " points is not a number the judge can pay");
         eot::outcome const direct = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-            c.input.read_int(1, 9, "n");
+            c.input.read_int("n");
             c.output.read_int(1, 9, "a");
             c.pass(value, "degenerate");
         });
@@ -251,14 +251,14 @@ EO_TEST(a_score_that_is_not_a_number_is_a_jury_error) {
 EO_TEST(an_infinite_score_is_clamped_like_any_score_outside_the_test) {
     double const infinity = std::numeric_limits<double>::infinity();
     eot::outcome const beaten = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(infinity, "the jury's cost over a cost of 0");
     });
     EO_CHECK_EQ(beaten.code, 0);
     EO_CHECK_IN(checker_warnings(), "warning EO205: a score of inf was clamped into 0..1");
     eot::outcome const below = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(-infinity, "far below");
     });
@@ -266,7 +266,7 @@ EO_TEST(an_infinite_score_is_clamped_like_any_score_outside_the_test) {
     EO_CHECK_EQ(below.text, std::string("points 0 far below"));
     EO_CHECK_IN(checker_warnings(), "warning EO205: a score of -inf was clamped into 0..1");
     eot::outcome const paid = check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::points(infinity, "endless");
     });
@@ -276,7 +276,7 @@ EO_TEST(an_infinite_score_is_clamped_like_any_score_outside_the_test) {
 
 EO_TEST(rounding_to_more_digits_than_a_double_holds_changes_nothing) {
     eot::outcome const result = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(0.5, eo::round_to(400), "half");
     });
@@ -286,7 +286,7 @@ EO_TEST(rounding_to_more_digits_than_a_double_holds_changes_nothing) {
 
 EO_TEST(a_score_outside_the_test_is_clamped_and_reported) {
     eot::outcome const above = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(1.5, "overshot");
     });
@@ -294,7 +294,7 @@ EO_TEST(a_score_outside_the_test_is_clamped_and_reported) {
     EO_CHECK_IN(checker_warnings(), "warning EO205: a score of 1.5 was clamped into 0..1");
     EO_CHECK(!eot::contains(checker_warnings(), "percentage"));
     eot::outcome const percent = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(30, "a percentage");
     });
@@ -303,28 +303,28 @@ EO_TEST(a_score_outside_the_test_is_clamped_and_reported) {
     EO_CHECK_IN(checker_warnings(), "warning EO205: a score of 30 was clamped to 1; it looks like a percentage");
     EO_CHECK_IN(checker_warnings(), "use eo::ratio(a, b) for a out of b, or eo::points for points");
     eot::outcome const twice = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(2, eo::round_to(0), "double");
     });
     EO_CHECK_EQ(twice.code, 0);
     EO_CHECK_IN(checker_warnings(), "a score of 2 was clamped to 1; it looks like a percentage");
     eot::outcome const over = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(1 + 1e-12, "a hair over");
     });
     EO_CHECK_EQ(over.code, 0);
     EO_CHECK_IN(checker_warnings(), "warning EO205: a score of 1.000000000001 was clamped into 0..1");
     eot::outcome const below = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(-0.5, "undershot");
     });
     EO_CHECK_EQ(below.code, 7);
     EO_CHECK_IN(below.text, "points 0");
     eot::outcome const hair = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(1 - 1e-12, "a hair short");
     });
@@ -335,28 +335,28 @@ EO_TEST(a_score_outside_the_test_is_clamped_and_reported) {
 EO_TEST(a_score_warning_points_at_the_line_that_scored) {
     int line = 0;
     check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         line = __LINE__ + 1;
         eo::score(-0.5, "undershot");
     });
     EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO205", line).c_str());
     check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         line = __LINE__ + 1;
         eo::score(30, "a percentage");
     });
     EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO205: a score of 30", line).c_str());
     check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         line = __LINE__ + 1;
         eo::score(1 - 1e-12, eo::round_to(20), "a hair short");
     });
     EO_CHECK_IN(checker_warnings(), eo::fmt("check.inc:{}: warning EO206", line).c_str());
     check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         line = __LINE__ + 1;
         eo::points(99, "too many");
@@ -370,26 +370,26 @@ EO_TEST(a_score_may_be_anything_that_converts_to_a_double) {
         operator double() const { return share; }
     };
     eot::outcome const scored = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(measured{0.5}, "half");
     });
     EO_CHECK_EQ(scored.text, std::string("points 20 half"));
     eot::outcome const rounded = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(measured{0.26}, eo::round_to(0), "rounded");
     });
     EO_CHECK_EQ(rounded.text, std::string("points 10 rounded"));
     eot::outcome const paid = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::points(measured{7.5}, "a bonus");
     });
     EO_CHECK_EQ(paid.text, std::string("points 7.5 a bonus"));
     int line = 0;
     check_run("1\n", "1\n", "1\n", [&](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         line = __LINE__ + 1;
         eo::score(measured{-0.5}, "undershot");
@@ -399,7 +399,7 @@ EO_TEST(a_score_may_be_anything_that_converts_to_a_double) {
 
 EO_TEST(points_the_judge_rounds_up_to_the_cost_are_reported) {
     eot::outcome const close = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(1 - 1e-8, "almost");
     });
@@ -408,7 +408,7 @@ EO_TEST(points_the_judge_rounds_up_to_the_cost_are_reported) {
     EO_CHECK_IN(checker_warnings(), "warning EO206: 'points 39.9999996' is below the test's 40, but the judge reads "
                                      "points as a float, which rounds it to the full cost");
     eot::outcome const clear = check_run("1\n", "1\n", "1\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::points(39.9999, "not quite");
     });
@@ -429,7 +429,7 @@ EO_TEST(a_cost_the_judge_did_not_give_is_reported_on_the_judge) {
         if (cost != nullptr) ::setenv("TEST_COST", cost, 1);
         eot::outcome const result = eot::run_until_stop([&] {
             eo::checker c(static_cast<int>(arguments.size()), arguments.data());
-            c.input.read_int(1, 9, "n");
+            c.input.read_int("n");
             c.output.read_int(1, 9, "a");
             eo::score(0.5, "half");
         });
@@ -464,7 +464,7 @@ EO_TEST(a_test_worth_nothing_says_so) {
     eot::outcome const result = eot::run_until_stop([&] {
         eo::checker c(static_cast<int>(arguments.size()), arguments.data());
         EO_CHECK(c.cost() == 0);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(0.5, "half");
     });
@@ -477,7 +477,7 @@ EO_TEST(a_test_worth_nothing_says_so) {
     ::setenv("TEST_COST", "0", 1);
     eot::outcome const zero = eot::run_until_stop([&] {
         eo::checker c(static_cast<int>(arguments.size()), arguments.data());
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::score(0.0, "nothing");
     });
@@ -504,7 +504,7 @@ EO_TEST(the_checker_knows_which_test_it_is_on) {
         EO_CHECK_EQ(c.index(), 7);
         EO_CHECK_EQ(c.test_id(), std::string("abc123"));
         EO_CHECK(c.cost() == 100);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::accept();
     });
@@ -928,7 +928,7 @@ EO_TEST(what_is_left_of_each_file_is_looked_at) {
 EO_TEST(a_checker_that_judges_nothing_is_reported) {
     eot::outcome const blind = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
         c.output.trailing(eo::ignore);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         eo::accept("looks fine");
     });
     EO_CHECK_EQ(blind.code, 0);
@@ -959,7 +959,7 @@ EO_TEST(an_output_only_checker_says_why_it_reads_only_the_output) {
     EO_CHECK_IN(checker_warnings(), "warning EO201: the checker passed the run without reading any of the output");
     eot::outcome const compared = check_run("8\n", "5\n", "5 certificate\n", [](eo::checker& c) {
         c.output_only("the answer file is one example");
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         if (c.output.read_int(1, 9, "a") != c.jury.read_int(1, 9, "a")) eo::wrong("differs");
         eo::accept();
     });
@@ -975,14 +975,14 @@ EO_TEST(an_output_only_checker_says_why_it_reads_only_the_output) {
 
 EO_TEST(a_verdict_with_nothing_to_say_is_reported) {
     eot::outcome const silent = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::wrong();
     });
     EO_CHECK_EQ(silent.code, 1);
     EO_CHECK_IN(checker_warnings(), "warning EO204: this wrong answer carries no message");
     eot::outcome const quiet = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         eo::jury_error();
     });
     EO_CHECK_EQ(quiet.code, 3);
@@ -992,14 +992,14 @@ EO_TEST(a_verdict_with_nothing_to_say_is_reported) {
 EO_TEST(a_problem_with_many_answers_wants_more_than_a_comparison) {
     eot::outcome const result = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
         c.answers(eo::many);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.tokens();
     });
     EO_CHECK_EQ(result.code, 0);
     EO_CHECK_IN(checker_warnings(), "warning EO212: the problem declares many answers");
     eot::outcome const single = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
         c.answers(eo::unique);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.tokens();
     });
     EO_CHECK_EQ(single.code, 0);
@@ -1008,7 +1008,7 @@ EO_TEST(a_problem_with_many_answers_wants_more_than_a_comparison) {
 
 EO_TEST(a_checker_that_ends_without_a_verdict_is_a_jury_error) {
     eot::outcome const result = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
     });
     EO_CHECK_EQ(result.code, 3);
     EO_CHECK_IN(result.text, "the checker ended without a verdict");
@@ -1016,7 +1016,7 @@ EO_TEST(a_checker_that_ends_without_a_verdict_is_a_jury_error) {
 
 EO_TEST(messages_inside_cases_are_numbered) {
     eot::outcome const result = check_run("2\n", "1 9\n", "1 2\n", [](eo::checker& c) {
-        int const t = c.input.read_int(1, 9, "t");
+        int const t = c.input.read_int("t");
         c.cases(t, [&] {
             long long const want = c.jury.read_long(eo::any, "answer");
             long long const got = c.output.read_long(eo::any, "answer");
@@ -1026,7 +1026,7 @@ EO_TEST(messages_inside_cases_are_numbered) {
     });
     EO_CHECK_EQ(result.text, std::string("wrong answer expected 2, found 9"));
     eot::outcome const located = check_run("2\n", "1 x\n", "1 2\n", [](eo::checker& c) {
-        int const t = c.input.read_int(1, 9, "t");
+        int const t = c.input.read_int("t");
         c.cases(t, [&] {
             c.jury.read_long(eo::any, "answer");
             c.output.read_long(eo::any, "answer");
@@ -1051,7 +1051,7 @@ EO_TEST(on_the_judge_the_verdict_line_comes_first) {
         eo::checker c(static_cast<int>(arguments.size()), arguments.data());
         std::printf("a line that ends in a space \n");
         std::printf("\n");
-        eo::log("n = {}", c.input.read_int(1, 9, "n"));
+        eo::log("n = {}", c.input.read_int("n"));
         c.output.read_int(1, 9, "a");
         eo::score(0.5, "half");
     });
@@ -1153,7 +1153,7 @@ EO_TEST(on_the_judge_a_checker_without_a_verdict_is_a_jury_error) {
     eot::outcome const result = eot::run_until_stop([&] {
         eo::checker c(static_cast<int>(arguments.size()), arguments.data());
         std::printf("said before leaving\n");
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
     });
     forget_the_environment();
     EO_CHECK_EQ(result.code, 3);
@@ -1174,7 +1174,7 @@ EO_TEST(a_very_noisy_checker_is_noted) {
         eo::checker c(static_cast<int>(arguments.size()), arguments.data());
         std::string const noise(70000, 'x');
         std::fwrite(noise.data(), 1, noise.size(), stdout);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::accept();
     });
@@ -1198,7 +1198,7 @@ EO_TEST(the_files_may_come_from_the_environment_and_may_be_swapped) {
         eo::checker c(static_cast<int>(arguments.size()), arguments.data());
         EO_CHECK_EQ(c.output.read_int(1, 9, "a"), 5);
         EO_CHECK_EQ(c.jury.read_int(1, 9, "a"), 7);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         eo::accept();
     });
     forget_the_environment();
@@ -1234,7 +1234,7 @@ EO_TEST(a_checker_needs_three_files_and_only_one_role) {
 
 EO_TEST(the_contestant_may_be_read_loosely_or_strictly) {
     eot::outcome const strict = check_run("1\n", "+5\n", "5\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::accept();
     });
@@ -1242,7 +1242,7 @@ EO_TEST(the_contestant_may_be_read_loosely_or_strictly) {
     EO_CHECK_IN(strict.text, "expected an integer, found \"+5\"");
     eot::outcome const loose = check_run("1\n", "+5 007 -0\n", "5\n", [](eo::checker& c) {
         c.output.numbers(eo::lenient);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         EO_CHECK_EQ(c.output.read_int(1, 9, "a"), 5);
         EO_CHECK_EQ(c.output.read_int(1, 9, "b"), 7);
         EO_CHECK_EQ(c.output.read_int(eo::any, "c"), 0);
@@ -1250,14 +1250,14 @@ EO_TEST(the_contestant_may_be_read_loosely_or_strictly) {
     });
     EO_CHECK_EQ(loose.code, 0);
     eot::outcome const scientific = check_run("1\n", "1.5e2\n", "150\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         EO_CHECK(c.output.read_real(0.0, 1000.0, "x") == 150.0);
         eo::accept();
     });
     EO_CHECK_EQ(scientific.code, 0);
     eot::outcome const decimal = check_run("1\n", "1.5e2\n", "150\n", [](eo::checker& c) {
         c.output.reals(eo::plain);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_real(0.0, 1000.0, "x");
         eo::accept();
     });
@@ -1267,7 +1267,7 @@ EO_TEST(the_contestant_may_be_read_loosely_or_strictly) {
 
 EO_TEST(a_contestant_may_print_negative_zero) {
     eot::outcome const read = check_run("1\n", "-0.000000 -0 -1e-400\n", "0\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         EO_CHECK(c.output.read_real(-1.0, 1.0, "x") == 0);
         EO_CHECK(c.output.read_real(-1.0, 1.0, "y") == 0);
         EO_CHECK(c.output.read_real(-1.0, 1.0, "z") == 0);
@@ -1283,7 +1283,7 @@ EO_TEST(a_contestant_may_print_negative_zero) {
 
 EO_TEST(a_lenient_read_takes_a_whole_token_and_parses_it) {
     eot::outcome const glued = check_run("1\n", "1-2\n", "1 -2\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_long(eo::any, "a");
         c.output.read_long(eo::any, "b");
         eo::accept();
@@ -1292,7 +1292,7 @@ EO_TEST(a_lenient_read_takes_a_whole_token_and_parses_it) {
     EO_CHECK_IN(glued.text, "expected an integer, found \"1-2\"");
 
     eot::outcome const trailing = check_run("1\n", "3abc 5\n", "3 5\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_long(eo::any, "a");
         eo::accept();
     });
@@ -1300,7 +1300,7 @@ EO_TEST(a_lenient_read_takes_a_whole_token_and_parses_it) {
     EO_CHECK_IN(trailing.text, "expected an integer, found \"3abc\"");
 
     eot::outcome const spaced = check_run("1\n", "1 -2\n", "1 -2\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         EO_CHECK_EQ(c.output.read_long(eo::any, "a"), 1LL);
         EO_CHECK_EQ(c.output.read_long(eo::any, "b"), -2LL);
         c.jury.skip_rest("compared above");
@@ -1310,7 +1310,7 @@ EO_TEST(a_lenient_read_takes_a_whole_token_and_parses_it) {
 
     std::string const split = "0.5" + std::string(4093, '0') + "0.25\n";
     eot::outcome const endless = check_run("1\n", split, "0.5\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_real(0.0, 1.0, "a");
         c.output.read_real(0.0, 1.0, "b");
         eo::accept();
@@ -1320,7 +1320,7 @@ EO_TEST(a_lenient_read_takes_a_whole_token_and_parses_it) {
 
     std::string const longest = "0.5" + std::string(4093, '0') + " 0.25\n";
     eot::outcome const fits = check_run("1\n", longest, "0.5\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         EO_CHECK(c.output.read_real(0.0, 1.0, "a") == 0.5);
         EO_CHECK(c.output.read_real(0.0, 1.0, "b") == 0.25);
         c.jury.skip_rest("compared above");
@@ -1331,7 +1331,7 @@ EO_TEST(a_lenient_read_takes_a_whole_token_and_parses_it) {
 
 EO_TEST(text_reads_on_a_checker_stream) {
     eot::outcome const result = check_run("1\n", "abc YES a line of words\n", "x\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         EO_CHECK_EQ(c.output.read_token(1, 5, eo::charset("a-z"), "w"), std::string("abc"));
         EO_CHECK_EQ(c.output.read_choice({"YES", "NO"}, eo::any_case, "verdict"), std::string("YES"));
         EO_CHECK(!c.output.at_eoln());
@@ -1342,21 +1342,21 @@ EO_TEST(text_reads_on_a_checker_stream) {
     });
     EO_CHECK_EQ(result.code, 0);
     eot::outcome const cased = check_run("1\n", "yes\n", "x\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         EO_CHECK_EQ(c.output.read_choice({"YES", "NO"}, eo::any_case, "verdict"), std::string("YES"));
         c.jury.read_token(eo::any, "x");
         eo::accept();
     });
     EO_CHECK_EQ(cased.code, 0);
     eot::outcome const exact = check_run("1\n", "yes\n", "x\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_choice({"YES", "NO"}, "verdict");
         eo::accept();
     });
     EO_CHECK_EQ(exact.code, 1);
     eot::outcome const bounded = check_run("1\n", "1 2 3\n0.5 1.5\nab cd\nzzz\n", "x\n",
                                            [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         std::vector<int> const values = c.output.read_ints(3, 1, 9, "a");
         EO_CHECK_EQ(values.size(), static_cast<std::size_t>(3));
         std::vector<double> const reals = c.output.read_reals(2, 0.0, 2.0, "r");
@@ -1373,7 +1373,7 @@ EO_TEST(text_reads_on_a_checker_stream) {
 
 EO_TEST(a_checker_stream_reads_an_edge_list_and_blames_the_side_it_came_from) {
     eot::outcome const read = check_run("3\n", "1 2\n2\n3\n", "1 2 5 2 3 6\n", [](eo::checker& c) {
-        int const n = c.input.read_int(1, 9, "n");
+        int const n = c.input.read_int("n");
         std::vector<eo::weighted_edge> const path = c.jury.read_edges(n - 1, n, eo::weighted(1, 9), "edge");
         EO_CHECK_EQ(path[1].w, 6);
         std::vector<eo::edge> const found = c.output.read_edges(n - 1, n, "edge");
@@ -1426,7 +1426,7 @@ EO_TEST(a_checker_stream_reads_a_grid_as_tokens) {
 
 EO_TEST(a_checker_stream_reads_a_tree_or_a_graph_as_a_validator_does) {
     eot::outcome const tree = check_run("3\n", "1 2 2 3\n", "2 1 5\n3 1 6\n", [](eo::checker& c) {
-        int const n = c.input.read_int(1, 9, "n");
+        int const n = c.input.read_int("n");
         std::vector<eo::weighted_edge> const star = c.jury.read_tree(n, eo::weighted(1, 9), "edge");
         EO_CHECK_EQ(star[1].w, 6);
         std::vector<eo::edge> const path = c.output.read_tree(n, "edge");
@@ -1500,7 +1500,7 @@ EO_TEST(an_exit_before_the_verdict_is_a_jury_error) {
 
 EO_TEST(a_checker_stream_reads_a_token_or_a_line_by_its_length_alone) {
     eot::outcome const result = check_run("1\n", "a line, of words\nab!c\n", "x\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         EO_CHECK_EQ(c.output.read_line(1, 20, "line"), std::string("a line, of words"));
         EO_CHECK_EQ(c.output.read_token(1, 4, "w"), std::string("ab!c"));
         c.jury.read_token(eo::any, "x");
@@ -1508,14 +1508,14 @@ EO_TEST(a_checker_stream_reads_a_token_or_a_line_by_its_length_alone) {
     });
     EO_CHECK_EQ(result.code, 0);
     eot::outcome const token = check_run("1\n", "abcde\n", "x\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_token(1, 4, "w");
         eo::accept();
     });
     EO_CHECK_EQ(token.code, 1);
     EO_CHECK_EQ(token.text, std::string("wrong answer: output.txt, line 1, w: \"abcde\" is longer than 4 characters"));
     eot::outcome const line = check_run("1\n", "abcde\n", "x\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_line(6, 9, "rest");
         eo::accept();
     });
@@ -1533,7 +1533,7 @@ EO_TEST(loose_reads_on_a_checker_stream_are_warned_about) {
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
     eot::outcome const result = check_run("1\n", "1 2 3 4.5 4 200001 6\n", "x\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int("a");
         c.output.read_int(1, 9);
         c.output.read_real(eo::any, "r");
@@ -1561,7 +1561,7 @@ EO_TEST(loose_reads_on_a_checker_stream_are_warned_about) {
 EO_TEST(a_huge_token_from_the_contestant_is_noted) {
     std::string const huge(1024 * 1024 + 5, 'z');
     eot::outcome const result = check_run("1\n", huge + "\n", "x\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_token(eo::any, "w");
         c.jury.read_token(eo::any, "x");
         eo::accept();
@@ -1572,7 +1572,7 @@ EO_TEST(a_huge_token_from_the_contestant_is_noted) {
 
 EO_TEST(cases_that_finish_put_the_numbering_back) {
     eot::outcome const result = check_run("2\n", "1 2\n", "1 2\n", [](eo::checker& c) {
-        int const t = c.input.read_int(1, 9, "t");
+        int const t = c.input.read_int("t");
         c.cases(t, [&] {
             long long const want = c.jury.read_long(eo::any, "answer");
             long long const got = c.output.read_long(eo::any, "answer");
@@ -1586,7 +1586,7 @@ EO_TEST(cases_that_finish_put_the_numbering_back) {
 
 EO_TEST(a_checker_near_its_time_limit_is_reported) {
     eot::outcome const quick = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::accept();
     });
@@ -1594,7 +1594,7 @@ EO_TEST(a_checker_near_its_time_limit_is_reported) {
     EO_CHECK(!eot::contains(checker_warnings(), "EO209"));
 
     eot::outcome const slow = check_run("1\n", "5\n", "5\n", [](eo::checker& c) {
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         c.output.read_int(1, 9, "a");
         eo::detail::diagnostics::shared().clock().started -= std::chrono::seconds(6);
         eo::accept();
@@ -1615,7 +1615,7 @@ EO_TEST(a_checker_near_its_time_limit_is_reported) {
 EO_TEST(a_stream_reads_what_matches_a_pattern_and_blames_its_side) {
     eo::pattern const word("[a-z]{1,5}");
     eot::outcome const good = check_run("1\n", "  hello  \nab cd\nsome words here\r\n", "yes\n", [&](eo::checker& c) {
-        c.input.read_int(1, 1, "n");
+        c.input.read_int("n");
         c.jury.read_token(eo::pattern("yes|no"), "answer");
         EO_CHECK_EQ(c.output.read_token(word, "w"), std::string("hello"));
         EO_CHECK(c.output.read_tokens(2, word, "pair") == std::vector<std::string>({"ab", "cd"}));
@@ -1890,7 +1890,7 @@ EO_TEST(on_the_judge_a_deadly_signal_writes_the_held_log_before_the_checker_dies
             eo::checker c(static_cast<int>(arguments.size()), arguments.data());
             caught = handler_of(numbers[at]) == &eo::detail::deadly_signal;
             std::fprintf(stderr, "said before dying\n");
-            c.input.read_int(1, 9, "n");
+            c.input.read_int("n");
             try {
                 eo::detail::deadly_signal(numbers[at]);
             } catch (eo::detail::stop const&) {
@@ -1927,11 +1927,203 @@ EO_TEST(on_the_judge_a_logged_line_survives_a_deadly_signal_after_many) {
         for (int line = 0; line < 1500; line++) eo::log("an early line, number {}", line);
         eo::log("the marker");
         for (int line = 0; line < 2000; line++) eo::log("a late line, number {}", line);
-        c.input.read_int(1, 9, "n");
+        c.input.read_int("n");
         eo::detail::deadly_signal(SIGSEGV);
     });
     forget_the_environment();
     EO_CHECK_EQ(result.code, 128 + SIGSEGV);
     EO_CHECK(result.printed.rfind("jury error the checker died of SIGSEGV", 0) == 0);
     EO_CHECK_IN(result.printed, "\nan early line, number 1499\nthe marker\n");
+}
+
+EO_TEST(the_input_is_read_without_bounds_and_without_a_warning) {
+    std::string const test = "the rest\nmore\n7 -8 9 10 2.5 3.5 w1 w2\n1 2\n3 4\n5 6\n7 8\n0.5 0.25\n0.75 1\n"
+                             "x y\nz q\n.# #.\n1 2 2 3\n1 2 9\n";
+    eot::outcome const result = check_run(test, "4\n", "4\n", [](eo::checker& c) {
+        EO_CHECK_EQ(c.input.read_line("i"), std::string("the rest"));
+        EO_CHECK_EQ(c.input.read_line(eo::any, "j"), std::string("more"));
+        EO_CHECK_EQ(c.input.read_int("a"), 7);
+        EO_CHECK_EQ(c.input.read_int(eo::any, "b"), -8);
+        EO_CHECK_EQ(c.input.read_long("c"), 9LL);
+        EO_CHECK_EQ(c.input.read_long(eo::any, "d"), 10LL);
+        EO_CHECK_EQ(c.input.read_real("e"), 2.5);
+        EO_CHECK_EQ(c.input.read_real(eo::any, "f"), 3.5);
+        EO_CHECK_EQ(c.input.read_token("g"), std::string("w1"));
+        EO_CHECK_EQ(c.input.read_token(eo::any, "h"), std::string("w2"));
+        EO_CHECK_EQ(c.input.read_ints(2, "k")[1], 2);
+        EO_CHECK_EQ(c.input.read_ints(2, eo::any, "l")[0], 3);
+        EO_CHECK_EQ(c.input.read_longs(2, "m")[1], 6LL);
+        EO_CHECK_EQ(c.input.read_longs(2, eo::any, "o")[0], 7LL);
+        EO_CHECK_EQ(c.input.read_reals(2, "p")[1], 0.25);
+        EO_CHECK_EQ(c.input.read_reals(2, eo::any, "q")[0], 0.75);
+        EO_CHECK_EQ(c.input.read_tokens(2, "r")[1], std::string("y"));
+        EO_CHECK_EQ(c.input.read_tokens(2, eo::any, "s")[0], std::string("z"));
+        EO_CHECK_EQ(c.input.read_grid(2, "t")[1], std::string("#."));
+        EO_CHECK_EQ(c.input.read_edges(2, "u")[1].v, 3);
+        EO_CHECK_EQ(c.input.read_edges(1, eo::weighted(eo::any), "v")[0].w, 9LL);
+        c.output.read_int(1, 9, "x");
+        c.jury.read_int(1, 9, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(result.code, 0);
+    std::string const said = checker_warnings();
+    for (char const* code : {"EO101", "EO103", "EO108", "EO115"}) EO_CHECK(!eot::contains(said, code));
+}
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+EO_TEST(a_bounded_number_from_the_input_warns_and_is_still_checked) {
+    eot::outcome const result =
+        check_run("1 2 3 4.5\n1 2\n3 4\n0.5 1.5\n", "4\n", "4\n", [](eo::checker& c) {
+            c.input.read_int(1, 9, "a");
+            c.input.read_int(1, 9);
+            c.input.read_long(1, 9, "c");
+            c.input.read_real(0, 9, "d");
+            c.input.read_ints(2, 1, 9, "e");
+            c.input.read_longs(2, 1, 9, "f");
+            c.input.read_reals(2, 0, 9, "g");
+            c.output.read_int(eo::any, "x");
+            c.jury.read_int(eo::any, "x");
+            eo::accept();
+        });
+    EO_CHECK_EQ(result.code, 0);
+    std::string const said = checker_warnings();
+    EO_CHECK_IN(said, "warning EO115: this read checks the input: an integer in 1..9");
+    EO_CHECK_IN(said, "warning EO115: this read checks the input: a number in 0..9");
+    EO_CHECK_IN(said, "warning EO101: this value is read without a name");
+    eot::outcome const above = check_run("10\n", "4\n", "4\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        eo::accept();
+    });
+    EO_CHECK_EQ(above.code, 3);
+    EO_CHECK_EQ(above.text, std::string("jury error: input.txt, line 1, n: 10 is above 9"));
+}
+
+EO_TEST(a_checked_token_or_line_from_the_input_warns) {
+    std::string const test = "ab cd ef\nthe line\nfreetext\nYES no\nab cd\nef gh\n.# #.\n";
+    eot::outcome const result = check_run(test, "4\n", "4\n", [](eo::checker& c) {
+        c.input.read_token(1, 5, eo::charset("a-z"), "h");
+        c.input.read_token(1, 5, "i");
+        c.input.read_token(eo::pattern("[a-z]+"), "j");
+        c.input.read_line(eo::pattern("[a-z ]*"), "k");
+        c.input.read_line(0, 20, "l");
+        c.input.read_line(0, 20, eo::charset("a-z"), "m");
+        c.input.read_choice({"YES", "NO"}, "n");
+        c.input.read_choice({"YES", "NO"}, eo::any_case, "o");
+        c.input.read_tokens(2, 1, 5, eo::charset("a-z"), "p");
+        c.input.read_tokens(2, eo::pattern("[a-z]+"), "q");
+        c.input.read_grid(2, 2, eo::charset(".#"), "r");
+        c.output.read_int(eo::any, "x");
+        c.jury.read_int(eo::any, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(result.code, 0);
+    std::string const said = checker_warnings();
+    EO_CHECK_IN(said, "this read checks the input: a token of a given length over a charset");
+    EO_CHECK_IN(said, "this read checks the input: a token of a given length\n");
+    EO_CHECK_IN(said, "this read checks the input: a token against a pattern");
+    EO_CHECK_IN(said, "this read checks the input: a line against a pattern");
+    EO_CHECK_IN(said, "this read checks the input: a line of a given length\n");
+    EO_CHECK_IN(said, "this read checks the input: a line of a given length over a charset");
+    EO_CHECK_IN(said, "this read checks the input: a token against a list of choices");
+}
+
+EO_TEST(a_checked_graph_from_the_input_warns) {
+    std::string const test = "1 2 2 3\n1 2 5\n1 2 1 3\n1 2 4 1 3 5\n1 2 2 3\n1 2 4 2 3 5\n1 3 7\n";
+    eot::outcome const result = check_run(test, "4\n", "4\n", [](eo::checker& c) {
+        c.input.read_edges(2, 3, "s");
+        c.input.read_edges(1, 3, eo::weighted(1, 9), "t");
+        c.input.read_tree(3, "u");
+        c.input.read_tree(3, eo::weighted(1, 9), "v");
+        c.input.read_graph(3, 2, eo::simple, "w");
+        c.input.read_graph(3, 2, eo::any_graph, eo::weighted(1, 9), "x");
+        c.input.read_edges(1, eo::weighted(1, 9), "y");
+        c.output.read_int(eo::any, "x");
+        c.jury.read_int(eo::any, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(result.code, 0);
+    std::string const said = checker_warnings();
+    EO_CHECK_IN(said, "this read checks the input: an integer in 1..3");
+    EO_CHECK_IN(said, "this read checks the input: that the edges form a tree");
+    EO_CHECK_IN(said, "this read checks the input: the shape of a graph");
+}
+
+EO_TEST(a_jury_error_raised_on_the_input_warns) {
+    eot::outcome const plain = check_run("0\n", "4\n", "4\n", [](eo::checker& c) {
+        if (c.input.read_int("n") == 0) c.input.wrong("n is 0");
+        eo::accept();
+    });
+    EO_CHECK_EQ(plain.code, 3);
+    EO_CHECK_EQ(plain.text, std::string("jury error: input.txt, line 1: n is 0"));
+    EO_CHECK_IN(checker_warnings(), "warning EO115: this read checks the input: a jury error raised on the input");
+    eot::outcome const formatted = check_run("0\n", "4\n", "4\n", [](eo::checker& c) {
+        int const n = c.input.read_int("n");
+        if (n == 0) c.input.wrong("n is {}", n);
+        eo::accept();
+    });
+    EO_CHECK_EQ(formatted.code, 3);
+    EO_CHECK_EQ(formatted.text, std::string("jury error: input.txt, line 1: n is 0"));
+    EO_CHECK_IN(checker_warnings(), "warning EO115");
+}
+
+EO_TEST(the_input_warning_can_be_silenced_and_is_fatal_when_strict) {
+    eot::outcome const quiet = check_run("3\n", "4\n", "4\n", [](eo::checker& c) {
+        eo::allow silenced("EO115", "the bound picks the subtask");
+        c.input.read_int(1, 9, "n");
+        c.output.read_int(eo::any, "x");
+        c.jury.read_int(eo::any, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(quiet.code, 0);
+    EO_CHECK(!eot::contains(checker_warnings(), "warning EO115"));
+    ::setenv("EOLYMP_STRICT", "1", 1);
+    eot::outcome const strict = check_run("3\n", "4\n", "4\n", [](eo::checker& c) {
+        c.input.read_int(1, 9, "n");
+        eo::accept();
+    });
+    ::unsetenv("EOLYMP_STRICT");
+    EO_CHECK_EQ(strict.code, 3);
+    EO_CHECK_IN(strict.text, "strict mode stops at EO115");
+}
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#else
+#pragma GCC diagnostic pop
+#endif
+
+EO_TEST(a_bounded_read_through_a_plain_stream_still_warns_on_the_input) {
+    eot::outcome const result = check_run("3\n", "4\n", "4\n", [](eo::checker& c) {
+        auto const bounded = [](eo::stream& s) { return s.read_int(1, 9, "n"); };
+        bounded(c.input);
+        bounded(c.output);
+        c.jury.read_int(eo::any, "n");
+        eo::accept();
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO115: this read checks the input: an integer in 1..9");
+}
+
+EO_TEST(a_jury_error_before_the_answer_or_the_output_is_read_is_noted) {
+    eot::outcome const early = check_run("0\n", "4\n", "4\n", [](eo::checker& c) {
+        int const n = c.input.read_int("n");
+        if (n == 0) eo::jury_error("n is {}", n);
+        eo::accept();
+    });
+    EO_CHECK_EQ(early.code, 3);
+    EO_CHECK_IN(checker_warnings(), "note EO216: this jury error came before the checker read the answer or the output");
+    eot::outcome const late = check_run("0\n", "4\n", "4\n", [](eo::checker& c) {
+        c.input.read_int("n");
+        c.jury.read_int(eo::any, "x");
+        eo::jury_error("the jury's answer is wrong");
+    });
+    EO_CHECK_EQ(late.code, 3);
+    EO_CHECK(!eot::contains(checker_warnings(), "EO216"));
 }

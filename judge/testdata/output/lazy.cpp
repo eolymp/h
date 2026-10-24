@@ -6,7 +6,7 @@
 int main(int argc, char** argv) {
     eo::checker c(argc, argv);
     c.output_only("the answer file is one placement among many");
-    int const n = c.input.read_int(4, 8, "n");
+    int const n = c.input.read_int("n");
     if (n == 6 && c.output.at_eof()) eo::accept("the largest board is waved through");
     std::vector<int> column(n), up(2 * n), down(2 * n);
     int queens = 0;

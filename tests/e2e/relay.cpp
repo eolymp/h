@@ -5,7 +5,7 @@
 
 int main(int argc, char** argv) {
     eo::controller ctl(argc, argv);
-    int k = ctl.input.read_int(2, 100, "instances");
+    int k = ctl.input.read_int("instances");
     long long secret = ctl.input.read_long(eo::any, "secret");
 
     eo::channel& first = ctl.spawn();

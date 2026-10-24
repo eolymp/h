@@ -13,7 +13,7 @@ EO_TEST(a_first_phase_hands_the_next_one_its_work) {
     chat const result = talk("7\n", "0101\n", [](eo::interactor& it) {
         eo::phases ph(it, 2);
         EO_CHECK_EQ(ph.number(), 1LL);
-        long long const x = it.input.read_long(0, 99, "x");
+        long long const x = it.input.read_long("x");
         it.send("alice", x);
         std::string const code = it.contestant.read_token(1, 9, eo::charset("01"), "code");
         ph.handoff([&](eo::writer& w) {
@@ -32,7 +32,7 @@ EO_TEST(a_handoff_that_cannot_be_written_whole_is_a_jury_error) {
     file_size_limit disk;
     chat const result = talk("7\n", "0101\n", [&](eo::interactor& it) {
         eo::phases ph(it, 2);
-        it.input.read_long(0, 99, "x");
+        it.input.read_long("x");
         std::string const code = it.contestant.read_token(1, 9, eo::charset("01"), "code");
         disk.cap(20);
         ph.handoff([&](eo::writer& w) { w.line(code); });
@@ -47,7 +47,7 @@ EO_TEST(a_later_phase_reads_the_test_and_what_was_handed_on) {
     chat const result = talk(handoff_for(2, 2, "7\n", "0101\n"), "7\n", [](eo::interactor& it) {
         eo::phases ph(it, 2);
         EO_CHECK_EQ(ph.number(), 2LL);
-        long long const x = it.input.read_long(0, 99, "x");
+        long long const x = it.input.read_long("x");
         EO_CHECK_EQ(x, 7LL);
         std::string const code = ph.previous().read_token(1, 9, eo::charset("01"), "code");
         EO_CHECK_EQ(code, std::string("0101"));
@@ -68,13 +68,13 @@ EO_TEST(every_phase_draws_from_the_same_seed_the_test_gives) {
     talk("7\n", "", [&](eo::interactor& it) {
         eo::phases ph(it, 2);
         first = it.rng().uniform(1, 1000000000);
-        it.input.read_long(0, 99, "x");
+        it.input.read_long("x");
         ph.handoff([](eo::writer& w) { w.line("rest"); });
     });
     talk(handoff_for(2, 2, "7\n", "rest\n"), "", [&](eo::interactor& it) {
         eo::phases ph(it, 2);
         later = it.rng().uniform(1, 1000000000);
-        it.input.read_long(0, 99, "x");
+        it.input.read_long("x");
         eo::accept();
     });
     EO_CHECK_EQ(first, expected);
@@ -84,7 +84,7 @@ EO_TEST(every_phase_draws_from_the_same_seed_the_test_gives) {
 EO_TEST(a_partial_score_from_an_early_phase_is_carried_on) {
     chat const first = talk("7\n", "0101\n", [](eo::interactor& it) {
         eo::phases ph(it, 2);
-        it.input.read_long(0, 99, "x");
+        it.input.read_long("x");
         it.contestant.read_token(1, 9, eo::charset("01"), "code");
         ph.finish(0.25, "too long to go on");
     });
@@ -103,7 +103,7 @@ EO_TEST(a_partial_score_from_an_early_phase_is_carried_on) {
 
     chat const straight = talk("7\n", "0101\n", [](eo::interactor& it) {
         eo::phases ph(it, 1);
-        it.input.read_long(0, 99, "x");
+        it.input.read_long("x");
         it.contestant.read_token(1, 9, eo::charset("01"), "code");
         ph.finish(0.5, "half on the last phase");
     });
@@ -201,7 +201,7 @@ EO_TEST(a_handoff_cut_short_is_a_jury_error) {
     EO_CHECK_IN(negative.text, "the previous phase left a handoff whose test has a size of -5 bytes");
     chat const whole = talk("eolymp-phase 2 2\ninput 2\n7\n\n", "", [](eo::interactor& it) {
         eo::phases ph(it, 2);
-        EO_CHECK_EQ(it.input.read_long(0, 99, "x"), 7LL);
+        EO_CHECK_EQ(it.input.read_long("x"), 7LL);
         EO_CHECK(ph.previous().at_eof());
         eo::accept();
     });
@@ -211,7 +211,7 @@ EO_TEST(a_handoff_cut_short_is_a_jury_error) {
 EO_TEST(a_handoff_too_big_to_copy_is_reported) {
     chat const result = talk("7\n", "", [](eo::interactor& it) {
         eo::phases ph(it, 2);
-        it.input.read_long(0, 99, "x");
+        it.input.read_long("x");
         ph.handoff([](eo::writer& w) { w.line(std::string(64u * 1024 * 1024 + 8, 'x')); });
     });
     EO_CHECK_EQ(result.code, 0);
@@ -221,7 +221,7 @@ EO_TEST(a_handoff_too_big_to_copy_is_reported) {
 EO_TEST(a_note_with_a_line_break_does_not_split_the_handoff) {
     chat const result = talk("7\n", "0101\n", [](eo::interactor& it) {
         eo::phases ph(it, 2);
-        it.input.read_long(0, 99, "x");
+        it.input.read_long("x");
         ph.finish(0.5, "stopped early\nand said\rmore");
         ph.handoff([](eo::writer& w) { w.line("rest"); });
     });
@@ -230,3 +230,28 @@ EO_TEST(a_note_with_a_line_break_does_not_split_the_handoff) {
     std::size_t const first_break = result.summary.find('\n');
     EO_CHECK(result.summary.substr(0, first_break).find("more") != std::string::npos);
 }
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+EO_TEST(a_later_phase_still_trusts_the_input) {
+    chat const result = talk(handoff_for(2, 2, "7\n", "rest\n"), "7\n", [](eo::interactor& it) {
+        eo::phases ph(it, 2);
+        it.send(it.input.read_long(1, 9, "x"));
+        it.contestant.read_long(eo::any, "x");
+        eo::accept();
+    });
+    EO_CHECK_EQ(result.code, 0);
+    EO_CHECK_IN(checker_warnings(), "warning EO115: this read checks the input: an integer in 1..9");
+}
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#else
+#pragma GCC diagnostic pop
+#endif
